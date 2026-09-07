@@ -1,0 +1,300 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Privacy policy | BrowserForge</title>
+    <meta
+      name="description"
+      content="Privacy policy for BrowserForge and its extensions Arbor, Reroute and CookieSweep. All data is processed locally; no analytics, no telemetry, no sale of data."
+    />
+    <link rel="canonical" href="https://browserforge.dev/privacy" />
+    <!--
+      Links are root-relative. Vercel serves the site from the domain root; GitHub Pages is
+      expected to serve it from a custom domain too, not from /browserforge/.
+    -->
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="wrap">
+      <a class="brand" href="/">BrowserForge</a>
+      <nav aria-label="Main">
+        <a href="/arbor">Arbor</a>
+        <a href="/reroute">Reroute</a>
+        <a href="/cookiesweep">CookieSweep</a>
+        <a href="/support">Support</a>
+        <a href="https://github.com/shantanuojha/browserforge">GitHub</a>
+      </nav>
+    </header>
+    <main id="main" class="wrap prose">
+      <h1>Privacy policy</h1>
+      <p class="meta">Effective date: <time datetime="2026-09-08">8 September 2026</time></p>
+      <p class="lede">
+        This policy covers the BrowserForge website and the browser extensions published by
+        BrowserForge: Arbor, Reroute and CookieSweep. The short version: your data stays in your
+        browser, we run no analytics, and we sell nothing to anyone.
+      </p>
+      <nav aria-label="On this page">
+        <ul class="toc">
+          <li><a href="#summary">Summary</a></li>
+          <li><a href="#website">This website</a></li>
+          <li><a href="#arbor">Arbor</a></li>
+          <li><a href="#reroute">Reroute</a></li>
+          <li><a href="#cookiesweep">CookieSweep</a></li>
+          <li><a href="#licensing">Licence validation</a></li>
+          <li><a href="#google">Google APIs</a></li>
+          <li><a href="#retention">Retention and deletion</a></li>
+          <li><a href="#changes">Changes</a></li>
+          <li><a href="#contact">Contact</a></li>
+        </ul>
+      </nav>
+
+      <h2 id="summary">Summary</h2>
+      <ul>
+        <li>
+          <strong>All processing is local.</strong> Tabs, rules, cookie lists, logs and settings are
+          stored in your browser on your device and are never sent to BrowserForge.
+        </li>
+        <li>
+          <strong>No analytics, no telemetry.</strong> The extensions and this website contain no
+          tracking scripts, usage statistics, crash reporters or advertising identifiers.
+        </li>
+        <li>
+          <strong>No sale or sharing of data.</strong> We do not sell, rent, trade or otherwise
+          transfer user data to third parties, and we do not use it for advertising or
+          creditworthiness purposes.
+        </li>
+        <li>
+          <strong>Exactly two kinds of network call exist</strong>, both under your control: a
+          licence-key check to Lemon Squeezy when you activate Arbor Pro or Reroute Pro, and an
+          optional backup of your Arbor tree to your own Google Drive. CookieSweep makes no network
+          calls at all.
+        </li>
+        <li>
+          <strong>No remote code.</strong> Everything an extension runs ships inside its store
+          package and is reviewed by the store.
+        </li>
+      </ul>
+
+      <h2 id="website">This website</h2>
+      <p>
+        browserforge.dev is a set of static HTML and CSS files. It sets no cookies, loads no
+        scripts, fonts or images from third parties, and has no analytics. The hosting providers
+        (Vercel, and GitHub Pages for the mirror) may keep standard, short-lived server access logs
+        for security and operations under their own privacy policies; BrowserForge adds no tracking
+        of its own and does not combine such logs with any other data.
+      </p>
+
+      <h2 id="arbor">Arbor</h2>
+      <p>Arbor is a tree-style tab and session manager.</p>
+      <h3>Data processed</h3>
+      <ul>
+        <li>
+          Titles, URLs and site icons of your open and saved tabs and windows, the tree structure,
+          any notes you attach, and timestamps.
+        </li>
+        <li>An append-only operation log and periodic snapshots of the tree, used for recovery.</li>
+        <li>
+          Your settings and, for Pro, licence state (see
+          <a href="#licensing">licence validation</a>).
+        </li>
+      </ul>
+      <h3>Where it is stored</h3>
+      <p>
+        In the browser's local extension storage and IndexedDB on your device. Backups you export
+        manually or schedule (Pro) are written as files to a location you choose. Nothing is sent to
+        BrowserForge.
+      </p>
+      <h3>Network calls</h3>
+      <ul>
+        <li>Free tier: none.</li>
+        <li>
+          Pro: licence validation to <code>api.lemonsqueezy.com</code>, described under
+          <a href="#licensing">licence validation</a>.
+        </li>
+        <li>
+          Pro, only if you turn on Google Drive backup: your tree data (the same titles, URLs, notes
+          and structure listed above) is uploaded to your own Google Drive account after you grant
+          consent through Google's sign-in dialog. See <a href="#google">Google APIs</a>.
+        </li>
+      </ul>
+      <h3>Permissions</h3>
+      <p>
+        <code>tabs</code>, <code>storage</code>, <code>unlimitedStorage</code>,
+        <code>sidePanel</code>, <code>alarms</code>, <code>sessions</code>, <code>favicon</code>;
+        optional <code>identity</code> requested only when Drive backup is enabled. Each is
+        explained on the <a href="/arbor#permissions">Arbor page</a>. Arbor does not read page
+        content.
+      </p>
+
+      <h2 id="reroute">Reroute</h2>
+      <p>Reroute redirects and rewrites URLs by rule and removes tracking parameters.</p>
+      <h3>Data processed</h3>
+      <ul>
+        <li>The redirect rules and per-site allowlist you create or import.</li>
+        <li>
+          URLs of navigations, examined in the browser to decide whether a rule applies. Matching is
+          done by the browser's declarativeNetRequest engine or, for rules with transforms, by the
+          extension's background script. URLs are not stored except in the optional local "what
+          fired recently" log.
+        </li>
+        <li>Your settings and, for Pro, licence state.</li>
+      </ul>
+      <h3>Where it is stored</h3>
+      <p>
+        In the browser's local extension storage on your device. If you enable Pro rule sync, your
+        rules are also stored in your browser vendor's sync storage tied to your own browser account
+        (for example Chrome Sync); BrowserForge has no access to it. Shareable rule sets (Pro) are
+        encoded entirely in a link you create; no server is involved.
+      </p>
+      <h3>Network calls</h3>
+      <ul>
+        <li>
+          Free tier: none. The tracking-parameter catalog is bundled at build time and never
+          fetched.
+        </li>
+        <li>
+          Pro: licence validation to <code>api.lemonsqueezy.com</code>, described under
+          <a href="#licensing">licence validation</a>.
+        </li>
+      </ul>
+      <h3>Permissions</h3>
+      <p>
+        <code>declarativeNetRequest</code>, <code>declarativeNetRequestFeedback</code>,
+        <code>webNavigation</code>, <code>tabs</code>, <code>storage</code>,
+        <code>contextMenus</code>, and host access to all sites so that a rule can redirect any site
+        you choose. Each is explained on the <a href="/reroute#permissions">Reroute page</a>.
+        Reroute does not read or modify page content.
+      </p>
+
+      <h2 id="cookiesweep">CookieSweep</h2>
+      <p>CookieSweep deletes cookies and site data for sites you have left.</p>
+      <h3>Data processed</h3>
+      <ul>
+        <li>Your whitelist and greylist of domains, and your settings.</li>
+        <li>
+          The domains of open tabs and of existing cookies, examined in the browser to decide what
+          is safe to clean.
+        </li>
+        <li>An activity log of the last 500 cleanups (domain, time, what was removed).</li>
+      </ul>
+      <h3>Where it is stored</h3>
+      <p>In the browser's local extension storage on your device.</p>
+      <h3>Network calls</h3>
+      <p>
+        <strong>None.</strong> CookieSweep has no licence check, no update mechanism of its own and
+        no other network activity.
+      </p>
+      <h3>Permissions</h3>
+      <p>
+        <code>cookies</code>, <code>browsingData</code>, <code>tabs</code>, <code>storage</code>,
+        <code>alarms</code>, <code>webNavigation</code>, <code>contextMenus</code>, and host access
+        to all sites because the cookie and site-data APIs require it for every site to be cleaned.
+        Each is explained on the <a href="/cookiesweep#permissions">CookieSweep page</a>.
+        CookieSweep does not read page content.
+      </p>
+
+      <h2 id="licensing">Licence validation (Arbor Pro and Reroute Pro)</h2>
+      <p>
+        Pro features are unlocked with a licence key sold through Lemon Squeezy, our merchant of
+        record. When you enter a key, and roughly once a week afterwards, the extension sends a
+        request to <code>api.lemonsqueezy.com</code> containing:
+      </p>
+      <ul>
+        <li>the licence key you entered, and</li>
+        <li>
+          an instance name made of the product name, the browser family and a random identifier
+          generated by the extension (for example <code>arbor@chrome-a1b2c3</code>). This lets one
+          key be used on several of your profiles up to the activation limit. It does not identify
+          you personally and contains no hardware identifiers.
+        </li>
+      </ul>
+      <p>
+        Lemon Squeezy replies with the key's status, activation count and the purchase details it
+        holds, which may include the email address used at purchase. The extension keeps the key,
+        the instance identifier, the validation result and (if present) that email address in local
+        extension storage so it can show you which purchase is active and keep working offline for a
+        grace period. The key is shown masked in the interface. Deactivating the licence removes
+        this data locally and tells Lemon Squeezy to free the activation slot.
+      </p>
+      <p>
+        Lemon Squeezy processes your payment and licence data under its own
+        <a href="https://www.lemonsqueezy.com/privacy">privacy policy</a>. BrowserForge receives
+        from Lemon Squeezy the purchase records needed to provide support and issue refunds (name,
+        email address, order and licence details) and uses them for nothing else.
+      </p>
+
+      <h2 id="google">Google APIs (Arbor Google Drive backup)</h2>
+      <p>
+        Google Drive backup is an optional Arbor Pro feature that is off by default. If you turn it
+        on, Arbor requests the browser's <code>identity</code> permission and Google asks you to
+        grant access to your Drive. Arbor then uploads backup files containing your tree data to
+        your own Google Drive account on the schedule you choose. Arbor requests the narrowest Drive
+        access that lets it manage the backup files it creates. Backups are never routed through
+        BrowserForge servers, and BrowserForge has no access to your Google account or your Drive.
+      </p>
+      <p>
+        You can stop the backups at any time by turning the feature off in Arbor's settings, and you
+        can revoke Arbor's access at
+        <a href="https://myaccount.google.com/permissions">myaccount.google.com/permissions</a>.
+        Files already in your Drive remain yours to keep or delete.
+      </p>
+      <p>
+        BrowserForge's use and transfer to any other app of information received from Google APIs
+        will adhere to the
+        <a href="https://developer.chrome.com/docs/webstore/program-policies/user-data-faq"
+          >Chrome Web Store User Data Policy</a
+        >, including the Limited Use requirements.
+      </p>
+      <p>
+        In particular, data obtained through Google APIs is used only to provide the backup feature
+        you enabled; it is not used for advertising, is not sold, is not transferred to anyone
+        except as necessary to provide the feature or to comply with law, and is not read by humans
+        unless you explicitly ask us to help with a specific file.
+      </p>
+
+      <h2 id="retention">Data retention and deletion</h2>
+      <ul>
+        <li>
+          Extension data lives in your browser until you delete it in the extension's options or
+          uninstall the extension, at which point the browser removes the extension's storage.
+        </li>
+        <li>Files you exported or backed up are under your control and are not deleted by us.</li>
+        <li>
+          Licence and purchase records at Lemon Squeezy are retained according to Lemon Squeezy's
+          policy and applicable tax and accounting law. Contact us to request deletion of anything
+          we hold about your purchase.
+        </li>
+        <li>
+          Email you send to support is kept as long as needed to resolve your request and then
+          deleted.
+        </li>
+      </ul>
+
+      <h2 id="children">Children</h2>
+      <p>
+        The extensions and this website are general-purpose tools and are not directed at children
+        under 13. We do not knowingly collect personal information from children.
+      </p>
+
+      <h2 id="changes">Changes to this policy</h2>
+      <p>
+        If we change what an extension does with data, this page will be updated with a new
+        effective date before the change ships, and the change will be noted in the extension's
+        release notes. Material changes will also be called out inside the affected extension.
+      </p>
+
+      <h2 id="contact">Contact</h2>
+      <p>
+        Questions about privacy, or requests to access or delete data we hold about a purchase, go
+        to <a href="mailto:support@browserforge.dev">support@browserforge.dev</a>. See also the
+        <a href="/support">support page</a>.
+      </p>
+    </main>
+    <footer class="wrap">
+      <a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a> &middot;
+      <a href="/support">Support</a> &middot; MIT licensed
+    </footer>
+  </body>
+</html>

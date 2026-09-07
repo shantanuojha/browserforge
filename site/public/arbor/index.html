@@ -1,0 +1,260 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Arbor - tree-style tab and session manager | BrowserForge</title>
+    <meta
+      name="description"
+      content="Arbor shows your windows and tabs as a tree in the side panel, keeps closed tabs in the same tree and writes every change to a crash-safe log. Imports Tabs Outliner backups. Free, with a $15 one-time Pro."
+    />
+    <link rel="canonical" href="https://browserforge.dev/arbor" />
+    <!--
+      Links are root-relative. Vercel serves the site from the domain root; GitHub Pages is
+      expected to serve it from a custom domain too, not from /browserforge/.
+    -->
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="wrap">
+      <a class="brand" href="/">BrowserForge</a>
+      <nav aria-label="Main">
+        <a href="/arbor" aria-current="page">Arbor</a>
+        <a href="/reroute">Reroute</a>
+        <a href="/cookiesweep">CookieSweep</a>
+        <a href="/support">Support</a>
+        <a href="https://github.com/shantanuojha/browserforge">GitHub</a>
+      </nav>
+    </header>
+    <main id="main" class="wrap prose">
+      <h1>Arbor</h1>
+      <p class="lede">
+        A tree of every window and tab, saved as you go, and never lost. Arbor is a tree-style tab
+        and session manager that lives in the browser side panel.
+      </p>
+
+      <!-- Store URLs are filled in once each listing is approved; data-store identifies the slot. -->
+      <div class="actions" aria-label="Install Arbor">
+        <a class="btn" href="#" data-store="chrome">Chrome Web Store</a>
+        <a class="btn" href="#" data-store="edge">Edge Add-ons</a>
+        <a class="btn" href="#" data-store="firefox">Firefox Add-ons</a>
+      </div>
+      <p class="muted">
+        Store links go live as each listing is approved. Until then you can
+        <a href="https://github.com/shantanuojha/browserforge/tree/main/extensions/arbor"
+          >build Arbor from source</a
+        >.
+      </p>
+
+      <h2 id="why">Why Arbor</h2>
+      <p>
+        Tree-style tab managers earn their place by holding months of context: windows you closed
+        but did not finish with, tabs grouped by project, notes on why you kept them. That makes
+        losing the tree the worst thing such a tool can do, and it happens more often than it
+        should: trees deleted at random, blank windows after a crash, backups that silently stop
+        running, licences tied to a single account.
+      </p>
+      <p>
+        Arbor is built around one promise: <strong>it never loses your tabs.</strong> Every change
+        is appended to an operation log before it is shown to you, snapshots are taken regularly,
+        and a Recovery screen lets you roll back to any of them. Everything stays on your machine
+        unless you explicitly turn on Google Drive backup.
+      </p>
+
+      <h2 id="features">Features</h2>
+      <ul>
+        <li>
+          Side panel showing live windows and tabs as a tree. Closed tabs and windows stay in the
+          same tree as saved nodes, so nothing disappears just because you closed it.
+        </li>
+        <li>Drag-and-drop to reorder or nest; a note on any node; full-text search.</li>
+        <li>
+          Close-and-save a tab, a window or a whole subtree, then restore it in place later. A
+          "close everything and save" panic button clears the deck without losing anything.
+        </li>
+        <li>
+          Crash safety: an append-only operation log in IndexedDB plus periodic compacted snapshots,
+          replayed and verified on every startup.
+        </li>
+        <li>Recovery screen listing every snapshot with its node count and a one-click restore.</li>
+        <li>Manual export and import as JSON. Importer for Tabs Outliner backups.</li>
+        <li>
+          Keyboard basics: arrow keys to navigate, Enter to focus or restore, Delete to close.
+          <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>A</kbd> opens Arbor.
+        </li>
+        <li>Runs in Chrome and Edge on Manifest V3; a Firefox build is in progress.</li>
+      </ul>
+
+      <h2 id="pricing">Free vs Pro</h2>
+      <p>
+        The free tier is the whole tab manager, including crash recovery and import. Pro is a
+        <strong>$15 one-time purchase</strong> that adds automated backups and power features. No
+        subscription.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <caption>
+            What is included in Arbor Free and Arbor Pro
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Feature</th>
+              <th scope="col">Free</th>
+              <th scope="col">Pro</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Tree view of windows, tabs and saved nodes</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Drag-and-drop, notes, search</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Close-and-save, restore in place, panic button</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Crash-safe operation log and Recovery screen</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Manual JSON export and import</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Import from Tabs Outliner</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Keyboard basics</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Scheduled local backups (every N minutes, rolling retention)</th>
+              <td>No</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Google Drive backup (optional, to your own Drive)</th>
+              <td>No</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">
+                Power keyboard and clipboard: multi-select, cut and paste subtrees, copy as Markdown
+                or HTML list
+              </th>
+              <td>No</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">One licence valid across your browser profiles</th>
+              <td>Not applicable</td>
+              <td>Up to 5 profiles</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">Price</th>
+              <td>Free</td>
+              <td>$15 one-time</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p class="muted">
+        Purchases are handled by Lemon Squeezy. See the <a href="/terms">licence terms</a> for
+        activation limits and refunds.
+      </p>
+
+      <h2 id="import">Switching from Tabs Outliner</h2>
+      <p>
+        Arbor imports the files Tabs Outliner exports, so you can bring your existing tree with you:
+      </p>
+      <ul>
+        <li>Tabs Outliner's exported tree files.</li>
+        <li>
+          The <code>onViewClose_lastSessionSnapshot</code> JSON that Tabs Outliner keeps internally.
+          It can be recovered from that extension's page console; the importer in Arbor walks you
+          through the steps.
+        </li>
+      </ul>
+      <p class="muted">
+        Arbor is an independent project and is not affiliated with or endorsed by Tabs Outliner.
+      </p>
+
+      <h2 id="permissions">Permissions</h2>
+      <p>
+        Arbor asks for exactly the permissions below, declared in its
+        <a
+          href="https://github.com/shantanuojha/browserforge/blob/main/extensions/arbor/wxt.config.ts"
+          >manifest source</a
+        >. None of them involve reading page content.
+      </p>
+      <dl class="perms">
+        <dt>tabs</dt>
+        <dd>
+          Read the title and URL of your open tabs to draw the tree, and open, close, move or focus
+          tabs when you act on a node.
+        </dd>
+        <dt>storage</dt>
+        <dd>Save your settings and, for Pro, the licence state, locally in the browser.</dd>
+        <dt>unlimitedStorage</dt>
+        <dd>
+          The tree, the operation log and the snapshots can grow past the default storage quota;
+          this lifts the cap so backups are never truncated.
+        </dd>
+        <dt>sidePanel</dt>
+        <dd>Show the tree in the browser side panel (Chrome and Edge).</dd>
+        <dt>alarms</dt>
+        <dd>
+          Run periodic snapshots and, for Pro, scheduled backups and the weekly licence re-check.
+        </dd>
+        <dt>sessions</dt>
+        <dd>Restore recently closed tabs and windows in place, with their history.</dd>
+        <dt>favicon</dt>
+        <dd>
+          Display site icons next to nodes using the browser's own favicon cache instead of fetching
+          them from the web.
+        </dd>
+        <dt>identity (optional)</dt>
+        <dd>
+          Requested only when you turn on Google Drive backup (Pro). It obtains a Google sign-in
+          token so Arbor can write backup files to your own Drive. Decline it and everything else
+          keeps working.
+        </dd>
+      </dl>
+
+      <h2 id="privacy">Privacy</h2>
+      <p>
+        Your tree stays on your device. Arbor has no analytics or telemetry and makes no network
+        calls in the free tier. With Pro, the licence key is checked against
+        <code>api.lemonsqueezy.com</code>, and if you enable Drive backup your tree data is sent to
+        your own Google Drive. Details in the <a href="/privacy#arbor">privacy policy</a>.
+      </p>
+
+      <h2 id="source">Source</h2>
+      <p>
+        Arbor is MIT licensed. Read the code, file issues or build it yourself at
+        <a href="https://github.com/shantanuojha/browserforge/tree/main/extensions/arbor"
+          >github.com/shantanuojha/browserforge</a
+        >. Questions go to <a href="/support">support</a>.
+      </p>
+    </main>
+    <footer class="wrap">
+      <a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a> &middot;
+      <a href="/support">Support</a> &middot; MIT licensed
+    </footer>
+  </body>
+</html>

@@ -1,0 +1,257 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reroute - URL rewrite rules and tracking-parameter cleaner | BrowserForge</title>
+    <meta
+      name="description"
+      content="Reroute redirects and rewrites URLs with wildcard or regex rules and strips tracking parameters automatically. Imports Redirector rules and ClearURLs allowlists. Free, with a $9 one-time Pro."
+    />
+    <link rel="canonical" href="https://browserforge.dev/reroute" />
+    <!--
+      Links are root-relative. Vercel serves the site from the domain root; GitHub Pages is
+      expected to serve it from a custom domain too, not from /browserforge/.
+    -->
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <a class="skip" href="#main">Skip to content</a>
+    <header class="wrap">
+      <a class="brand" href="/">BrowserForge</a>
+      <nav aria-label="Main">
+        <a href="/arbor">Arbor</a>
+        <a href="/reroute" aria-current="page">Reroute</a>
+        <a href="/cookiesweep">CookieSweep</a>
+        <a href="/support">Support</a>
+        <a href="https://github.com/shantanuojha/browserforge">GitHub</a>
+      </nav>
+    </header>
+    <main id="main" class="wrap prose">
+      <h1>Reroute</h1>
+      <p class="lede">
+        Redirect and rewrite URLs by rule, and strip tracking parameters automatically. Reroute does
+        one job: change a URL before the page loads, exactly the way you told it to.
+      </p>
+
+      <!-- Store URLs are filled in once each listing is approved; data-store identifies the slot. -->
+      <div class="actions" aria-label="Install Reroute">
+        <a class="btn" href="#" data-store="chrome">Chrome Web Store</a>
+        <a class="btn" href="#" data-store="edge">Edge Add-ons</a>
+        <a class="btn" href="#" data-store="firefox">Firefox Add-ons</a>
+      </div>
+      <p class="muted">
+        Store links go live as each listing is approved. Until then you can
+        <a href="https://github.com/shantanuojha/browserforge/tree/main/extensions/reroute"
+          >build Reroute from source</a
+        >.
+      </p>
+
+      <h2 id="why">Why Reroute</h2>
+      <p>
+        Manifest V3 retired a generation of URL tools. Redirector, which many people relied on for
+        custom redirects, stopped working, and the extensions that stepped in each miss something:
+        transforms, redirects inside single-page apps, or a faithful import of existing rules.
+        ClearURLs, the standard tracking-parameter stripper, no longer supports Chrome.
+      </p>
+      <p>
+        Both jobs are the same job: rewrite this URL according to a rule. Reroute does that with the
+        browser's built-in rule engine wherever possible, falls back to a small in-extension engine
+        only when a rule needs a transform the browser cannot express, and never fetches rules or
+        code from the network.
+      </p>
+
+      <h2 id="features">Features</h2>
+      <ul>
+        <li>
+          Wildcard or regular-expression rules with <code>$1</code> to <code>$9</code> capture
+          groups, exclude patterns, and a choice of resource types.
+        </li>
+        <li>
+          Transforms on captured text: URL-decode, URL-encode, Base64 decode and encode, lower and
+          upper case.
+        </li>
+        <li>
+          Redirects that browser rules cannot express, including single-page-app URL changes (for
+          example YouTube Shorts to the normal watch page), are handled by a fallback engine with
+          loop protection.
+        </li>
+        <li>
+          Rule editor with a live tester: paste a URL and see which rule fires and what comes out.
+        </li>
+        <li>
+          Tracking-parameter cleaner built from the ClearURLs catalog. The catalog is compiled into
+          the extension at build time, never downloaded at runtime.
+        </li>
+        <li>
+          Per-site allowlist for the cleaner, and a "Copy clean link" entry in the context menu.
+        </li>
+        <li>A "what fired recently" log so you can see why a page was redirected.</li>
+        <li>Popup: turn Reroute on or off for the current site, see how many rules are active.</li>
+        <li>Import Redirector JSON and ClearURLs allowlists; export your rules as JSON.</li>
+        <li>Runs in Chrome, Edge and Firefox on Manifest V3.</li>
+      </ul>
+
+      <h2 id="pricing">Free vs Pro</h2>
+      <p>
+        Every rule feature, the tracking-parameter cleaner and the importers are free. Pro is a
+        <strong>$9 one-time purchase</strong> for people who run Reroute on several machines or want
+        to share rules. No subscription.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <caption>
+            What is included in Reroute Free and Reroute Pro
+          </caption>
+          <thead>
+            <tr>
+              <th scope="col">Feature</th>
+              <th scope="col">Free</th>
+              <th scope="col">Pro</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Wildcard and regex redirect rules, unlimited</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Capture groups, exclude patterns, transforms</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Single-page-app redirects with loop protection</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Tracking-parameter cleaner with per-site allowlist</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Rule tester and "what fired recently" log</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Import from Redirector and ClearURLs; JSON export</th>
+              <td>Yes</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Cross-device rule sync through your browser account</th>
+              <td>No</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Curated rule packs</th>
+              <td>No</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">Shareable rule sets (encoded in a link, no server involved)</th>
+              <td>No</td>
+              <td>Yes</td>
+            </tr>
+            <tr>
+              <th scope="row">One licence valid across your browser profiles</th>
+              <td>Not applicable</td>
+              <td>Up to 5 profiles</td>
+            </tr>
+          </tbody>
+          <tfoot>
+            <tr>
+              <th scope="row">Price</th>
+              <td>Free</td>
+              <td>$9 one-time</td>
+            </tr>
+          </tfoot>
+        </table>
+      </div>
+      <p class="muted">
+        Purchases are handled by Lemon Squeezy. See the <a href="/terms">licence terms</a> for
+        activation limits and refunds.
+      </p>
+
+      <h2 id="import">Switching from Redirector or ClearURLs</h2>
+      <p>Reroute imports the files those extensions export:</p>
+      <ul>
+        <li>
+          <strong>Redirector</strong> JSON exports. Include and exclude patterns, wildcard and regex
+          types, the redirect target, process-matches options and the applies-to list are all mapped
+          onto Reroute rules.
+        </li>
+        <li>
+          <strong>ClearURLs</strong> allowlist exports, which become per-site exceptions for the
+          tracking-parameter cleaner.
+        </li>
+      </ul>
+      <p class="muted">
+        The tracking-parameter catalog is derived from the ClearURLs rules (LGPL-3.0); attribution
+        ships inside the extension. Reroute is an independent project and is not affiliated with or
+        endorsed by Redirector or ClearURLs.
+      </p>
+
+      <h2 id="permissions">Permissions</h2>
+      <p>
+        Reroute asks for exactly the permissions below, declared in its
+        <a
+          href="https://github.com/shantanuojha/browserforge/blob/main/extensions/reroute/wxt.config.ts"
+          >manifest source</a
+        >. It never reads page content.
+      </p>
+      <dl class="perms">
+        <dt>declarativeNetRequest</dt>
+        <dd>
+          Hand your redirect rules and the tracking-parameter cleaner to the browser's own rule
+          engine, which rewrites URLs without the extension seeing your traffic.
+        </dd>
+        <dt>declarativeNetRequestFeedback</dt>
+        <dd>Show which rules matched in the "what fired recently" log and the rule tester.</dd>
+        <dt>webNavigation</dt>
+        <dd>
+          Notice navigations and single-page-app URL changes so rules with transforms, which the
+          browser engine cannot run, can be applied.
+        </dd>
+        <dt>tabs</dt>
+        <dd>Update a tab's URL when one of those fallback rules matches.</dd>
+        <dt>storage</dt>
+        <dd>
+          Save your rules, allowlist and settings locally (and, for Pro sync, in your browser
+          account).
+        </dd>
+        <dt>contextMenus</dt>
+        <dd>Add the "Copy clean link" item to the right-click menu.</dd>
+        <dt>Host access to all sites (<code>&lt;all_urls&gt;</code>)</dt>
+        <dd>
+          A redirect rule can target any site you choose, and the browser requires host access to
+          the site being redirected. Reroute uses it only to apply your rules; no page content is
+          read or sent anywhere.
+        </dd>
+      </dl>
+
+      <h2 id="privacy">Privacy</h2>
+      <p>
+        Rules and logs stay on your device. Reroute has no analytics or telemetry and makes no
+        network calls in the free tier. With Pro, the licence key is checked against
+        <code>api.lemonsqueezy.com</code>. Details in the
+        <a href="/privacy#reroute">privacy policy</a>.
+      </p>
+
+      <h2 id="source">Source</h2>
+      <p>
+        Reroute is MIT licensed. Read the code, file issues or build it yourself at
+        <a href="https://github.com/shantanuojha/browserforge/tree/main/extensions/reroute"
+          >github.com/shantanuojha/browserforge</a
+        >. Questions go to <a href="/support">support</a>.
+      </p>
+    </main>
+    <footer class="wrap">
+      <a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a> &middot;
+      <a href="/support">Support</a> &middot; MIT licensed
+    </footer>
+  </body>
+</html>

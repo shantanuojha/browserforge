@@ -37,6 +37,8 @@ body {
 }
 header {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px 24px;
   justify-content: space-between;
   align-items: center;
   border-bottom: 1px solid var(--border);
@@ -46,14 +48,43 @@ header {
   text-decoration: none;
   color: var(--text);
 }
+nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+}
 nav a {
-  margin-left: 16px;
   color: var(--muted);
   text-decoration: none;
+}
+nav a[aria-current="page"] {
+  color: var(--text);
+  font-weight: 600;
 }
 nav a:hover,
 a:hover {
   color: var(--accent);
+}
+a {
+  color: var(--accent);
+}
+.skip {
+  position: absolute;
+  left: -9999px;
+  top: 8px;
+  padding: 8px 12px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.skip:focus {
+  left: 8px;
+  z-index: 1;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 h1 {
   font-size: 32px;
@@ -90,6 +121,125 @@ footer {
 footer a {
   color: var(--muted);
 }
+
+/* Long-form pages */
 .prose h2 {
-  margin-top: 28px;
+  margin-top: 40px;
+  font-size: 22px;
+}
+.prose h3 {
+  margin-top: 24px;
+  font-size: 17px;
+}
+.prose li {
+  margin: 4px 0;
+}
+.prose .lede {
+  margin-bottom: 20px;
+}
+.meta {
+  color: var(--muted);
+  font-size: 14px;
+  margin: 0 0 24px;
+}
+.muted {
+  color: var(--muted);
+  font-size: 14px;
+}
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.92em;
+}
+.toc {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 16px;
+  font-size: 15px;
+}
+
+/* Install buttons and other calls to action */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin: 20px 0 8px;
+}
+.btn {
+  display: inline-block;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  text-decoration: none;
+  font-weight: 500;
+}
+.btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Comparison tables */
+.table-wrap {
+  overflow-x: auto;
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 12px 0 8px;
+  font-size: 15px;
+}
+caption {
+  text-align: left;
+  color: var(--muted);
+  font-size: 14px;
+  padding: 0 0 8px;
+}
+th,
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+}
+thead th {
+  border-bottom: 2px solid var(--border);
+}
+th {
+  font-weight: 600;
+}
+tbody th {
+  font-weight: 500;
+}
+tfoot td,
+tfoot th {
+  border-bottom: 0;
+  font-weight: 600;
+}
+
+/* Definition lists: permissions, FAQ */
+.perms dt,
+.faq dt {
+  font-weight: 600;
+  margin-top: 14px;
+}
+.perms dt {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 15px;
+}
+.perms dd,
+.faq dd {
+  margin: 2px 0 0;
+}
+.callout {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 12px 16px;
+  margin: 16px 0;
+}
+.callout p {
+  margin: 0;
 }

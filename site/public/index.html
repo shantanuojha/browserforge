@@ -8,25 +8,32 @@
       name="description"
       content="BrowserForge builds open-source Manifest V3 browser extensions: Arbor (tree tabs & sessions), Reroute (URL rewrite rules) and CookieSweep (auto-delete cookies)."
     />
+    <link rel="canonical" href="https://browserforge.dev/" />
+    <!--
+      Links are root-relative. Vercel serves the site from the domain root; GitHub Pages is
+      expected to serve it from a custom domain too, not from /browserforge/.
+    -->
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
+    <a class="skip" href="#main">Skip to content</a>
     <header class="wrap">
       <a class="brand" href="/">BrowserForge</a>
-      <nav>
+      <nav aria-label="Main">
         <a href="/arbor">Arbor</a>
         <a href="/reroute">Reroute</a>
         <a href="/cookiesweep">CookieSweep</a>
+        <a href="/support">Support</a>
         <a href="https://github.com/shantanuojha/browserforge">GitHub</a>
       </nav>
     </header>
-    <main class="wrap">
+    <main id="main" class="wrap">
       <h1>Browser tools that respect you.</h1>
       <p class="lede">
         Open source, no telemetry, no remote code. Built for Chrome, Edge and Firefox on Manifest
         V3.
       </p>
-      <section class="grid">
+      <section class="grid" aria-label="Extensions">
         <article>
           <h2><a href="/arbor">Arbor</a></h2>
           <p>Tree-style tab and session manager that never loses your tabs.</p>
@@ -42,7 +49,8 @@
       </section>
     </main>
     <footer class="wrap">
-      <a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a> &middot; MIT licensed
+      <a href="/privacy">Privacy</a> &middot; <a href="/terms">Terms</a> &middot;
+      <a href="/support">Support</a> &middot; MIT licensed
     </footer>
   </body>
 </html>
