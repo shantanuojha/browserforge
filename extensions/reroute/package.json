@@ -1,0 +1,36 @@
+{
+  "name": "@browserforge/reroute",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Reroute: URL rewrite rules - redirects, regex transforms and tracking-parameter cleanup.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:firefox": "wxt -b firefox",
+    "build": "wxt build",
+    "build:firefox": "wxt build -b firefox",
+    "zip": "wxt zip",
+    "zip:firefox": "wxt zip -b firefox",
+    "typecheck": "wxt prepare && tsc --noEmit",
+    "test": "vitest run",
+    "submit:dry": "wxt submit --dry-run",
+    "postinstall": "wxt prepare"
+  },
+  "dependencies": {
+    "@browserforge/licensing": "workspace:*",
+    "@browserforge/shared": "workspace:*",
+    "@browserforge/ui": "workspace:*",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@webext-core/fake-browser": "catalog:",
+    "@wxt-dev/module-react": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "wxt": "catalog:"
+  }
+}

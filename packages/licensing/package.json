@@ -1,0 +1,27 @@
+{
+  "name": "@browserforge/licensing",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Lemon Squeezy licence-key activation, validation and feature gating for BrowserForge Pro features.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@browserforge/shared": "workspace:*",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@webext-core/fake-browser": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

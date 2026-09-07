@@ -1,0 +1,111 @@
+# Publishes ONE extension to the stores.
+#
+# Trigger by pushing a tag of the form `<extension>@<version>`, e.g. `arbor@1.0.1`, or run manually
+# with workflow_dispatch (defaults to a dry run). The version in the tag must match
+# extensions/<extension>/package.json; WXT copies it into the manifest.
+#
+# Publisher-level credentials are repository secrets; per-extension IDs live in a GitHub Environment
+# named `ext-<extension>` as variables. First upload of any extension is manual (the Chrome Web
+# Store API cannot create items).
+name: Release extension
+
+on:
+  push:
+    tags: ["*@[0-9]+.[0-9]+.[0-9]+"]
+  workflow_dispatch:
+    inputs:
+      extension:
+        description: "Extension directory name (arbor | reroute | cookiesweep)"
+        required: true
+        type: choice
+        options: [arbor, reroute, cookiesweep]
+      dry_run:
+        description: "Dry run (check auth, do not upload)"
+        type: boolean
+        default: true
+
+jobs:
+  meta:
+    runs-on: ubuntu-latest
+    outputs:
+      extension: ${{ steps.parse.outputs.extension }}
+      version: ${{ steps.parse.outputs.version }}
+      dry_run: ${{ steps.parse.outputs.dry_run }}
+    steps:
+      - id: parse
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "extension=${{ inputs.extension }}" >> "$GITHUB_OUTPUT"
+            echo "version=" >> "$GITHUB_OUTPUT"
+            echo "dry_run=${{ inputs.dry_run }}" >> "$GITHUB_OUTPUT"
+          else
+            tag="${GITHUB_REF_NAME}"
+            echo "extension=${tag%%@*}" >> "$GITHUB_OUTPUT"
+            echo "version=${tag##*@}" >> "$GITHUB_OUTPUT"
+            echo "dry_run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  publish:
+    needs: meta
+    runs-on: ubuntu-latest
+    environment: ext-${{ needs.meta.outputs.extension }}
+    defaults:
+      run:
+        working-directory: extensions/${{ needs.meta.outputs.extension }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+        working-directory: .
+
+      - name: Verify tag version matches package.json
+        if: needs.meta.outputs.version != ''
+        shell: bash
+        run: |
+          pkg=$(node -p "require('./package.json').version")
+          if [ "$pkg" != "${{ needs.meta.outputs.version }}" ]; then
+            echo "Tag version ${{ needs.meta.outputs.version }} != package.json $pkg" >&2
+            exit 1
+          fi
+
+      - name: Build zips
+        run: |
+          pnpm exec wxt zip
+          pnpm exec wxt zip -b firefox
+
+      - name: Submit to stores
+        shell: bash
+        env:
+          DRY_RUN: ${{ needs.meta.outputs.dry_run }}
+          # Chrome Web Store API V2 (service account). Publisher-level, repo secrets.
+          CHROME_API_VERSION: v2
+          CHROME_PUBLISHER_ID: ${{ secrets.CHROME_PUBLISHER_ID }}
+          CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL: ${{ secrets.CHROME_SERVICE_ACCOUNT_CLIENT_EMAIL }}
+          CHROME_SERVICE_ACCOUNT_PRIVATE_KEY: ${{ secrets.CHROME_SERVICE_ACCOUNT_PRIVATE_KEY }}
+          CHROME_EXTENSION_ID: ${{ vars.CHROME_EXTENSION_ID }}
+          # Edge Add-ons (optional; skipped if EDGE_PRODUCT_ID is empty).
+          EDGE_CLIENT_ID: ${{ secrets.EDGE_CLIENT_ID }}
+          EDGE_API_KEY: ${{ secrets.EDGE_API_KEY }}
+          EDGE_PRODUCT_ID: ${{ vars.EDGE_PRODUCT_ID }}
+          # Firefox AMO (optional; skipped if FIREFOX_EXTENSION_ID is empty).
+          FIREFOX_JWT_ISSUER: ${{ secrets.FIREFOX_JWT_ISSUER }}
+          FIREFOX_JWT_SECRET: ${{ secrets.FIREFOX_JWT_SECRET }}
+          FIREFOX_EXTENSION_ID: ${{ vars.FIREFOX_EXTENSION_ID }}
+        run: |
+          args=(--chrome-zip .output/*-chrome.zip)
+          if [ -n "$EDGE_PRODUCT_ID" ]; then args+=(--edge-zip .output/*-chrome.zip); fi
+          if [ -n "$FIREFOX_EXTENSION_ID" ]; then
+            args+=(--firefox-zip .output/*-firefox.zip --firefox-sources-zip .output/*-sources.zip)
+          fi
+          if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
+          pnpm exec wxt submit "${args[@]}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ needs.meta.outputs.extension }}-zips
+          path: extensions/${{ needs.meta.outputs.extension }}/.output/*.zip

@@ -1,0 +1,103 @@
+/* Base component styles for @browserforge/ui. Requires theme.css variables. */
+
+.bf-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--bf-space-1);
+  font: inherit;
+  font-family: var(--bf-font-sans);
+  font-weight: 500;
+  line-height: 1;
+  border: 1px solid transparent;
+  border-radius: var(--bf-radius-sm);
+  cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease,
+    color 120ms ease;
+}
+.bf-button:focus-visible {
+  outline: 2px solid var(--bf-color-focus);
+  outline-offset: 2px;
+}
+.bf-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.bf-button--md {
+  padding: var(--bf-space-2) var(--bf-space-3);
+  font-size: 13px;
+}
+.bf-button--sm {
+  padding: var(--bf-space-1) var(--bf-space-2);
+  font-size: 12px;
+}
+.bf-button--primary {
+  background: var(--bf-color-accent);
+  color: var(--bf-color-accent-text);
+}
+.bf-button--primary:hover:not(:disabled) {
+  background: var(--bf-color-accent-hover);
+}
+.bf-button--secondary {
+  background: var(--bf-color-surface);
+  color: var(--bf-color-text);
+  border-color: var(--bf-color-border);
+}
+.bf-button--secondary:hover:not(:disabled) {
+  border-color: var(--bf-color-text-muted);
+}
+.bf-button--ghost {
+  background: transparent;
+  color: var(--bf-color-accent);
+}
+.bf-button--ghost:hover:not(:disabled) {
+  background: var(--bf-color-surface);
+}
+
+.bf-pro-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--bf-radius-pill);
+  background: var(--bf-color-pro-bg);
+  color: var(--bf-color-pro);
+  font-family: var(--bf-font-sans);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  vertical-align: middle;
+}
+
+.bf-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 280px;
+  background: var(--bf-color-bg);
+  color: var(--bf-color-text);
+  font-family: var(--bf-font-sans);
+  font-size: 13px;
+}
+.bf-panel__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--bf-space-2);
+  padding: var(--bf-space-3) var(--bf-space-4);
+  border-bottom: 1px solid var(--bf-color-border);
+}
+.bf-panel__title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+.bf-panel__actions {
+  display: flex;
+  align-items: center;
+  gap: var(--bf-space-2);
+}
+.bf-panel__body {
+  padding: var(--bf-space-4);
+  color: var(--bf-color-text-muted);
+}

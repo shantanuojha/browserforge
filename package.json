@@ -1,0 +1,44 @@
+{
+  "name": "browserforge",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "description": "BrowserForge: a workshop of open-source Manifest V3 browser extensions.",
+  "license": "MIT",
+  "author": "Shantanu Ojha",
+  "repository": "github:shantanuojha/browserforge",
+  "packageManager": "pnpm@10.31.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "prepare": "pnpm -r --filter \"./extensions/*\" exec wxt prepare",
+    "dev:arbor": "pnpm --filter @browserforge/arbor dev",
+    "dev:reroute": "pnpm --filter @browserforge/reroute dev",
+    "dev:cookiesweep": "pnpm --filter @browserforge/cookiesweep dev",
+    "build": "pnpm -r --filter \"./extensions/*\" build",
+    "zip": "pnpm -r --filter \"./extensions/*\" zip",
+    "typecheck": "pnpm -r typecheck",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "changeset": "changeset",
+    "version-packages": "changeset version"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^3.0.2",
+    "@eslint/js": "^9.39.0",
+    "@types/chrome": "^0.2.9",
+    "@types/node": "^24.6.0",
+    "eslint": "^9.39.0",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "globals": "^16.4.0",
+    "prettier": "^3.6.2",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.48.0",
+    "vitest": "^5.0.0",
+    "@vitest/coverage-v8": "^5.0.0"
+  }
+}

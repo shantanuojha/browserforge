@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# build output
+.output/
+dist/
+coverage/
+
+# WXT generated types
+.wxt/
+
+# store submission credentials (never commit)
+.env
+.env.*
+!.env.example
+.env.submit
+
+# vercel
+.vercel/
+
+# editor / os
+.DS_Store
+Thumbs.db
+*.log
+.idea/
+.vscode/*
+!.vscode/extensions.json

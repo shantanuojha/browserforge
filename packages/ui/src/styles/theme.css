@@ -1,0 +1,45 @@
+/* BrowserForge design tokens. Light by default, dark via prefers-color-scheme. */
+:root {
+  --bf-font-sans:
+    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --bf-font-mono: ui-monospace, "Cascadia Code", "Fira Code", Consolas, monospace;
+
+  --bf-radius-sm: 4px;
+  --bf-radius-md: 8px;
+  --bf-radius-pill: 999px;
+
+  --bf-space-1: 4px;
+  --bf-space-2: 8px;
+  --bf-space-3: 12px;
+  --bf-space-4: 16px;
+
+  --bf-color-bg: #ffffff;
+  --bf-color-surface: #f6f7f9;
+  --bf-color-border: #e2e5ea;
+  --bf-color-text: #1b1f24;
+  --bf-color-text-muted: #5b6470;
+  --bf-color-accent: #3b5bdb;
+  --bf-color-accent-hover: #2f4bc0;
+  --bf-color-accent-text: #ffffff;
+  --bf-color-pro: #b7791f;
+  --bf-color-pro-bg: #fff4d6;
+  --bf-color-focus: #7c9cff;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bf-color-bg: #0f1216;
+    --bf-color-surface: #171b21;
+    --bf-color-border: #2a3039;
+    --bf-color-text: #e6e9ee;
+    --bf-color-text-muted: #9aa4b1;
+    --bf-color-accent: #6b8cff;
+    --bf-color-accent-hover: #86a1ff;
+    --bf-color-accent-text: #0b0e14;
+    --bf-color-pro: #f2c26b;
+    --bf-color-pro-bg: #3a2c0d;
+    --bf-color-focus: #9db2ff;
+  }
+}

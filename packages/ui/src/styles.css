@@ -1,0 +1,13 @@
+/* Single stylesheet entry for extensions: `import "@browserforge/ui/styles.css"`. */
+@import "./styles/theme.css";
+@import "./styles/ui.css";
+
+html,
+body {
+  margin: 0;
+  font-family: var(--bf-font-sans);
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--bf-color-text);
+  background: var(--bf-color-bg);
+}
