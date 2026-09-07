@@ -1,33 +1,57 @@
-import { useEffect, useState } from "react";
-import { getEntitlements } from "@browserforge/licensing";
-import type { Entitlements } from "@browserforge/licensing";
+import { useState } from "react";
+import { browser } from "wxt/browser";
 import { Button, Panel, ProBadge } from "@browserforge/ui";
+import { usePro } from "@/hooks/usePro";
+import { msg } from "@/lib/messages";
 
+const hasSidePanel = "sidePanel" in browser;
+
+/**
+ * Small launcher. In Chrome the toolbar icon opens the side panel directly (see background), so
+ * this popup is mostly seen in browsers without a side panel API.
+ */
 export function App() {
-  const [entitlements, setEntitlements] = useState<Entitlements | null>(null);
+  const pro = usePro();
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    let cancelled = false;
-    void getEntitlements().then((e) => {
-      if (!cancelled) setEntitlements(e);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const openPanel = async () => {
+    try {
+      const win = await browser.windows.getCurrent();
+      const opened = await msg.openSidePanel.send({ windowId: win.id });
+      if (opened) {
+        window.close();
+        return;
+      }
+      await openInTab();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const openInTab = async () => {
+    await browser.tabs.create({ url: browser.runtime.getURL("/sidepanel.html") });
+    window.close();
+  };
 
   return (
-    <Panel title="Arbor" actions={entitlements?.pro ? <ProBadge /> : null}>
-      <p>Tree-style tab and session manager. This extension is in development.</p>
+    <Panel title="Arbor" actions={pro ? <ProBadge /> : null} className="launcher">
+      <p>Your windows and tabs as a tree that never forgets.</p>
+      {hasSidePanel ? (
+        <Button size="sm" onClick={() => void openPanel()}>
+          Open side panel
+        </Button>
+      ) : null}
       <Button
-        variant="secondary"
         size="sm"
-        onClick={() => {
-          void chrome.runtime.openOptionsPage();
-        }}
+        variant={hasSidePanel ? "secondary" : "primary"}
+        onClick={() => void openInTab()}
       >
-        Open options
+        Open tree in a tab
       </Button>
+      <Button size="sm" variant="ghost" onClick={() => void browser.runtime.openOptionsPage()}>
+        Options
+      </Button>
+      {error ? <p className="notice notice--error">{error}</p> : null}
     </Panel>
   );
 }

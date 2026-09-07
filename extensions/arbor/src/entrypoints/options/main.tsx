@@ -1,17 +1,11 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { Panel } from "@browserforge/ui";
-
-function Options() {
-  return (
-    <Panel title="Arbor options">
-      <p>Settings will appear here. This extension is in development.</p>
-    </Panel>
-  );
-}
+import "@browserforge/ui/styles.css";
+import "@/styles/arbor.css";
+import { App } from "./App";
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
-    <Options />
+    <App />
   </StrictMode>,
 );
