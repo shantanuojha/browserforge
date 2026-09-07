@@ -1,1 +1,3363 @@
-[]
+[
+  {
+    "id": 1,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?amazon(?:\\.[a-z]{2,}){1,}",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "__mk_ar_AE",
+              "__mk_de_DE",
+              "__mk_en_AU",
+              "__mk_en_CA",
+              "__mk_en_GB",
+              "__mk_en_IN",
+              "__mk_en_US",
+              "__mk_es_ES",
+              "__mk_es_MX",
+              "__mk_fr_FR",
+              "__mk_it_IT",
+              "__mk_ja_JP",
+              "__mk_nl_NL",
+              "__mk_pl_PL",
+              "__mk_pt_BR",
+              "__mk_sv_SE",
+              "__mk_tr_TR",
+              "__mk_zh_CN",
+              "_encoding",
+              "aaxitk",
+              "ascsubtag",
+              "camp",
+              "colid",
+              "coliid",
+              "content-id",
+              "creative",
+              "creativeASIN",
+              "crid",
+              "cv_ct_cx",
+              "cv_ct_id",
+              "cv_ct_pg",
+              "cv_ct_us",
+              "cv_ct_we",
+              "cv_ct_wn",
+              "dchild",
+              "dib",
+              "dib_tag",
+              "field-lbr_brands_browse-bin",
+              "hsa_cr_id",
+              "ie",
+              "keywords",
+              "linkCode",
+              "ms3_c",
+              "pd_rd_i",
+              "pd_rd_plhdr",
+              "pd_rd_r",
+              "pd_rd_w",
+              "pd_rd_wg",
+              "pf_rd_i",
+              "pf_rd_m",
+              "pf_rd_p",
+              "pf_rd_r",
+              "pf_rd_s",
+              "pf_rd_t",
+              "qid",
+              "qualifier",
+              "ref",
+              "refRID",
+              "ref_",
+              "rnid",
+              "sb-ci-a",
+              "sb-ci-n",
+              "sb-ci-p",
+              "sb-ci-v",
+              "skipTwisterOG",
+              "smid",
+              "social_share",
+              "spIA",
+              "sprefix",
+              "sr",
+              "srs",
+              "starsLeft",
+              "th"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 2,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?amazon(?:\\.[a-z]{2,}){1,}\\/gp\\/.*?(?:redirector.html|cart\\/ajax-update.html|video\\/api\\/)",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 3,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?amazon(?:\\.[a-z]{2,}){1,}\\/(?:hz\\/reviews-render\\/ajax\\/|message-us\\?|s\\?)",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 4,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["msn.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["cvid", "ocid"] } } }
+    }
+  },
+  {
+    "id": 5,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?amazon(?:\\.[a-z]{2,}){1,}\\/s\\?",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "__mk_ar_AE",
+              "__mk_de_DE",
+              "__mk_en_AU",
+              "__mk_en_CA",
+              "__mk_en_GB",
+              "__mk_en_IN",
+              "__mk_en_US",
+              "__mk_es_ES",
+              "__mk_es_MX",
+              "__mk_fr_FR",
+              "__mk_it_IT",
+              "__mk_ja_JP",
+              "__mk_nl_NL",
+              "__mk_pl_PL",
+              "__mk_pt_BR",
+              "__mk_sv_SE",
+              "__mk_tr_TR",
+              "__mk_zh_CN",
+              "_encoding",
+              "aaxitk",
+              "ascsubtag",
+              "camp",
+              "colid",
+              "coliid",
+              "creative",
+              "creativeASIN",
+              "crid",
+              "cv_ct_cx",
+              "cv_ct_id",
+              "cv_ct_pg",
+              "cv_ct_us",
+              "cv_ct_we",
+              "cv_ct_wn",
+              "dchild",
+              "field-lbr_brands_browse-bin",
+              "hsa_cr_id",
+              "ie",
+              "linkCode",
+              "ms3_c",
+              "pd_rd_i",
+              "pd_rd_plhdr",
+              "pd_rd_r",
+              "pd_rd_w",
+              "pd_rd_wg",
+              "pf_rd_i",
+              "pf_rd_m",
+              "pf_rd_p",
+              "pf_rd_r",
+              "pf_rd_s",
+              "pf_rd_t",
+              "qid",
+              "qualifier",
+              "ref",
+              "refRID",
+              "ref_",
+              "rnid",
+              "sb-ci-a",
+              "sb-ci-n",
+              "sb-ci-p",
+              "sb-ci-v",
+              "smid",
+              "spIA",
+              "sprefix",
+              "sr",
+              "srs",
+              "th"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 6,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?google(?:\\.[a-z]{2,}){1,}",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "_u",
+              "aqs",
+              "atyp",
+              "bi",
+              "btnG",
+              "btnI",
+              "btnK",
+              "cad",
+              "cd",
+              "cshid",
+              "dcr",
+              "dpr",
+              "ei",
+              "esrc",
+              "fbs",
+              "gfe_rd",
+              "gs_l",
+              "gws_rd",
+              "i-would-rather-use-firefox",
+              "ictx",
+              "ie",
+              "iflsig",
+              "je",
+              "oq",
+              "pcampaignid",
+              "rlz",
+              "sa",
+              "sca_esv",
+              "sca_upv",
+              "sei",
+              "site",
+              "source",
+              "sourceid",
+              "sxsrf",
+              "uact",
+              "usg",
+              "ved",
+              "vet"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 7,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/mail\\.google\\.com\\/mail\\/u\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 8,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/accounts\\.google\\.com\\/o\\/oauth2\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 9,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/accounts\\.google\\.com\\/signin\\/oauth\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 10,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:docs|accounts)\\.google(?:\\.[a-z]{2,}){1,}",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 11,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/([a-z0-9-\\.])*(chat|drive)\\.google\\.com\\/videoplayback",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 12,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?google(?:\\.[a-z]{2,}){1,}(?:\\/upload)?\\/drive\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 13,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/news\\.google\\.com.*\\?hl=.",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 14,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?google(?:\\.[a-z]{2,}){1,}\\/s\\?tbm=map.*?gs_[a-z]*=.",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 15,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?google(?:\\.[a-z]{2,}){1,}\\/(?:complete\\/search|setprefs|searchbyimage)",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 16,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?google(?:\\.[a-z]{2,}){1,}\\/(?:appsactivity|aclk\\?)",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 17,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?google(?:\\.[a-z]{2,}){1,}\\/safe[-]?browsing\\/([^&]+)",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 18,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "Echobox",
+              "__hsfp",
+              "__hssc",
+              "__hstc",
+              "__s",
+              "__twitter_impression",
+              "_ga",
+              "_gl",
+              "_hsenc",
+              "_openstat",
+              "action_object_map",
+              "action_ref_map",
+              "action_type_map",
+              "ceneo_spo",
+              "cmpid",
+              "dclid",
+              "fb_action_ids",
+              "fb_action_types",
+              "fb_ref",
+              "fb_source",
+              "fbclid",
+              "ga_campaign",
+              "ga_content",
+              "ga_fc",
+              "ga_hid",
+              "ga_medium",
+              "ga_place",
+              "ga_sid",
+              "ga_source",
+              "ga_term",
+              "ga_vid",
+              "gclid",
+              "gs_l",
+              "hmb_campaign",
+              "hmb_medium",
+              "hmb_source",
+              "hsCtaTracking",
+              "itm_campaign",
+              "itm_medium",
+              "itm_source",
+              "mc",
+              "mc_cid",
+              "mc_eid",
+              "mc_tc",
+              "mkt_tok",
+              "ml_subscriber",
+              "ml_subscriber_hash",
+              "msclkid",
+              "mtm_campaign",
+              "mtm_cid",
+              "mtm_content",
+              "mtm_group",
+              "mtm_keyword",
+              "mtm_medium",
+              "mtm_placement",
+              "mtm_source",
+              "oly_anon_id",
+              "oly_enc_id",
+              "os_ehash",
+              "otm_campaign",
+              "otm_content",
+              "otm_medium",
+              "otm_source",
+              "otm_term",
+              "rb_clickid",
+              "s_cid",
+              "spm",
+              "srsltid",
+              "tracking_source",
+              "twclid",
+              "umc",
+              "utm",
+              "utm_ad",
+              "utm_adgroup",
+              "utm_brand",
+              "utm_campaign",
+              "utm_campaignid",
+              "utm_channel",
+              "utm_cid",
+              "utm_content",
+              "utm_creative",
+              "utm_creative_format",
+              "utm_ct",
+              "utm_email",
+              "utm_emailid",
+              "utm_expid",
+              "utm_ga",
+              "utm_id",
+              "utm_int",
+              "utm_keyword",
+              "utm_marketing_tactic",
+              "utm_medium",
+              "utm_name",
+              "utm_place",
+              "utm_placement",
+              "utm_product",
+              "utm_pubreferrer",
+              "utm_reader",
+              "utm_ref",
+              "utm_referrer",
+              "utm_social",
+              "utm_social_type",
+              "utm_source",
+              "utm_source_platform",
+              "utm_sq",
+              "utm_supplier",
+              "utm_swu",
+              "utm_term",
+              "utm_type",
+              "utm_v",
+              "utm_viz_id",
+              "vero_conv",
+              "vero_id",
+              "vn_campaign",
+              "vn_content",
+              "vn_medium",
+              "vn_source",
+              "vn_source_medium",
+              "vn_term",
+              "wickedid",
+              "wt_mc",
+              "wt_zmc",
+              "wtmc",
+              "wtrid",
+              "wtzmc",
+              "xmc",
+              "yclid"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 19,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?matrix\\.org\\/_matrix\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 20,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?(?:cloudflare\\.com|prismic\\.io|tangerine\\.ca|gitlab\\.com)",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 21,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/myaccount.google(?:\\.[a-z]{2,}){1,}",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 22,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/accounts.google(?:\\.[a-z]{2,}){1,}",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 23,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?gcsip\\.(?:com|nl)[^?]*\\?.*?&?ref_?=.",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 24,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/[^/]+/[^/]+/[^/]+\\/-\\/refs\\/switch[^?]*\\?.*?&?ref_?=.",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 25,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/bugtracker\\.[^/]*\\/[^?]+\\?.*?&?ref_?=[^/?&]*",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 26,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/comment-cdn\\.9gag\\.com\\/.*?comment-list.json\\?",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 27,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?battle\\.net\\/login",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 28,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/blizzard\\.com\\/oauth2",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 29,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/kreditkarten-banking\\.lbb\\.de",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 30,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/www\\.tinkoff\\.ru",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 31,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/www\\.cyberport\\.de\\/adscript\\.php",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 32,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?tweakers\\.net\\/ext\\/lt\\.dsp\\?.*?(?:%3F)?&?ref_?=.",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 33,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/git(lab)?\\.[^/]*\\/[^?]+\\?.*?&?ref_?=[^/?&]*",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 34,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?amazon(?:\\.[a-z]{2,}){1,}\\/message-us\\?",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 35,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/authorization\\.td\\.com",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 36,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/support\\.steampowered\\.com",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 37,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/privacy\\.vakmedianet\\.nl\\/.*?ref=",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 38,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/sso\\.serverplan\\.com\\/manage2fa\\/check\\?ref=",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 39,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/login\\.meijer\\.com\\/.*?\\?ref=",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 40,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?facebook\\.com\\/(?:login_alerts|ajax|should_add_browser)/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 41,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?facebook\\.com\\/groups\\/member_bio\\/bio_dialog\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 42,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/api\\.taiga\\.io",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 43,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?gog\\.com\\/click\\.html",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 44,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/login\\.progressive\\.com",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 45,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/www\\.sephora\\.com\\/api\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 46,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/www\\.contestgirl\\.com",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 47,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?agenciatributaria\\.gob\\.es",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 48,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/login\\.ingbank\\.pl",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 49,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^wss?:\\/\\/(?:[a-z0-9-]+\\.)*?zoom\\.us",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 50,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/api\\.bilibili\\.com",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 51,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?onet\\.pl\\/[^?]*\\?.*?utm_campaign=.",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 52,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?stripe\\.com\\/[^?]+.*?&?referrer=[^/?&]*",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 53,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?lichess\\.org\\/login.*?&?referrer=.*?",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 54,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?microsoft\\.com\\/.*?research\\/redirect",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 55,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/like.co\\/api\\/like\\/likebutton\\/[^?]+.*?&?referrer=[^/?&]*",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 56,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/button.like.co\\/in\\/.*?&?referrer=[^/?&]*",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 57,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/www\\.mma\\.go\\.kr",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 58,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?github\\.com",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 59,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?billiger\\.de\\/.*?mc=",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 60,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?youtrack\\.cloud",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 61,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/cu\\.bankid\\.com",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 62,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/login\\.aliexpress\\.us",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 63,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/ieeexplore\\.ieee\\.org",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 64,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?sendgb\\.com\\/upload\\/?.*?utm_source=",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 65,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/firebaseappdistribution\\.googleapis\\.com\\/app-binary-downloads\\/projects\\/?.*?utm_source=",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 66,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?irs\\.gov",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 67,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["youtube.com", "youtu.be"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["feature", "gclid", "kw", "pp", "si"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 68,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?youtube\\.com\\/signin\\?.*?",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 69,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["facebook.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "__tn__",
+              "_nc_x",
+              "_rdr",
+              "action_history",
+              "app",
+              "comment_tracking",
+              "dti",
+              "eav",
+              "eid",
+              "ftentidentifier",
+              "hc_location",
+              "hc_ref",
+              "idorvanity",
+              "iref",
+              "ls_ref",
+              "mibextid",
+              "padding",
+              "pageid",
+              "paipv",
+              "rdc",
+              "rdr",
+              "ref",
+              "refId",
+              "refPageId",
+              "refRID",
+              "referral_code",
+              "referral_story_type",
+              "referrer",
+              "referringContentType",
+              "referringId",
+              "sfnsn",
+              "sprefix",
+              "tracking",
+              "video_source",
+              "wtsid"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 70,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?facebook\\.com\\/.*?(plugins|ajax)\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 71,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?facebook\\.com\\/dialog\\/(?:share|send)",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 72,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?facebook\\.com\\/photo\\.php\\?",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 73,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?facebook\\.com\\/privacy\\/specific_audience_selector_dialog\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 74,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?facebook\\.com\\/photo\\/download\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 75,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?twitter.com",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["cn", "ref_src", "ref_url", "s", "src", "t"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 76,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/twitter.com\\/i\\/redirect",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 77,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?x.com",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["cn", "ref_src", "ref_url", "s", "src", "t"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 78,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/x.com\\/i\\/redirect",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 79,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?reddit.com",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "$3p",
+              "$deep_link",
+              "$original_url",
+              "%243p",
+              "%24deep_link",
+              "%24original_url",
+              "_branch_match_id",
+              "correlation_id",
+              "rdt",
+              "ref_campaign",
+              "ref_source",
+              "share_id"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 80,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?netflix.com",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["jbp", "jbr", "jbv", "tctx", "trackId"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 81,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["techcrunch.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "guccounter",
+              "guce_referrer",
+              "guce_referrer_sig",
+              "ncid",
+              "sr",
+              "sr_share"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 82,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?bing(?:\\.[a-z]{2,}){1,}",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["cvid", "qp", "qs", "sc", "sk", "sp"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 83,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?bing(?:\\.[a-z]{2,}){1,}\\/WS\\/redirect\\/",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 84,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["tweakers.net"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["nb", "u"] } } }
+    }
+  },
+  {
+    "id": 85,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["twitch.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["tt_content", "tt_medium"] } }
+      }
+    }
+  },
+  {
+    "id": 86,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["vivaldi.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["pk_campaign", "pk_kwd"] } }
+      }
+    }
+  },
+  {
+    "id": 87,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["indeed.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["aaxitk", "alid", "from"] } }
+      }
+    }
+  },
+  {
+    "id": 88,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?indeed\\.com\\/rc\\/clk",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 89,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["hh.ru"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["exp", "grpos", "plim", "ptl", "stl", "swnt", "t", "vss"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 90,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?ebay(?:\\.[a-z]{2,}){1,}",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["_from", "_trkparms", "_trksid", "hash"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 91,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["cnet.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["ftag"] } } }
+    }
+  },
+  {
+    "id": 92,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["imdb.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "pf_rd_i",
+              "pf_rd_m",
+              "pf_rd_p",
+              "pf_rd_r",
+              "pf_rd_s",
+              "pf_rd_t",
+              "ref_"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 93,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["walmart.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "athancid",
+              "athbdg",
+              "athcgid",
+              "athcpid",
+              "athena",
+              "athguid",
+              "athieid",
+              "athpgid",
+              "athstid",
+              "athznid",
+              "u1"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 94,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?net\\-parade\\.it",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["pl"] } } }
+    }
+  },
+  {
+    "id": 95,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["prvnizpravy.cz"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["xid"] } } }
+    }
+  },
+  {
+    "id": 96,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["youku.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["tpa"] } } }
+    }
+  },
+  {
+    "id": 97,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["nytimes.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["smid"] } } }
+    }
+  },
+  {
+    "id": 98,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["tchibo.de"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["wbdcd"] } } }
+    }
+  },
+  {
+    "id": 99,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["steampowered.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["snr"] } } }
+    }
+  },
+  {
+    "id": 100,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "https?:\\/\\/([a-z0-9-.]*\\.)shutterstock\\.com",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["src"] } } }
+    }
+  },
+  {
+    "id": 101,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["mozilla.org"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["platform", "redirect_source", "src"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 102,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?mozilla.org\\/api",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 103,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["readdc.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["ref"] } } }
+    }
+  },
+  {
+    "id": 104,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["dailycodingproblem.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["email"] } } }
+    }
+  },
+  {
+    "id": 105,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["github.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["email_source", "email_token"] } }
+      }
+    }
+  },
+  {
+    "id": 106,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?aliexpress(?:\\.[a-z]{2,}){1,}",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "af",
+              "aff_request_id",
+              "algo_expid",
+              "algo_pvid",
+              "btsid",
+              "cv",
+              "dp",
+              "gps-id",
+              "mall_affr",
+              "scm",
+              "sk",
+              "terminal_id",
+              "ws_ab_test"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 107,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["mozillazine.org"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["sid"] } } }
+    }
+  },
+  {
+    "id": 108,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["9gag.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["ref"] } } }
+    }
+  },
+  {
+    "id": 109,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["giphy.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["ref"] } } }
+    }
+  },
+  {
+    "id": 110,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["woot.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["ref", "ref_"] } } }
+    }
+  },
+  {
+    "id": 111,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["vitamix.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["_requestid", "bi", "cid", "di", "dl", "sd"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 112,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["nypost.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["__twitter_impression"] } }
+      }
+    }
+  },
+  {
+    "id": 113,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["ozon.ru"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["partner"] } } }
+    }
+  },
+  {
+    "id": 114,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["norml.org"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["can_id", "email_referrer", "email_subject", "link_id", "source"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 115,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["linkedin.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["lien", "refId", "trackingId", "trk"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 116,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?linkedin\\.com\\/learning",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["u"] } } }
+    }
+  },
+  {
+    "id": 117,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["spiegel.de"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["b"] } } }
+    }
+  },
+  {
+    "id": 118,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["instagram.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["igsh", "igshid"] } } }
+    }
+  },
+  {
+    "id": 119,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["boredpanda.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["h"] } } }
+    }
+  },
+  {
+    "id": 120,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["disq.us"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["cuid"] } } }
+    }
+  },
+  {
+    "id": 121,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["moosejaw.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "cm_lm",
+              "cm_mmc",
+              "spJobID",
+              "spMailingID",
+              "spReportId",
+              "spUserID",
+              "webUserId"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 122,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["80000hours.org"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["int_campaign"] } } }
+    }
+  },
+  {
+    "id": 123,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["spotify.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["si"] } } }
+    }
+  },
+  {
+    "id": 124,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?(?:yandex(?:\\.[a-z]{2,}){1,}|ya\\.ru)",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["lr", "redircnt"] } } }
+    }
+  },
+  {
+    "id": 125,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["healio.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["ecp", "m_bt"] } } }
+    }
+  },
+  {
+    "id": 126,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["zoho.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["iref"] } } }
+    }
+  },
+  {
+    "id": 127,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["snapchat.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["sc_referrer", "sc_ua"] } }
+      }
+    }
+  },
+  {
+    "id": 128,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["medium.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["source"] } } }
+    }
+  },
+  {
+    "id": 129,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["swp.de"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["source"] } } }
+    }
+  },
+  {
+    "id": 130,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["wps.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["from"] } } }
+    }
+  },
+  {
+    "id": 131,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:accounts\\.)?firefox\\.com",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["entrypoint", "form_type"] } }
+      }
+    }
+  },
+  {
+    "id": 132,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:support\\.)?mozilla\\.org",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["as"] } } }
+    }
+  },
+  {
+    "id": 133,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["diepresse.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["from", "xt_at", "xtor"] } }
+      }
+    }
+  },
+  {
+    "id": 134,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/newsletter\\.lidl(?:\\.[a-z]{2,}){1,}",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["x"] } } }
+    }
+  },
+  {
+    "id": 135,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["allegro.pl"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["reco_id", "sid"] } } }
+    }
+  },
+  {
+    "id": 136,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["backcountry.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "CMP_ID",
+              "CMP_SKU",
+              "INT_ID",
+              "MER",
+              "fl",
+              "iv_",
+              "k_clickid",
+              "mr:adType",
+              "mr:device",
+              "mr:trackingCode",
+              "rmatt",
+              "ti"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 137,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["meetup.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["_xtd", "rv"] } } }
+    }
+  },
+  {
+    "id": 138,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["apple.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["app", "ign-itscg", "ign-itsct"] } }
+      }
+    }
+  },
+  {
+    "id": 139,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["newyorker.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["bxid", "cndid", "esrc", "mbid", "source"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 140,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["gog.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["link_id", "track_click"] } }
+      }
+    }
+  },
+  {
+    "id": 141,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["theguardian.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["CMP"] } } }
+    }
+  },
+  {
+    "id": 142,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["taobao.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "_u",
+              "abbucket",
+              "abtest",
+              "acm",
+              "algo_expid",
+              "algo_pvid",
+              "ali_refid",
+              "ali_trackid",
+              "app",
+              "bftRwd",
+              "bftTag",
+              "cpp",
+              "impid",
+              "lygClk",
+              "mytmenu",
+              "ns",
+              "pos",
+              "price",
+              "pvid",
+              "scene",
+              "scm",
+              "share_crt_v",
+              "shareurl",
+              "short_name",
+              "sourceType",
+              "sp_tk",
+              "spm",
+              "suid",
+              "trackInfo",
+              "turing_bucket",
+              "un",
+              "ut_sk",
+              "utkn",
+              "utparam"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 143,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["tmall.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "abbucket",
+              "abtest",
+              "acm",
+              "activity_id",
+              "algo_expid",
+              "algo_pvid",
+              "ali_refid",
+              "ali_trackid",
+              "app",
+              "bftRwd",
+              "bftTag",
+              "cpp",
+              "impid",
+              "lygClk",
+              "mytmenu",
+              "ns",
+              "pos",
+              "price",
+              "pvid",
+              "scene",
+              "scm",
+              "share_crt_v",
+              "shareurl",
+              "short_name",
+              "sourceType",
+              "sp_tk",
+              "suid",
+              "trackInfo",
+              "turing_bucket",
+              "un",
+              "user_number_id",
+              "ut_sk",
+              "utkn",
+              "utparam"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 144,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["tb.cn"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["sm"] } } }
+    }
+  },
+  {
+    "id": 145,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["bilibili.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "buvid",
+              "callback",
+              "from",
+              "from_source",
+              "is_story_h5",
+              "mid",
+              "msource",
+              "plat_id",
+              "refer_from",
+              "seid",
+              "share_from",
+              "share_medium",
+              "share_plat",
+              "share_session_id",
+              "share_source",
+              "share_tag",
+              "spm_id_from",
+              "timestamp",
+              "unique_k",
+              "up_id",
+              "vd_source"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 146,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/space\\.bilibili\\.com",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 147,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["space.bilibili.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["spm_id_from"] } } }
+    }
+  },
+  {
+    "id": 148,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["m.bilibili.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["bbid", "ts"] } } }
+    }
+  },
+  {
+    "id": 149,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["live.bilibili.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["broadcast_type", "is_room_feed", "session_id", "visit_id"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 150,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["marketscreener.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "RewriteLast",
+              "aComposeInputSearch",
+              "add_mots",
+              "countview",
+              "lien",
+              "mots",
+              "noredirect",
+              "type_recherche",
+              "type_recherche_forum"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 151,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?marketscreener\\.com\\/search\\/\\?",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 152,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?marketscreener\\.com\\/search\\/\\?",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "RewriteLast",
+              "aComposeInputSearch",
+              "countview",
+              "lien",
+              "noredirect",
+              "type_recherche",
+              "type_recherche_forum"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 153,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["bestbuy.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["acampID", "intl", "irclickid", "irgwc", "loc", "mpid"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 154,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["tiktok.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "_d",
+              "_r",
+              "_t",
+              "preview_pb",
+              "share_app_name",
+              "share_iid",
+              "source",
+              "timestamp",
+              "u_code",
+              "user_id"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 155,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["xiaohongshu.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "app_platform",
+              "app_version",
+              "apptime",
+              "appuid",
+              "author_share",
+              "exSource",
+              "ignoreEngage",
+              "shareRedId",
+              "share_from_user_hidden",
+              "share_id",
+              "type",
+              "verifyBiz",
+              "verifyType",
+              "verifyUuid",
+              "xhsshare",
+              "xsec_source"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 156,
+    "priority": 2,
+    "condition": {
+      "regexFilter": "^https?:\\/\\/edith\\.xiaohongshu\\.com\\/api\\/sns\\/web\\/v1\\/user\\/hover_card",
+      "isUrlFilterCaseSensitive": false,
+      "resourceTypes": ["main_frame", "sub_frame"]
+    },
+    "action": { "type": "allow" }
+  },
+  {
+    "id": 157,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["autoplus.fr"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["dr_tracker", "hash", "idprob", "sending_id", "site_id"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 158,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["bigfishgames.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["npc", "npi", "npv1", "npv2", "pc"] } }
+      }
+    }
+  },
+  {
+    "id": 159,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["cafepedagogique.net"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["actCampaignType", "actId", "actSource"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 160,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["bloculus.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["tl_email_id", "tl_inbound", "tl_period_type", "tl_target_all"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 161,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["zillow.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["rtoken"] } } }
+    }
+  },
+  {
+    "id": 162,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["realtor.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["MID", "RID", "ex", "identityID"] } }
+      }
+    }
+  },
+  {
+    "id": 163,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["redfin.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["riftinfo"] } } }
+    }
+  },
+  {
+    "id": 164,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["epicgames.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["epic_affiliate", "epic_gameId"] } }
+      }
+    }
+  },
+  {
+    "id": 165,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["onet.pl"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["srcc", "utm_medium", "utm_source", "utm_v"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 166,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["allrecipes.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["clickId", "internalSource", "referringContentType", "referringId"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 167,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["europe1.fr"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["xtor"] } } }
+    }
+  },
+  {
+    "id": 168,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["argos.co.uk"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["clickOrigin", "istBid", "istCompanyId", "istFeedId", "istItemId"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 169,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["thunderbird.net"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["src"] } } }
+    }
+  },
+  {
+    "id": 170,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["cnbc.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["__source"] } } }
+    }
+  },
+  {
+    "id": 171,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["roblox.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["refPageId"] } } }
+    }
+  },
+  {
+    "id": 172,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["cell.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["_returnURL"] } } }
+    }
+  },
+  {
+    "id": 173,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["academic.oup.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["redirectedFrom"] } } }
+    }
+  },
+  {
+    "id": 174,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["agata88.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["source"] } } }
+    }
+  },
+  {
+    "id": 175,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["hs.fi"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["share"] } } }
+    }
+  },
+  {
+    "id": 176,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["yle.fi"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["origin"] } } }
+    }
+  },
+  {
+    "id": 177,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["flipkart.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "cid",
+              "collection-tab-name",
+              "ctx",
+              "fm",
+              "hpid",
+              "marketplace",
+              "nnc",
+              "otracker",
+              "otracker1",
+              "p[]",
+              "pid",
+              "ppn",
+              "ppt",
+              "qH",
+              "sattr[]",
+              "srno",
+              "ssid",
+              "st",
+              "store"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 178,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["idealo.de"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "cancelUrl",
+              "disc",
+              "lcb",
+              "leadOutUrl",
+              "offerListId",
+              "osId",
+              "sid",
+              "siteId",
+              "src"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 179,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["teletrader.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["internal"] } } }
+    }
+  },
+  {
+    "id": 180,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["deeplearning.ai"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["_hsenc", "_hsmi", "ecid"] } }
+      }
+    }
+  },
+  {
+    "id": 181,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["gamespot.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["PostType", "ServiceType", "TheTime", "UniqueID", "ftag"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 182,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["tokopedia.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["src", "trkid", "whid"] } }
+      }
+    }
+  },
+  {
+    "id": 183,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["wkorea.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["ddw", "ds_ch"] } } }
+    }
+  },
+  {
+    "id": 184,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["eonline.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["content", "medium", "source"] } }
+      }
+    }
+  },
+  {
+    "id": 185,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["reuters.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["taid"] } } }
+    }
+  },
+  {
+    "id": 186,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["change.org"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["psf_variant", "share_intent", "source_location"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 187,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["ceneo.pl"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["tag"] } } }
+    }
+  },
+  {
+    "id": 188,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["wired.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["intcid"] } } }
+    }
+  },
+  {
+    "id": 189,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["arms-retcode.aliyuncs.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "_v",
+              "api",
+              "begin",
+              "behavior",
+              "c2",
+              "c3",
+              "code",
+              "ct",
+              "dl",
+              "enableLinkTrace",
+              "enableSPA",
+              "environment",
+              "flag",
+              "msg",
+              "page",
+              "pid",
+              "post_res",
+              "pv_id",
+              "release",
+              "sample",
+              "sampling",
+              "sr",
+              "success",
+              "tag",
+              "traceId",
+              "uid",
+              "vp"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 190,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?://(?:[a-z0-9-]+\\.)*?nikkei\\.co(?:m|\\.jp)",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["adid", "i_cid", "n_cid", "waad"] } }
+      }
+    }
+  },
+  {
+    "id": 191,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?weibo\\.(cn|com)",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["dt_dapp", "weibo_id"] } } }
+    }
+  },
+  {
+    "id": 192,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["fiverr.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["context_referrer", "funnel", "ref_ctx_id", "source"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 193,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["etsy.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["click_key", "click_sum", "organic_search_click"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 194,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["magento.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["itm_campaign", "itm_medium", "itm_source", "itm_term"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 195,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["novinky.cz"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "dop_ab_variant",
+              "dop_id",
+              "dop_req_id",
+              "dop_source_zone_name",
+              "seq_no",
+              "source"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 196,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["aktualne.cz"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["dop_ab_variant", "dop_id", "dop_req_id", "dop_source_zone_name"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 197,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["seznamzpravy.cz"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "dop_ab_variant",
+              "dop_id",
+              "dop_req_id",
+              "dop_source_zone_name",
+              "seq_no",
+              "source"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 198,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["billiger.de"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["log", "p"] } } }
+    }
+  },
+  {
+    "id": 199,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["respekt.cz"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "dop_ab_variant",
+              "dop_id",
+              "dop_req_id",
+              "dop_source_zone_name",
+              "sznclid"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 200,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["faei.cz"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "dop_ab_variant",
+              "dop_id",
+              "dop_req_id",
+              "dop_source_zone_name",
+              "sznclid"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 201,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["iprima.cz"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "dop_ab_variant",
+              "dop_id",
+              "dop_req_id",
+              "dop_source_zone_name",
+              "sznclid"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 202,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["nova.cz"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "dop_ab_variant",
+              "dop_id",
+              "dop_req_id",
+              "dop_source_zone_name",
+              "sznclid"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 203,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?mercadoli[bv]re\\.com",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "DEAL_ID",
+              "L",
+              "S",
+              "T",
+              "V",
+              "ad_click_id",
+              "c_campaign",
+              "c_element",
+              "c_id",
+              "c_source",
+              "c_uid",
+              "me.bucket",
+              "me.order",
+              "me.page",
+              "pdp_filters",
+              "position",
+              "reco_id",
+              "search_layout",
+              "tracking_id",
+              "type"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 204,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["quizlet.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["funnelUUID"] } } }
+    }
+  },
+  {
+    "id": 205,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["bbc.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "at_bbc_team",
+              "at_campaign",
+              "at_format",
+              "at_link_id",
+              "at_link_origin",
+              "at_link_type",
+              "at_medium",
+              "at_ptr_name",
+              "xtor"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 206,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?airbnb\\.(com|ae|ca|co\\.in|co\\.nz|co\\.uk|co\\.za|com\\.au|com\\.mt|com\\.sg|de|gy|ie)",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": ["federated_search_id", "search_type", "source", "source_impression_id"]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 207,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?://(?:[a-z0-9-]+\\.)*?kahoot\\.it",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["refer_method"] } } }
+    }
+  },
+  {
+    "id": 208,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["goodreads.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": { "removeParams": ["ac", "from_search", "from_srp", "qid", "rank"] }
+        }
+      }
+    }
+  },
+  {
+    "id": 209,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["sohu.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["pvid", "scm"] } } }
+    }
+  },
+  {
+    "id": 210,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?shopee\\.(com|co\\.th|tw)",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["publish_id", "sp_atk", "xptdk"] } }
+      }
+    }
+  },
+  {
+    "id": 211,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "regexFilter": "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?lazada\\.(com|co\\.th|co\\.id|com\\.my|com\\.ph|sg|vn)",
+      "isUrlFilterCaseSensitive": false
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": {
+          "queryTransform": {
+            "removeParams": [
+              "abid",
+              "ad_src",
+              "cid",
+              "clickTrackInfo",
+              "did",
+              "from",
+              "impsrc",
+              "mp",
+              "pa",
+              "pid_pvid",
+              "pos",
+              "pvid",
+              "scm",
+              "spm",
+              "src"
+            ]
+          }
+        }
+      }
+    }
+  },
+  {
+    "id": 212,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["office-partner.de"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": {
+        "transform": { "queryTransform": { "removeParams": ["campaign", "sPartner"] } }
+      }
+    }
+  },
+  {
+    "id": 213,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["thetimes.co.uk"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["shareToken"] } } }
+    }
+  },
+  {
+    "id": 214,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["metro.co.uk"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["ito"] } } }
+    }
+  },
+  {
+    "id": 215,
+    "priority": 1,
+    "condition": { "resourceTypes": ["main_frame", "sub_frame"], "requestDomains": ["forbes.com"] },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["sh"] } } }
+    }
+  },
+  {
+    "id": 216,
+    "priority": 1,
+    "condition": {
+      "resourceTypes": ["main_frame", "sub_frame"],
+      "requestDomains": ["nordwolle.com"]
+    },
+    "action": {
+      "type": "redirect",
+      "redirect": { "transform": { "queryTransform": { "removeParams": ["_sc", "_sid", "_ss"] } } }
+    }
+  }
+]

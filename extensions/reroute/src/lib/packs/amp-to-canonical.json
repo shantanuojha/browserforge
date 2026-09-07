@@ -1,0 +1,30 @@
+{
+  "id": "amp-to-canonical",
+  "name": "AMP to canonical",
+  "description": "Leave Google's AMP cache and the ampproject.org CDN for the publisher's own page. A third, disabled rule strips a trailing /amp path segment; enable it if the sites you read use that convention.",
+  "variables": [],
+  "rules": [
+    {
+      "name": "Google AMP viewer -> publisher",
+      "matchType": "regex",
+      "include": "^https?://(?:www\\.)?google\\.[a-z.]{2,6}/amp/s/(.*)$",
+      "redirectTo": "https://$1",
+      "applyTo": "navigation"
+    },
+    {
+      "name": "ampproject.org CDN -> publisher",
+      "matchType": "regex",
+      "include": "^https?://[a-z0-9-]+\\.cdn\\.ampproject\\.org/[cv]/s/(.*)$",
+      "redirectTo": "https://$1",
+      "applyTo": "navigation"
+    },
+    {
+      "name": "Strip trailing /amp path (opt-in)",
+      "enabled": false,
+      "matchType": "regex",
+      "include": "^(https?://[^?#]+?)/amp/?([?#].*)?$",
+      "redirectTo": "$1$2",
+      "applyTo": "navigation"
+    }
+  ]
+}

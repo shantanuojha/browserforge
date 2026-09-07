@@ -1,0 +1,44 @@
+{
+  "id": "privacy-frontends",
+  "name": "Privacy front-ends",
+  "description": "Open YouTube through an Invidious instance and Twitter/X through a Nitter instance. Instances are placeholders: enter the hosts you trust before installing. You can edit them later in the rule editor.",
+  "variables": [
+    {
+      "key": "INVIDIOUS_HOST",
+      "label": "Invidious instance host",
+      "placeholder": "e.g. invidious.example.org",
+      "default": ""
+    },
+    {
+      "key": "NITTER_HOST",
+      "label": "Nitter instance host",
+      "placeholder": "e.g. nitter.example.org",
+      "default": ""
+    }
+  ],
+  "rules": [
+    {
+      "name": "YouTube -> Invidious",
+      "matchType": "regex",
+      "include": "^https?://(?:www\\.|m\\.)?youtube\\.com/(.*)$",
+      "exclude": ["^https?://[^/]*youtube\\.com/(?:api|youtubei|generate_204|s/)"],
+      "redirectTo": "https://{{INVIDIOUS_HOST}}/$1",
+      "applyTo": "navigation"
+    },
+    {
+      "name": "youtu.be -> Invidious",
+      "matchType": "regex",
+      "include": "^https?://youtu\\.be/([A-Za-z0-9_-]+)",
+      "redirectTo": "https://{{INVIDIOUS_HOST}}/watch?v=$1",
+      "applyTo": "navigation"
+    },
+    {
+      "name": "Twitter / X -> Nitter",
+      "matchType": "regex",
+      "include": "^https?://(?:www\\.|mobile\\.)?(?:twitter|x)\\.com/(.*)$",
+      "exclude": ["^https?://[^/]*(?:twitter|x)\\.com/(?:i/api|i/flow|login|oauth|account/)"],
+      "redirectTo": "https://{{NITTER_HOST}}/$1",
+      "applyTo": "navigation"
+    }
+  ]
+}

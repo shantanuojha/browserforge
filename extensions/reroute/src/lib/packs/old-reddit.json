@@ -1,0 +1,18 @@
+{
+  "id": "old-reddit",
+  "name": "Old Reddit",
+  "description": "Send reddit.com, new.reddit.com and sh.reddit.com pages to old.reddit.com. Media, gallery and settings pages are left alone because the old interface cannot render them.",
+  "variables": [],
+  "rules": [
+    {
+      "name": "Reddit -> old.reddit.com",
+      "matchType": "regex",
+      "include": "^https?://(?:www\\.|new\\.|sh\\.)?reddit\\.com/(.*)$",
+      "exclude": [
+        "^https?://[^/]*reddit\\.com/(?:media|gallery|poll|settings|appeals|r/[^/]+/s/|svc/)"
+      ],
+      "redirectTo": "https://old.reddit.com/$1",
+      "applyTo": "navigation"
+    }
+  ]
+}
