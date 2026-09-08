@@ -8,10 +8,10 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import type { FlatRow, NodeId, TreeNode } from "@/lib/model";
+import type { DropPosition, FlatRow, NodeId, TreeNode } from "@/lib/model";
 import { Icon } from "./Icon";
 
-export type DropPosition = "before" | "after" | "inside";
+export type { DropPosition };
 
 export interface RowCallbacks {
   onSelect(id: NodeId): void;

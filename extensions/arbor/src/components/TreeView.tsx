@@ -10,8 +10,8 @@ import {
 import {
   buildChildIndex,
   flattenTree,
-  isSelfOrAncestor,
-  windowNodeOf,
+  resolveDrop,
+  type DropDestination,
   type FlatRow,
   type NodeId,
   type Tree,
@@ -140,29 +140,12 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
 
   // -- drag & drop -----------------------------------------------------------------------------
 
+  // Placement is presentation only: every node kind may be nested under a group (or any non-note
+  // node) or reordered among any siblings. `resolveDrop` only refuses cycles and nesting under a
+  // note; whether the real browser tab follows is decided by the tracker on `actions.move`.
   const dropTarget = useCallback(
-    (
-      draggedId: NodeId,
-      targetId: NodeId,
-      pos: DropPosition,
-    ): { parentId: NodeId | null; index: number } | null => {
-      const dragged = tree.get(draggedId);
-      const target = tree.get(targetId);
-      if (!dragged || !target || draggedId === targetId) return null;
-      if (isSelfOrAncestor(tree, draggedId, targetId)) return null;
-      if (pos === "inside" && target.kind === "note") return null;
-      const parentId = pos === "inside" ? target.id : target.parentId;
-      if (dragged.kind === "window" && parentId !== null) return null;
-      if (dragged.kind === "tab" && dragged.liveTabId !== undefined) {
-        if (parentId === null) return null;
-        const win = windowNodeOf(tree, parentId);
-        if (!win || win.liveWindowId === undefined) return null;
-      }
-      const siblings = (childIndex.get(parentId) ?? []).filter((s) => s.id !== draggedId);
-      if (pos === "inside") return { parentId, index: siblings.length };
-      const at = siblings.findIndex((s) => s.id === targetId);
-      return { parentId, index: pos === "before" ? at : at + 1 };
-    },
+    (draggedId: NodeId, targetId: NodeId, pos: DropPosition): DropDestination | null =>
+      resolveDrop(tree, draggedId, targetId, pos, childIndex),
     [tree, childIndex],
   );
 
@@ -175,15 +158,8 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
     return "inside";
   };
 
-  const rootDrop = (draggedId: NodeId): { parentId: null; index: number } | null => {
-    const dragged = tree.get(draggedId);
-    if (!dragged) return null;
-    if (dragged.kind === "tab" && dragged.liveTabId !== undefined) return null;
-    return {
-      parentId: null,
-      index: (childIndex.get(null) ?? []).filter((r) => r.id !== draggedId).length,
-    };
-  };
+  const rootDrop = (draggedId: NodeId): DropDestination | null =>
+    resolveDrop(tree, draggedId, null, "inside", childIndex);
 
   // -- row callbacks (stable) -----------------------------------------------------------------
 
