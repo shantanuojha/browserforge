@@ -45,7 +45,7 @@ packages/      shared, licensing, ui         (workspace libraries)
 The website lives in its own repository, `browserforge-site`: landing page
 [shantanuojha.com](https://shantanuojha.com), product pages at `https://<name>.shantanuojha.com`
 (e.g. [arbor.shantanuojha.com](https://arbor.shantanuojha.com)), privacy policies at
-`https://shantanuojha.com/privacy/<name>`, support via hello@shantanuojha.com.
+`https://<name>.shantanuojha.com/privacy`, support via hello@shantanuojha.com.
 
 ## Licensing
 
