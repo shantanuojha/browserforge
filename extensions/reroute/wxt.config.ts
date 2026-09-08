@@ -31,7 +31,7 @@ export default defineConfig({
       ],
     },
     browser_specific_settings: {
-      gecko: { id: "reroute@browserforge.dev" },
+      gecko: { id: "reroute@shantanuojha.com" },
     },
   },
   zip: {

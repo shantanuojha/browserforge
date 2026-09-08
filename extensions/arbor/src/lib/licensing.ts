@@ -20,7 +20,7 @@ export const PRODUCT_NAME = "arbor";
 export const PRODUCT_LABEL = "Arbor Pro";
 export const PRO_PRICE_TEXT = "Pro \u2014 $15 one-time";
 /** Product page; used as the "Buy Pro" target when no hosted checkout URL is configured. */
-export const PRO_PAGE_URL = "https://browserforge.dev/arbor#pro";
+export const PRO_PAGE_URL = "https://arbor.shantanuojha.com/#pro";
 
 /** Names of the WXT env vars (`import.meta.env.*`) that configure licensing. See `.env.example`. */
 export const ENV = {

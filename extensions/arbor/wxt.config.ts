@@ -31,7 +31,7 @@ export default defineConfig({
       },
     },
     browser_specific_settings: {
-      gecko: { id: "arbor@browserforge.dev" },
+      gecko: { id: "arbor@shantanuojha.com" },
     },
   },
   zip: {

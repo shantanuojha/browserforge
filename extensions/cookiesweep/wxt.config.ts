@@ -22,7 +22,7 @@ export default defineConfig({
     action: { default_title: "CookieSweep" },
     options_ui: { page: "options.html", open_in_tab: true },
     browser_specific_settings: {
-      gecko: { id: "cookiesweep@browserforge.dev" },
+      gecko: { id: "cookiesweep@shantanuojha.com" },
     },
   },
   zip: {

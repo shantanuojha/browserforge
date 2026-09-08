@@ -40,5 +40,22 @@ extensions/    arbor, reroute, cookiesweep   (WXT + React)
 packages/      shared, licensing, ui         (workspace libraries)
 ```
 
-The website (browserforge.dev: product pages, privacy policy, terms, support) lives in its own
-repository, `browserforge-site`.
+The website lives in its own repository, `browserforge-site`: landing page
+[shantanuojha.com](https://shantanuojha.com), product pages at `https://<name>.shantanuojha.com`
+(e.g. [arbor.shantanuojha.com](https://arbor.shantanuojha.com)), privacy policies at
+`https://shantanuojha.com/privacy/<name>`, support via hello@shantanuojha.com.
+
+## Licensing
+
+Arbor and Reroute read their Lemon Squeezy configuration from `WXT_*` variables in
+`extensions/<name>/.env` (git-ignored; see each `.env.example`). Generate both files from the local
+secrets file (`C:\Users\SHANTANU\.browserforge\secrets.env`, keys `LEMONSQUEEZY_STORE_ID`,
+`LEMONSQUEEZY_VARIANT_ID_ARBOR`, `LEMONSQUEEZY_VARIANT_ID_REROUTE`) with:
+
+```powershell
+pwsh scripts/write-env.ps1                       # or: -SecretsPath <file>
+```
+
+The script skips empty keys, sets `WXT_LEMONSQUEEZY_CHECKOUT_URL_*` to the product pages'
+`#pro` anchors, and never prints values. Without a `.env`, builds still work: Pro gates stay closed
+and the options page shows "Licensing not configured".

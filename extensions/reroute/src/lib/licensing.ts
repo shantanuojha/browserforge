@@ -20,7 +20,7 @@ export const PRODUCT_NAME = "reroute";
 export const PRODUCT_LABEL = "Reroute Pro";
 export const PRO_PRICE_TEXT = "Pro \u2014 $9 one-time";
 /** Product page; used as the "Buy Pro" target when no hosted checkout URL is configured. */
-export const PRO_PAGE_URL = "https://browserforge.dev/reroute#pro";
+export const PRO_PAGE_URL = "https://reroute.shantanuojha.com/#pro";
 
 /** Names of the WXT env vars (`import.meta.env.*`) that configure licensing. See `.env.example`. */
 export const ENV = {
