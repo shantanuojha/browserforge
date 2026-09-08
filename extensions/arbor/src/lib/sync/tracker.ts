@@ -489,12 +489,15 @@ export class TabTracker {
       const wTabs = liveTabs.filter((t) => t.windowId === w.id);
       let match: TreeNode | undefined;
       let idsValid = false;
-      // 1. Same live id, verified by at least one tab id + url still matching.
+      // 1. Same live id, verified by at least one tab id still matching with the same url (a
+      //    blank page on both sides counts: a window holding only a new tab must re-attach too).
       const byId = windowNodes.find((n) => n.liveWindowId === w.id && !usedWindowNodes.has(n.id));
       if (byId) {
         const kids = tabNodesUnder(byId.id);
+        const samePage = (t: LiveTab, k: TreeNode) =>
+          sameUrl(t.url, k.url) || (isBlankUrl(t.url) && isBlankUrl(k.url));
         const verified =
-          kids.some((k) => wTabs.some((t) => t.id === k.liveTabId && sameUrl(t.url, k.url))) ||
+          kids.some((k) => wTabs.some((t) => t.id === k.liveTabId && samePage(t, k))) ||
           (kids.length === 0 && wTabs.every((t) => isBlankUrl(t.url)));
         if (verified) {
           match = byId;

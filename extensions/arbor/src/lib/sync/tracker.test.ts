@@ -436,6 +436,19 @@ describe("TabTracker.rebuild", () => {
     });
   });
 
+  it("re-attaches a window that only holds a new tab instead of leaving a stale copy", async () => {
+    const { store, fb } = await setup();
+    const w = fb.openWindow();
+    fb.openTab(w.id, "chrome://newtab/", "New tab");
+    const winNode = findWindowByLiveId(store.getTree(), w.id);
+
+    const fresh = new TabTracker(store, fb, { newId, now: () => 1 });
+    const report = await fresh.rebuild();
+    expect(report).toMatchObject({ windowsMatched: 1, windowsCreated: 0, nodesSaved: 0 });
+    const windows = [...store.getTree().values()].filter((n) => n.kind === "window");
+    expect(windows.map((n) => [n.id, n.liveWindowId])).toEqual([[winNode?.id, w.id]]);
+  });
+
   it("matches windows by URL overlap after a browser restart (new ids)", async () => {
     const { store, fb } = await setup();
     const w = fb.openWindow();

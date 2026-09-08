@@ -64,7 +64,7 @@ export function App() {
     const run = (p: Promise<unknown>) => void p.catch(report);
     return {
       toggleCollapse: (id, collapsed) => run(msg.applyOps.send([ops.collapse(id, collapsed)])),
-      setNote: (id, note) => run(msg.applyOps.send([ops.update(id, { note: note || undefined })])),
+      setNote: (id, note) => run(msg.applyOps.send([ops.note(id, note)])),
       rename: (id, title) => run(msg.applyOps.send([ops.update(id, { title })])),
       primary: (id) => {
         const n = tree.get(id);

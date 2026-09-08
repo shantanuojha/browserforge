@@ -29,8 +29,17 @@ export interface TreeNode {
   order: number;
 }
 
-/** Fields a caller may change on an existing node. `undefined` removes the field. */
-export type NodePatch = Partial<Omit<TreeNode, "id" | "createdAt" | "order" | "parentId">>;
+/**
+ * Fields a caller may change on an existing node. `undefined` or `null` removes the field. Use
+ * `null` for patches that travel over `runtime.sendMessage`: messaging has JSON semantics and
+ * silently drops `undefined` properties, which would turn "clear this field" into a no-op.
+ */
+export type NodePatch = {
+  [K in keyof Omit<TreeNode, "id" | "createdAt" | "order" | "parentId">]?:
+    | TreeNode[K]
+    | null
+    | undefined;
+};
 
 export type OpBody =
   | { type: "add"; node: TreeNode; index?: number | undefined }
@@ -355,7 +364,7 @@ function applyOpMut(map: Map<NodeId, TreeNode>, op: OpBody, ts: number): void {
         ) {
           continue;
         }
-        if (v === undefined) delete next[k];
+        if (v === undefined || v === null) delete next[k];
         else next[k] = v;
       }
       map.set(cur.id, next as unknown as TreeNode);
@@ -450,8 +459,13 @@ export const ops = {
   remove(id: NodeId): OpBody {
     return { type: "remove", id };
   },
+  /** UI ops cross `runtime.sendMessage`, so "clear" is encoded as `null` (see `NodePatch`). */
   collapse(id: NodeId, collapsed: boolean): OpBody {
-    return { type: "update", id, patch: { collapsed: collapsed ? true : undefined } };
+    return { type: "update", id, patch: { collapsed: collapsed ? true : null } };
+  },
+  note(id: NodeId, note: string): OpBody {
+    const text = note.trim();
+    return { type: "update", id, patch: { note: text ? text : null } };
   },
 };
 

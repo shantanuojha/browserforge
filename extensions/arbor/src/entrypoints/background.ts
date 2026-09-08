@@ -21,6 +21,8 @@ import { bindTrackerEvents, browserTabsPort } from "@/lib/sync/browser-port";
 import { TabTracker } from "@/lib/sync/tracker";
 
 const COMPACT_ALARM = "arbor-compact-check";
+/** One-shot re-sync after browser start: session restore can still be creating windows/tabs. */
+const STARTUP_RESYNC_ALARM = "arbor-startup-resync";
 
 /** `browser.sidePanel` only exists in Chromium 114+. */
 function sidePanelApi(): typeof browser.sidePanel | undefined {
@@ -74,6 +76,24 @@ export default defineBackground(() => {
 
   bindTrackerEvents(tracker, ready);
 
+  // `ready` already mirrors every open window on each service-worker start. These hooks re-run the
+  // same reconciliation at the two lifecycle points where the browser's window list is most likely
+  // to change right after we looked: a fresh install (windows may still be enumerating) and a
+  // browser start (session restore recreates windows/tabs, sometimes seconds later).
+  const resync = async (why: string): Promise<void> => {
+    await ready;
+    startup.rebuild = await tracker.rebuild();
+    log.info(`resync (${why})`, startup.rebuild);
+  };
+  browser.runtime.onInstalled.addListener(() => {
+    void resync("installed").catch((e: unknown) => log.error("resync failed", e));
+  });
+  browser.runtime.onStartup.addListener(() => {
+    void resync("startup").catch((e: unknown) => log.error("resync failed", e));
+    // Alarms survive worker restarts; 30 s is the shortest delay Chrome allows in release builds.
+    void browser.alarms.create(STARTUP_RESYNC_ALARM, { delayInMinutes: 0.5 }).catch(() => undefined);
+  });
+
   watchSettings((next) => {
     settings = next;
     store.setCompactionInterval(next.compactionIntervalMinutes * 60_000);
@@ -91,6 +111,8 @@ export default defineBackground(() => {
     void ready.then(async () => {
       if (alarm.name === COMPACT_ALARM) {
         await store.compactIfDue();
+      } else if (alarm.name === STARTUP_RESYNC_ALARM) {
+        await resync("startup+30s");
       } else if (alarm.name === BACKUP_ALARM) {
         if (!(await isPro()) || !settings?.backups.enabled) {
           await browser.alarms.clear(BACKUP_ALARM);

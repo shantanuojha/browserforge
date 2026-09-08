@@ -1,6 +1,6 @@
 {
   "name": "@browserforge/arbor",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "description": "Arbor: tree-style tab and session manager that never loses your tabs.",
   "license": "MIT",
