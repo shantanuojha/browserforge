@@ -105,7 +105,7 @@ jobs:
           if [ "$DRY_RUN" = "true" ]; then args+=(--dry-run); fi
           pnpm exec wxt submit "${args[@]}"
 
-      - uses: actions/upload-artifact@v5
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ needs.meta.outputs.extension }}-zips
           path: extensions/${{ needs.meta.outputs.extension }}/.output/*.zip
