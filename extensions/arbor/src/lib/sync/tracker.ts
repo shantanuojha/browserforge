@@ -24,11 +24,20 @@ import {
   type TabsPort,
 } from "./types";
 
+/**
+ * A restore in flight: the saved node that must own the tab `tabs.create` is about to produce.
+ * Matched by window + url when `tabs.onCreated` fires (the tab id is not known yet), then
+ * confirmed by tab id once `tabs.create` resolves. Forgotten after `ADOPTION_TTL_MS` so a create
+ * that never came back cannot capture an unrelated tab later.
+ */
 interface TabAdoption {
   nodeId: NodeId;
   url: string;
   windowId: number | undefined;
+  ts: number;
 }
+
+const ADOPTION_TTL_MS = 30_000;
 
 export interface LiveState {
   activeTabIds: number[];
@@ -66,7 +75,8 @@ function sameUrl(a: string | undefined, b: string | undefined): boolean {
  * Invariants it maintains:
  * - a live tab node has `liveTabId` and `liveWindowId`; the tracker creates it under the matching
  *   window node, but the user may drag it anywhere (see `isDetached`);
- * - a closed tab becomes a saved node (live ids cleared) unless it was a blank new tab;
+ * - a closed tab becomes a saved node (live ids cleared) unless it was a blank new tab; a saved
+ *   node the user reopens becomes live again where it sits (same parent, position and children);
  * - the depth-first order of the live tab nodes attached to a window node follows the browser's
  *   tab strip (detached tabs skipped) whenever the tracker itself changed the tree; user nesting
  *   is preserved otherwise.
@@ -244,14 +254,24 @@ export class TabTracker {
     return Object.keys(patch).length ? patch : null;
   }
 
+  /** Restores still waiting for their tab, minus the ones that gave up (see `ADOPTION_TTL_MS`). */
+  private pendingAdoptions(): TabAdoption[] {
+    const cutoff = this.now() - ADOPTION_TTL_MS;
+    if (this.adoptTabs.some((a) => a.ts < cutoff)) {
+      this.adoptTabs = this.adoptTabs.filter((a) => a.ts >= cutoff);
+    }
+    return this.adoptTabs;
+  }
+
   private adoptOrCreate(tab: LiveTab): NodeId {
     const tree = this.tree;
     const url = tab.pendingUrl || tab.url;
-    const adoptIdx = this.adoptTabs.findIndex(
+    const pending = this.pendingAdoptions();
+    const adoptIdx = pending.findIndex(
       (a) => (a.windowId === undefined || a.windowId === tab.windowId) && sameUrl(a.url, url),
     );
     if (adoptIdx >= 0) {
-      const [adoption] = this.adoptTabs.splice(adoptIdx, 1);
+      const [adoption] = pending.splice(adoptIdx, 1);
       const node = adoption ? tree.get(adoption.nodeId) : undefined;
       if (node) {
         this.adoptNode(node, tab);
@@ -274,19 +294,55 @@ export class TabTracker {
     return node.id;
   }
 
-  /** Bind a saved node to a live tab, moving it under the right window when needed. */
+  /**
+   * Bind a saved node to a live tab where the node sits. Nothing is moved: inside a live window's
+   * subtree the tab was opened at the strip index matching the node (see `stripIndexFor`);
+   * anywhere else (root group, saved window...) the node becomes a detached live tab and keeps its
+   * parent, position and children. The window node is created on demand so the tab has a window
+   * node to be attached to or detached from.
+   */
   private adoptNode(node: TreeNode, tab: LiveTab): void {
-    const batch: OpBody[] = [];
-    const windowNode = this.windowNodeFor(tab.windowId);
-    if (windowNodeOf(this.tree, node.id)?.id !== windowNode.id) {
-      batch.push(ops.move(node.id, windowNode.id, childrenOf(this.tree, windowNode.id).length));
-    }
+    this.windowNodeFor(tab.windowId);
     const patch = this.patchFor(node, tab) ?? {};
     // Keep the saved title/favicon until the page reports its own.
     if (!tab.title) delete patch.title;
     if (!tab.favIconUrl) delete patch.favIconUrl;
-    if (Object.keys(patch).length) batch.push(ops.update(node.id, patch));
-    if (batch.length) this.store.append(batch);
+    if (Object.keys(patch).length) this.store.append([ops.update(node.id, patch)]);
+  }
+
+  /**
+   * Strip index at which the tab for saved `nodeId` (inside live `windowNode`'s subtree) must
+   * open so the window's attached depth-first order keeps matching the strip: right after the
+   * nearest attached predecessor still in the strip, else right before the nearest attached
+   * successor, else at the end (`undefined`).
+   */
+  private stripIndexFor(
+    nodeId: NodeId,
+    windowNode: TreeNode,
+    windowId: number,
+  ): number | undefined {
+    const index = buildChildIndex(this.tree);
+    const before: number[] = [];
+    const after: number[] = [];
+    let passed = false;
+    const seen = new Set<NodeId>();
+    const walk = (parentId: NodeId): void => {
+      for (const n of index.get(parentId) ?? []) {
+        if (n.kind === "window" || seen.has(n.id)) continue;
+        seen.add(n.id);
+        if (n.id === nodeId) passed = true;
+        else if (n.kind === "tab" && n.liveTabId !== undefined) {
+          (passed ? after : before).push(n.liveTabId);
+        }
+        walk(n.id);
+      }
+    };
+    walk(windowNode.id);
+    const strip = this.orderOf(windowId);
+    const pred = before.reverse().find((id) => strip.includes(id));
+    if (pred !== undefined) return strip.indexOf(pred) + 1;
+    const succ = after.find((id) => strip.includes(id));
+    return succ === undefined ? undefined : strip.indexOf(succ);
   }
 
   // -- browser events -------------------------------------------------------------------------
@@ -414,7 +470,7 @@ export class TabTracker {
           const target = this.savedDescendantByUrl(nodeId, url, used);
           if (target) {
             used.add(target.id);
-            this.adoptTabs.push({ nodeId: target.id, url, windowId: win.id });
+            this.adoptTabs.push({ nodeId: target.id, url, windowId: win.id, ts: this.now() });
           }
         }
         return;
@@ -734,19 +790,22 @@ export class TabTracker {
     return undefined;
   }
 
-  /** Reopen a saved node: a tab opens in its (live) window or the current one; a window reopens. */
+  /**
+   * Reopen a saved node in place: the node itself becomes live again with the same parent,
+   * position and children.
+   *
+   * - A tab node under a live window opens in that window at the strip index matching its place
+   *   in the tree. Anywhere else (root group, saved window...) it opens in the focused window and
+   *   becomes a detached live tab. Its saved children stay saved.
+   * - A window node reopens as a new browser window whose tabs are its saved descendants.
+   * - A group or note reopens every saved tab beneath it (each in place, as above).
+   */
   async restore(nodeId: NodeId): Promise<void> {
     const node = this.tree.get(nodeId);
     if (!node) return;
     if (node.kind === "tab") {
       if (node.liveTabId !== undefined) return this.focus(nodeId);
-      if (!node.url) return;
-      const windowNode = windowNodeOf(this.tree, nodeId);
-      const windowId =
-        windowNode?.liveWindowId ?? this.focusedWindowId ?? (await this.port.currentWindowId());
-      this.adoptTabs.push({ nodeId, url: node.url, windowId });
-      const tab = await this.port.createTab({ url: node.url, windowId, active: true });
-      this.finishTabAdoption(nodeId, tab);
+      await this.reopenTab(node, true);
       return;
     }
     if (node.kind === "window") {
@@ -759,8 +818,13 @@ export class TabTracker {
         .map((n) => n.url as string);
       if (!urls.length) return;
       this.adoptWindow = { nodeId, urls };
-      const { window: win, tabs } = await this.port.createWindow(urls);
-      this.adoptWindow = null;
+      let created: { window: LiveWindow; tabs: LiveTab[] };
+      try {
+        created = await this.port.createWindow(urls);
+      } finally {
+        this.adoptWindow = null;
+      }
+      const { window: win, tabs } = created;
       const current = this.tree.get(nodeId);
       if (current && current.liveWindowId === undefined) {
         this.store.append([ops.update(nodeId, { liveWindowId: win.id })]);
@@ -775,17 +839,52 @@ export class TabTracker {
         }
       }
       this.adoptTabs = this.adoptTabs.filter((a) => a.windowId !== win.id);
+      this.foldDuplicateWindowNodes(nodeId, win.id);
       return;
     }
-    // group / note: open every saved tab beneath it in the current window.
-    const windowId = this.focusedWindowId ?? (await this.port.currentWindowId());
+    // group / note: open every saved tab beneath it.
     for (const id of descendantIds(this.tree, nodeId)) {
       const n = this.tree.get(id);
       if (n && n.kind === "tab" && n.liveTabId === undefined && n.url) {
-        this.adoptTabs.push({ nodeId: id, url: n.url, windowId });
-        const tab = await this.port.createTab({ url: n.url, windowId, active: false });
-        this.finishTabAdoption(id, tab);
+        await this.reopenTab(n, false);
       }
+    }
+  }
+
+  /** Open a browser tab for saved tab `node` so that `node` itself becomes live in place. */
+  private async reopenTab(node: TreeNode, active: boolean): Promise<void> {
+    if (!node.url) return;
+    const windowNode = windowNodeOf(this.tree, node.id);
+    const liveWindowId = windowNode?.liveWindowId;
+    const windowId = liveWindowId ?? this.focusedWindowId ?? (await this.port.currentWindowId());
+    const index =
+      windowNode && liveWindowId !== undefined
+        ? this.stripIndexFor(node.id, windowNode, liveWindowId)
+        : undefined;
+    const adoption: TabAdoption = { nodeId: node.id, url: node.url, windowId, ts: this.now() };
+    this.adoptTabs.push(adoption);
+    let tab: LiveTab;
+    try {
+      tab = await this.port.createTab({ url: node.url, windowId, index, active });
+    } catch (e) {
+      this.adoptTabs = this.adoptTabs.filter((a) => a !== adoption);
+      throw e;
+    }
+    this.finishTabAdoption(node.id, tab);
+  }
+
+  /**
+   * `tabs.onCreated` may reach us before `windows.onCreated` while a saved window reopens; the
+   * tabs then conjure a second node for the new window. Fold it into the reopened node.
+   */
+  private foldDuplicateWindowNodes(keepId: NodeId, windowId: number): void {
+    for (const dup of [...this.tree.values()]) {
+      if (dup.kind !== "window" || dup.id === keepId || dup.liveWindowId !== windowId) continue;
+      const batch: OpBody[] = [];
+      let at = childrenOf(this.tree, keepId).length;
+      for (const kid of childrenOf(this.tree, dup.id)) batch.push(ops.move(kid.id, keepId, at++));
+      batch.push(ops.remove(dup.id));
+      this.store.append(batch);
     }
   }
 

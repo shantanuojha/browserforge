@@ -122,9 +122,24 @@ class FakeBrowser implements TabsPort {
     return { tabs: this.tabs.map((t) => ({ ...t })), windows: this.windows.map((w) => ({ ...w })) };
   }
 
-  async createTab(opts: { url: string; windowId?: number | undefined }): Promise<LiveTab> {
+  /** When set, `createWindow` fires the tab events before the window event. */
+  tabsBeforeWindow = false;
+
+  async createTab(opts: {
+    url: string;
+    windowId?: number | undefined;
+    index?: number | undefined;
+  }): Promise<LiveTab> {
     const windowId = opts.windowId ?? this.windows[0]?.id ?? this.addWindow().id;
-    const tab = this.addTab(windowId, opts.url, "");
+    const inWindow = this.tabs.filter((t) => t.windowId === windowId);
+    const at =
+      opts.index === undefined
+        ? inWindow.length
+        : Math.max(0, Math.min(opts.index, inWindow.length));
+    const tab: LiveTab = { id: this.nextId++, windowId, index: at, url: opts.url, title: "" };
+    inWindow.splice(at, 0, tab);
+    this.tabs = [...this.tabs.filter((t) => t.windowId !== windowId), ...inWindow];
+    this.reindex(windowId);
     // Chrome fires onCreated (with pendingUrl) before the promise resolves.
     this.tracker.handleTabCreated({ ...tab, url: "", pendingUrl: opts.url, title: "" });
     return { ...tab, url: opts.url };
@@ -132,9 +147,10 @@ class FakeBrowser implements TabsPort {
 
   async createWindow(urls: string[]) {
     const w = this.addWindow();
-    this.tracker.handleWindowCreated(w);
+    if (!this.tabsBeforeWindow) this.tracker.handleWindowCreated(w);
     const tabs = urls.map((u) => this.addTab(w.id, u, ""));
     for (const t of tabs) this.tracker.handleTabCreated({ ...t, pendingUrl: t.url, url: "" });
+    if (this.tabsBeforeWindow) this.tracker.handleWindowCreated(w);
     return { window: w, tabs };
   }
 
@@ -188,6 +204,11 @@ const dropInside = (ctx: Ctx, draggedId: NodeId, targetId: NodeId) =>
 
 function addRootGroup(ctx: Ctx, id: NodeId): void {
   ctx.store.append([ops.add(makeNode({ id, parentId: null, kind: "group", title: id, ts: 1 }))]);
+}
+
+/** A saved tab node (e.g. imported or left behind by a closed tab) at the end of `parentId`. */
+function addSavedTab(ctx: Ctx, id: NodeId, parentId: NodeId, url: string, title = id): void {
+  ctx.store.append([ops.add(makeNode({ id, parentId, kind: "tab", title, url, ts: 1 }))]);
 }
 
 /** Service-worker restart: a fresh tracker over the same op log and the same live browser. */
@@ -443,17 +464,25 @@ describe("TabTracker actions", () => {
     for (const kid of childrenOf(tree, win?.id ?? "")) expect(kid.liveTabId).toBeDefined();
   });
 
-  it("restore moves a tab from a closed window under the current live window", async () => {
-    const { store, fb, tracker } = await setup();
+  it("restore of a tab from a closed window opens it in the current window but keeps it in place", async () => {
+    const ctx = await setup();
+    const { store, fb, tracker } = ctx;
     const w1 = fb.openWindow();
     const a = fb.openTab(w1.id, "https://a.test/", "A");
     const aNode = findByLiveTabId(store.getTree(), a.id);
+    const w1Node = findWindowByLiveId(store.getTree(), w1.id);
     fb.closeWindow(w1.id);
     const w2 = fb.openWindow();
     fb.openTab(w2.id, "https://x.test/", "X");
     await tracker.restore(aNode?.id ?? "");
-    const w2Node = findWindowByLiveId(store.getTree(), w2.id);
-    expect(store.getTree().get(aNode?.id ?? "")?.parentId).toBe(w2Node?.id);
+    // The browser tab lives in w2; the node stays under its saved window as a detached live tab.
+    expect(fb.stripOrder(w2.id).length).toBe(2);
+    expect(store.getTree().get(aNode?.id ?? "")).toMatchObject({
+      parentId: w1Node?.id,
+      liveWindowId: w2.id,
+    });
+    expect(store.getTree().get(w1Node?.id ?? "")?.liveWindowId).toBeUndefined();
+    expect(titlesUnder(ctx, winNodeOf(ctx, w2)?.id)).toEqual(["X"]);
   });
 
   it("closeAllAndSave marks everything saved, keeps the browser alive and closes tabs", async () => {
@@ -895,5 +924,280 @@ describe("TabTracker with detached tab nodes", () => {
     fb.moveTabInStrip(c.id, 0); // strip: C A B
     expect(nodeOf(ctx, a)?.parentId).toBe("g");
     expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["C", "B"]);
+  });
+});
+
+/**
+ * "Click it later to reopen it in place": restoring a saved node turns that very node live again
+ * with the same parent, position and children. Outside a live window's subtree it becomes a
+ * detached live tab; inside one the browser tab opens at the matching strip index.
+ */
+describe("TabTracker.restore in place", () => {
+  /** Live window with A, B; root group "g" holding saved S (with saved child C) and saved T. */
+  async function groupSetup() {
+    const ctx = await setup();
+    const w = ctx.fb.openWindow();
+    const a = ctx.fb.openTab(w.id, "https://a.test/", "A");
+    const b = ctx.fb.openTab(w.id, "https://b.test/", "B");
+    addRootGroup(ctx, "g");
+    addSavedTab(ctx, "s", "g", "https://s.test/", "S");
+    addSavedTab(ctx, "c", "s", "https://c.test/", "C");
+    addSavedTab(ctx, "t", "g", "https://t.test/", "T");
+    return { ...ctx, w, a, b, size: ctx.store.getTree().size };
+  }
+
+  it("reopens a saved node inside a root group as a detached live tab, children kept", async () => {
+    const ctx = await groupSetup();
+    const { store, fb, tracker, w, a, b, size } = ctx;
+    await tracker.restore("s");
+    const tree = store.getTree();
+    expect(tree.size).toBe(size);
+    const s = tree.get("s");
+    expect(s).toMatchObject({ parentId: "g", liveWindowId: w.id, title: "S" });
+    expect(s?.liveTabId).toBeDefined();
+    expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
+    expect(titlesUnder(ctx, "s")).toEqual(["C"]);
+    expect(tree.get("c")?.liveTabId).toBeUndefined(); // the child stays saved
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "B"]);
+    // The browser tab opened in the focused window; the window keeps mirroring its strip around it.
+    expect(fb.stripOrder(w.id)).toEqual([a.id, b.id, s?.liveTabId]);
+    fb.moveTabInStrip(b.id, 0); // strip: B A S
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["B", "A"]);
+    expect(store.getTree().get("s")?.parentId).toBe("g");
+    expect(fb.moved).toEqual([]);
+  });
+
+  it("keeps applying live updates and saves the reopened node in place when it closes", async () => {
+    const ctx = await groupSetup();
+    const { store, fb, tracker, size } = ctx;
+    await tracker.restore("s");
+    const tabId = store.getTree().get("s")?.liveTabId ?? -1;
+    const live = fb.tabs.find((t) => t.id === tabId);
+    fb.tracker.handleTabUpdated(tabId, {
+      ...(live as LiveTab),
+      title: "S loaded",
+      favIconUrl: "https://s.test/f.ico",
+    });
+    expect(store.getTree().get("s")).toMatchObject({
+      parentId: "g",
+      title: "S loaded",
+      favIconUrl: "https://s.test/f.ico",
+    });
+    expect(store.getTree().size).toBe(size);
+    fb.closeTab(tabId);
+    const s = store.getTree().get("s");
+    expect(s).toMatchObject({ parentId: "g", title: "S loaded" });
+    expect(s?.liveTabId).toBeUndefined();
+    expect(s?.liveWindowId).toBeUndefined();
+    expect(titlesUnder(ctx, "s")).toEqual(["C"]);
+    expect(store.getTree().size).toBe(size);
+  });
+
+  it("restoring the same node twice only focuses the live tab", async () => {
+    const ctx = await groupSetup();
+    const { store, fb, tracker, w } = ctx;
+    await tracker.restore("s");
+    const tabId = store.getTree().get("s")?.liveTabId;
+    await tracker.restore("s");
+    expect(fb.focused).toEqual([{ tabId, windowId: w.id }]);
+    expect(fb.stripOrder(w.id).length).toBe(3);
+  });
+
+  it("restores a group by reopening each saved tab in place", async () => {
+    const ctx = await groupSetup();
+    const { store, fb, tracker, w, size } = ctx;
+    await tracker.restore("g");
+    const tree = store.getTree();
+    expect(tree.size).toBe(size);
+    for (const id of ["s", "c", "t"]) {
+      expect(tree.get(id)?.liveTabId).toBeDefined();
+      expect(tree.get(id)?.liveWindowId).toBe(w.id);
+    }
+    expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
+    expect(titlesUnder(ctx, "s")).toEqual(["C"]);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "B"]);
+    expect(fb.stripOrder(w.id).length).toBe(5);
+  });
+
+  it("opens a saved node under a live window at the strip index matching the tree", async () => {
+    const ctx = await setup();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    const s = fb.openTab(w.id, "https://s.test/", "S");
+    const b = fb.openTab(w.id, "https://b.test/", "B");
+    const sNode = nodeOf(ctx, s);
+    fb.closeTab(s.id); // W: A, S(saved), B; strip: A B
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "S", "B"]);
+    await tracker.restore(sNode?.id ?? "");
+    const restored = store.getTree().get(sNode?.id ?? "");
+    expect(restored?.parentId).toBe(winNodeOf(ctx, w)?.id);
+    expect(fb.stripOrder(w.id)).toEqual([a.id, restored?.liveTabId, b.id]);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "S", "B"]);
+    // Tree and strip agree, so a no-op strip event changes nothing.
+    fb.moveTabInStrip(b.id, 2);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "S", "B"]);
+    expect(fb.moved).toEqual([]);
+  });
+
+  it("opens a saved child of a live tab right after its parent in the strip", async () => {
+    const ctx = await setup();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    const b = fb.openTab(w.id, "https://b.test/", "B");
+    const c = fb.openTab(w.id, "https://c.test/", "C");
+    addSavedTab(ctx, "s", nodeOf(ctx, a)?.id ?? "", "https://s.test/", "S"); // W: A > S, B, C
+    await tracker.restore("s");
+    const restored = store.getTree().get("s");
+    expect(restored?.parentId).toBe(nodeOf(ctx, a)?.id);
+    expect(fb.stripOrder(w.id)).toEqual([a.id, restored?.liveTabId, b.id, c.id]);
+    // A saved node with no live predecessor opens in front of its successor.
+    addSavedTab(ctx, "f", winNodeOf(ctx, w)?.id ?? "", "https://f.test/", "F");
+    await tracker.moveNode("f", winNodeOf(ctx, w)?.id ?? "", 0); // W: F, A > S, B, C
+    await tracker.restore("f");
+    expect(fb.stripOrder(w.id)[0]).toBe(store.getTree().get("f")?.liveTabId);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["F", "A", "B", "C"]);
+  });
+
+  it("reopens a saved window inside a group in place, children mapped to its tabs", async () => {
+    const ctx = await setup();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    fb.openTab(w.id, "https://a.test/", "A");
+    fb.openTab(w.id, "https://b.test/", "B");
+    const winNode = winNodeOf(ctx, w);
+    addRootGroup(ctx, "g");
+    await dropInside(ctx, winNode?.id ?? "", "g");
+    fb.closeWindow(w.id);
+    expect(store.getTree().get(winNode?.id ?? "")).toMatchObject({ parentId: "g" });
+    expect(store.getTree().get(winNode?.id ?? "")?.liveWindowId).toBeUndefined();
+    const size = store.getTree().size;
+    // Another window is focused meanwhile.
+    const other = fb.openWindow();
+    fb.openTab(other.id, "https://x.test/", "X");
+
+    await tracker.restore(winNode?.id ?? "");
+    const tree = store.getTree();
+    expect(tree.size).toBe(size + 2);
+    const win = tree.get(winNode?.id ?? "");
+    expect(win?.parentId).toBe("g");
+    expect(win?.liveWindowId).toBeDefined();
+    expect(win?.liveWindowId).not.toBe(other.id);
+    const kids = childrenOf(tree, winNode?.id ?? "");
+    expect(kids.map((k) => k.title)).toEqual(["A", "B"]);
+    expect(kids.map((k) => k.liveTabId)).toEqual(fb.stripOrder(win?.liveWindowId ?? -1));
+    expect(kids.every((k) => k.liveWindowId === win?.liveWindowId)).toBe(true);
+    expect(titlesUnder(ctx, winNodeOf(ctx, other)?.id)).toEqual(["X"]);
+    // The reopened window keeps mirroring its strip.
+    fb.moveTabInStrip(kids[1]?.liveTabId ?? -1, 0);
+    expect(titlesUnder(ctx, winNode?.id)).toEqual(["B", "A"]);
+    expect(store.getTree().get(winNode?.id ?? "")?.parentId).toBe("g");
+  });
+
+  it("folds a window node conjured by early tab events into the reopened window", async () => {
+    const ctx = await setup();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    fb.openTab(w.id, "https://a.test/", "A");
+    fb.openTab(w.id, "https://b.test/", "B");
+    const winNode = winNodeOf(ctx, w);
+    addRootGroup(ctx, "g");
+    await dropInside(ctx, winNode?.id ?? "", "g");
+    fb.closeWindow(w.id);
+    const size = store.getTree().size;
+    fb.tabsBeforeWindow = true;
+    await tracker.restore(winNode?.id ?? "");
+    const tree = store.getTree();
+    expect(tree.size).toBe(size);
+    const windows = [...tree.values()].filter((n) => n.kind === "window");
+    expect(windows.map((n) => n.id)).toEqual([winNode?.id]);
+    expect(windows[0]?.parentId).toBe("g");
+    const kids = childrenOf(tree, winNode?.id ?? "");
+    expect(kids.map((k) => k.title)).toEqual(["A", "B"]);
+    expect(kids.map((k) => k.liveTabId)).toEqual(fb.stripOrder(windows[0]?.liveWindowId ?? -1));
+  });
+
+  it("keeps the reopened node in its group across a worker restart", async () => {
+    const ctx = await groupSetup();
+    const { store, fb, tracker, w, size } = ctx;
+    await tracker.restore("s");
+    const tabId = store.getTree().get("s")?.liveTabId;
+    const { fresh, report } = await restartWorker(ctx);
+    expect(report).toMatchObject({
+      windowsMatched: 1,
+      windowsCreated: 0,
+      tabsMatched: 3,
+      tabsCreated: 0,
+      nodesSaved: 0,
+    });
+    expect(store.getTree().size).toBe(size);
+    expect(store.getTree().get("s")).toMatchObject({
+      parentId: "g",
+      liveTabId: tabId,
+      liveWindowId: w.id,
+    });
+    expect(titlesUnder(ctx, "s")).toEqual(["C"]);
+    const live = fb.tabs.find((t) => t.id === tabId);
+    fresh.handleTabUpdated(tabId ?? -1, { ...(live as LiveTab), title: "S again" });
+    expect(store.getTree().get("s")?.title).toBe("S again");
+    expect(store.getTree().size).toBe(size);
+  });
+
+  it("binds the node by tab id when the created tab reports a different url", async () => {
+    const ctx = await groupSetup();
+    const { store, fb, tracker, w, size } = ctx;
+    // The browser rewrites the url before onCreated (redirect, canonicalisation...).
+    const createTab = fb.createTab.bind(fb);
+    fb.createTab = async (opts) => {
+      const tab = await createTab({ ...opts, url: "https://s.test/rewritten" });
+      return { ...tab, url: "https://s.test/rewritten" };
+    };
+    await tracker.restore("s");
+    const tree = store.getTree();
+    expect(tree.size).toBe(size); // the placeholder the url mismatch created is gone again
+    expect(tree.get("s")).toMatchObject({ parentId: "g", liveWindowId: w.id });
+    expect(tree.get("s")?.liveTabId).toBeDefined();
+    expect(titlesUnder(ctx, "s")).toEqual(["C"]);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "B"]);
+  });
+
+  it("forgets a pending restore when tabs.create fails", async () => {
+    const ctx = await groupSetup();
+    const { store, fb, tracker, w, size } = ctx;
+    fb.createTab = async () => {
+      throw new Error("no window");
+    };
+    await expect(tracker.restore("s")).rejects.toThrow("no window");
+    expect(store.getTree().get("s")?.liveTabId).toBeUndefined();
+    // A tab the user opens on the same url afterwards is a new node, not a hijacked S.
+    fb.openTab(w.id, "https://s.test/", "S by hand");
+    expect(store.getTree().size).toBe(size + 1);
+    expect(store.getTree().get("s")?.liveTabId).toBeUndefined();
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "B", "S by hand"]);
+  });
+
+  it("lets a stale pending restore expire instead of capturing a later tab", async () => {
+    ids = 0;
+    const store = new MemoryTreeStore();
+    await store.open();
+    const fb = new FakeBrowser();
+    let clock = 1;
+    const tracker = new TabTracker(store, fb, { newId, now: () => clock });
+    fb.tracker = tracker;
+    const ctx: Ctx = { store, fb, tracker };
+    const w = fb.openWindow();
+    fb.openTab(w.id, "https://a.test/", "A");
+    addRootGroup(ctx, "g");
+    addSavedTab(ctx, "s", "g", "https://s.test/", "S");
+    // tabs.create hangs (never resolves, never fires onCreated).
+    fb.createTab = () => new Promise<LiveTab>(() => undefined);
+    const hung = tracker.restore("s");
+    await new Promise((r) => setTimeout(r, 0)); // the restore is now waiting on tabs.create
+    clock += 60_000;
+    fb.openTab(w.id, "https://s.test/", "S by hand");
+    expect(store.getTree().get("s")?.liveTabId).toBeUndefined();
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "S by hand"]);
+    void hung;
   });
 });
