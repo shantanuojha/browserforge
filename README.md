@@ -23,6 +23,8 @@ pnpm build              # every extension -> extensions/*/.output/chrome-mv3
 
 Requirements: Node 22+, pnpm 10. See [AGENTS.md](AGENTS.md) for conventions and store-policy rules.
 
+Commits must be authored and committed as `shantanu ojha <shantanu.ojha49@gmail.com>` (no `Co-authored-by` trailers for tools or agents).
+
 ## Releasing
 
 1. `pnpm changeset` → `pnpm version-packages` → commit.
