@@ -36,9 +36,7 @@ export interface TreeNode {
  */
 export type NodePatch = {
   [K in keyof Omit<TreeNode, "id" | "createdAt" | "order" | "parentId">]?:
-    | TreeNode[K]
-    | null
-    | undefined;
+    TreeNode[K] | null | undefined;
 };
 
 export type OpBody =
