@@ -64,10 +64,12 @@ function sameUrl(a: string | undefined, b: string | undefined): boolean {
  * through `handle*` methods and browser mutations go through the injected `TabsPort`.
  *
  * Invariants it maintains:
- * - a live tab node has `liveTabId` and `liveWindowId` and lives under the matching window node;
+ * - a live tab node has `liveTabId` and `liveWindowId`; the tracker creates it under the matching
+ *   window node, but the user may drag it anywhere (see `isDetached`);
  * - a closed tab becomes a saved node (live ids cleared) unless it was a blank new tab;
- * - the depth-first order of live tab nodes under a window node follows the browser's tab strip
- *   whenever the tracker itself changed the tree (user nesting is preserved otherwise).
+ * - the depth-first order of the live tab nodes attached to a window node follows the browser's
+ *   tab strip (detached tabs skipped) whenever the tracker itself changed the tree; user nesting
+ *   is preserved otherwise.
  */
 export class TabTracker {
   /** Browser tab order per window (ids in strip order). */
@@ -147,22 +149,52 @@ export class TabTracker {
     return node;
   }
 
-  /** Depth-first live tab ids under a window node. */
-  private liveOrderInTree(windowNode: TreeNode): number[] {
-    const tree = this.tree;
+  /**
+   * A live tab node whose nearest window ancestor is not the window node of the browser window
+   * it lives in: the user dragged it out of its window's subtree (into a root group, under a
+   * saved window, ...) while the browser tab stayed put. Such a node is detached from tab-strip
+   * ordering: it stays where the user put it, keeps receiving live updates (title, url, favicon,
+   * close) and is ignored when the strip order is mirrored into the window node. Dropping it back
+   * under the window node re-attaches it. Nothing but an explicit user move re-parents it.
+   */
+  private isDetached(node: TreeNode, windowNode: TreeNode): boolean {
+    return node.kind === "tab" && windowNodeOf(this.tree, node.id)?.id !== windowNode.id;
+  }
+
+  /**
+   * Depth-first ids of the live tabs attached to a window node. Subtrees of nested window nodes
+   * are skipped: their tabs are ordered by their own window (or detached from this one).
+   */
+  private attachedOrderInTree(windowNode: TreeNode): number[] {
+    const index = buildChildIndex(this.tree);
     const out: number[] = [];
-    for (const id of descendantIds(tree, windowNode.id)) {
-      const n = tree.get(id);
-      if (n?.kind === "tab" && n.liveTabId !== undefined) out.push(n.liveTabId);
-    }
+    const seen = new Set<NodeId>();
+    const walk = (parentId: NodeId): void => {
+      for (const n of index.get(parentId) ?? []) {
+        if (n.kind === "window" || seen.has(n.id)) continue;
+        seen.add(n.id);
+        if (n.kind === "tab" && n.liveTabId !== undefined) out.push(n.liveTabId);
+        walk(n.id);
+      }
+    };
+    walk(windowNode.id);
     return out;
+  }
+
+  /** The browser's strip order minus detached tabs: the sequence the window node's subtree mirrors. */
+  private attachedOrderInBrowser(windowId: number, windowNode: TreeNode): number[] {
+    const tree = this.tree;
+    return (this.windowTabs.get(windowId) ?? []).filter((id) => {
+      const node = findByLiveTabId(tree, id);
+      return !node || !this.isDetached(node, windowNode);
+    });
   }
 
   private isConsistent(windowId: number): boolean {
     const windowNode = findWindowByLiveId(this.tree, windowId);
     if (!windowNode) return false;
-    const inTree = this.liveOrderInTree(windowNode);
-    const inBrowser = this.windowTabs.get(windowId) ?? [];
+    const inTree = this.attachedOrderInTree(windowNode);
+    const inBrowser = this.attachedOrderInBrowser(windowId, windowNode);
     return inTree.length === inBrowser.length && inTree.every((id, i) => id === inBrowser[i]);
   }
 
@@ -172,26 +204,31 @@ export class TabTracker {
     const windowNode = this.windowNodeFor(tab.windowId);
     if (tab.openerTabId !== undefined) {
       const opener = findByLiveTabId(tree, tab.openerTabId);
-      if (
-        opener &&
-        opener.id !== excludeId &&
-        windowNodeOf(tree, opener.id)?.id === windowNode.id
-      ) {
+      if (opener && opener.id !== excludeId && !this.isDetached(opener, windowNode)) {
         const kids = childrenOf(tree, opener.id).filter((k) => k.id !== excludeId);
         return { parentId: opener.id, index: kids.length };
       }
     }
+    // Right after the nearest left-hand neighbour that takes part in strip ordering. Detached
+    // neighbours sit wherever the user put them and must not attract the tab there.
     const order = this.orderOf(tab.windowId);
-    const pos = order.indexOf(tab.id);
-    const prevId = pos > 0 ? order[pos - 1] : undefined;
-    const prev = prevId === undefined ? undefined : findByLiveTabId(tree, prevId);
-    if (prev && prev.id !== excludeId && prev.parentId !== null) {
+    let appendAtEnd = false;
+    for (let pos = order.indexOf(tab.id) - 1; pos >= 0; pos--) {
+      const prev = findByLiveTabId(tree, order[pos] as number);
+      if (!prev) {
+        appendAtEnd = true; // a tab we hold no node for yet: keep the previous behaviour
+        break;
+      }
+      // A root-level tab node has no window ancestor, so it is detached as well.
+      if (prev.id === excludeId || prev.parentId === null || this.isDetached(prev, windowNode)) {
+        continue;
+      }
       const siblings = childrenOf(tree, prev.parentId).filter((s) => s.id !== excludeId);
       return { parentId: prev.parentId, index: siblings.indexOf(prev) + 1 };
     }
     return {
       parentId: windowNode.id,
-      index: pos <= 0 ? 0 : childrenOf(tree, windowNode.id).length,
+      index: appendAtEnd ? childrenOf(tree, windowNode.id).length : 0,
     };
   }
 
@@ -307,7 +344,14 @@ export class TabTracker {
     if (!node) return;
     const windowNode = this.windowNodeFor(info.newWindowId);
     const batch: OpBody[] = [];
-    if (windowNodeOf(this.tree, node.id)?.id !== windowNode.id) {
+    // A node the user had already detached from its old window stays where it is; one that sat
+    // under its old window node follows the tab into the new window.
+    const oldWindowNode =
+      node.liveWindowId === undefined
+        ? undefined
+        : findWindowByLiveId(this.tree, node.liveWindowId);
+    const wasDetached = oldWindowNode !== undefined && this.isDetached(node, oldWindowNode);
+    if (!wasDetached && windowNodeOf(this.tree, node.id)?.id !== windowNode.id) {
       const tab = this.tabs.get(tabId) ?? record;
       const { parentId, index } = this.placementFor(tab, node.id);
       batch.push(ops.move(node.id, parentId, index));
@@ -421,6 +465,7 @@ export class TabTracker {
     if (this.isConsistent(record.windowId)) return;
     const node = findByLiveTabId(this.tree, tabId);
     if (!node) return;
+    if (this.isDetached(node, this.windowNodeFor(record.windowId))) return;
     const { parentId, index } = this.placementFor(record, node.id);
     if (node.parentId === parentId) {
       const currentIndex = childrenOf(this.tree, parentId).indexOf(node);
@@ -766,22 +811,36 @@ export class TabTracker {
 
   /**
    * Move a node from the UI. When a live tab lands in a different live window, or in a new
-   * position among its window's live tabs, the browser tab follows.
+   * position among its window's attached live tabs, the browser tab follows. Dropping it outside
+   * any live window's subtree detaches it from strip ordering and leaves the browser alone.
    */
   async moveNode(nodeId: NodeId, parentId: NodeId | null, index: number): Promise<void> {
     const before = this.tree.get(nodeId);
     if (!before) return;
     this.store.append([ops.move(nodeId, parentId, index)]);
     if (before.kind !== "tab" || before.liveTabId === undefined) return;
+    const tabId = before.liveTabId;
     const targetWindow = windowNodeOf(this.tree, nodeId);
     if (!targetWindow || targetWindow.liveWindowId === undefined) return;
-    const desired = this.liveOrderInTree(targetWindow);
-    const targetIndex = desired.indexOf(before.liveTabId);
-    if (targetIndex < 0) return;
-    const record = this.tabs.get(before.liveTabId);
+    const desired = this.attachedOrderInTree(targetWindow);
+    const pos = desired.indexOf(tabId);
+    if (pos < 0) return;
+    const record = this.tabs.get(tabId);
     const currentOrder = this.windowTabs.get(targetWindow.liveWindowId) ?? [];
     const sameWindow = record?.windowId === targetWindow.liveWindowId;
-    if (sameWindow && currentOrder.indexOf(before.liveTabId) === targetIndex) return;
-    await this.port.moveTab(before.liveTabId, targetWindow.liveWindowId, targetIndex);
+    // Strip index = right after the nearest attached predecessor still in the strip (detached
+    // tabs may sit anywhere in it), else right before the nearest attached successor.
+    const others = currentOrder.filter((id) => id !== tabId);
+    const pred = desired
+      .slice(0, pos)
+      .reverse()
+      .find((id) => others.includes(id));
+    const succ = desired.slice(pos + 1).find((id) => others.includes(id));
+    let targetIndex: number;
+    if (pred !== undefined) targetIndex = others.indexOf(pred) + 1;
+    else if (succ !== undefined) targetIndex = others.indexOf(succ);
+    else targetIndex = sameWindow ? currentOrder.indexOf(tabId) : others.length;
+    if (sameWindow && currentOrder.indexOf(tabId) === targetIndex) return;
+    await this.port.moveTab(tabId, targetWindow.liveWindowId, targetIndex);
   }
 }

@@ -84,6 +84,38 @@ class FakeBrowser implements TabsPort {
     this.tracker.handleTabMoved(tabId, { windowId: t.windowId, toIndex });
   }
 
+  /** Open a tab at a given strip position (e.g. "open link in new tab" next to the current one). */
+  openTabAt(windowId: number, index: number, url: string, title = url): LiveTab {
+    const tab: LiveTab = { id: this.nextId++, windowId, index, url, title };
+    const inWindow = this.tabs.filter((x) => x.windowId === windowId);
+    inWindow.splice(index, 0, tab);
+    this.tabs = [...this.tabs.filter((x) => x.windowId !== windowId), ...inWindow];
+    this.reindex(windowId);
+    this.tracker.handleTabCreated({ ...tab });
+    return tab;
+  }
+
+  /** Drag a tab to another window in the browser: detach then attach, as Chrome fires them. */
+  moveTabToWindow(tabId: number, windowId: number, index: number): void {
+    const t = this.tabs.find((x) => x.id === tabId);
+    if (!t) return;
+    const oldWindowId = t.windowId;
+    this.tabs = this.tabs.filter((x) => x.id !== tabId);
+    this.reindex(oldWindowId);
+    t.windowId = windowId;
+    const inWindow = this.tabs.filter((x) => x.windowId === windowId);
+    inWindow.splice(index, 0, t);
+    this.tabs = [...this.tabs.filter((x) => x.windowId !== windowId), ...inWindow];
+    this.reindex(windowId);
+    this.tracker.handleTabDetached(tabId, { oldWindowId });
+    this.tracker.handleTabAttached(tabId, { newWindowId: windowId, newPosition: index });
+  }
+
+  /** Live tab ids of a window in strip order. */
+  stripOrder(windowId: number): number[] {
+    return this.tabs.filter((t) => t.windowId === windowId).map((t) => t.id);
+  }
+
   // -- TabsPort ---------------------------------------------------------------------------------
 
   async queryAll() {
@@ -136,6 +168,43 @@ async function setup() {
   fb.tracker = tracker;
   return { store, fb, tracker };
 }
+
+type Ctx = Awaited<ReturnType<typeof setup>>;
+
+/** What the side panel does on drop: resolve the destination, then ask the tracker to move. */
+async function drop(
+  ctx: Ctx,
+  draggedId: NodeId,
+  targetId: NodeId,
+  pos: "before" | "after" | "inside",
+): Promise<void> {
+  const dest = resolveDrop(ctx.store.getTree(), draggedId, targetId, pos);
+  if (!dest) throw new Error("drop refused");
+  await ctx.tracker.moveNode(draggedId, dest.parentId, dest.index);
+}
+
+const dropInside = (ctx: Ctx, draggedId: NodeId, targetId: NodeId) =>
+  drop(ctx, draggedId, targetId, "inside");
+
+function addRootGroup(ctx: Ctx, id: NodeId): void {
+  ctx.store.append([ops.add(makeNode({ id, parentId: null, kind: "group", title: id, ts: 1 }))]);
+}
+
+/** Service-worker restart: a fresh tracker over the same op log and the same live browser. */
+async function restartWorker(ctx: Ctx) {
+  const fresh = new TabTracker(ctx.store, ctx.fb, { newId, now: () => 1 });
+  ctx.fb.tracker = fresh;
+  const report = await fresh.rebuild();
+  return { fresh, report };
+}
+
+/** Titles of a node's children, in order. */
+function titlesUnder(ctx: Ctx, parentId: NodeId | undefined): string[] {
+  return childrenOf(ctx.store.getTree(), parentId ?? "").map((n) => n.title);
+}
+
+const nodeOf = (ctx: Ctx, tab: LiveTab) => findByLiveTabId(ctx.store.getTree(), tab.id);
+const winNodeOf = (ctx: Ctx, w: LiveWindow) => findWindowByLiveId(ctx.store.getTree(), w.id);
 
 describe("TabTracker events", () => {
   it("mirrors a window and its tabs", async () => {
@@ -506,29 +575,6 @@ describe("TabTracker.rebuild", () => {
     expect(windows.filter((n) => n.liveWindowId !== undefined).length).toBe(1);
   });
 
-  /** What the side panel does on drop: resolve the destination, then ask the tracker to move. */
-  async function dropInside(
-    ctx: Awaited<ReturnType<typeof setup>>,
-    draggedId: NodeId,
-    targetId: NodeId,
-  ): Promise<void> {
-    const dest = resolveDrop(ctx.store.getTree(), draggedId, targetId, "inside");
-    if (!dest) throw new Error("drop refused");
-    await ctx.tracker.moveNode(draggedId, dest.parentId, dest.index);
-  }
-
-  function addRootGroup(ctx: Awaited<ReturnType<typeof setup>>, id: NodeId): void {
-    ctx.store.append([ops.add(makeNode({ id, parentId: null, kind: "group", title: id, ts: 1 }))]);
-  }
-
-  /** Service-worker restart: a fresh tracker over the same op log and the same live browser. */
-  async function restartWorker(ctx: Awaited<ReturnType<typeof setup>>) {
-    const fresh = new TabTracker(ctx.store, ctx.fb, { newId, now: () => 1 });
-    ctx.fb.tracker = fresh;
-    const report = await fresh.rebuild();
-    return { fresh, report };
-  }
-
   it("re-matches a live tab dragged into a root-level group after a worker restart", async () => {
     const ctx = await setup();
     const { store, fb } = ctx;
@@ -687,5 +733,167 @@ describe("TabTracker.rebuild", () => {
     expect(report.tabsMatched).toBe(0);
     expect(report.tabsCreated).toBe(1);
     expect(store.getTree().get("t")?.liveTabId).toBeUndefined();
+  });
+});
+
+/**
+ * A live tab node dragged out of its window node's subtree (into a root group, under a saved
+ * window...) is "detached" from strip ordering: it stays where the user put it, keeps its live
+ * updates, and the window node mirrors the strip order of the remaining tabs around it.
+ */
+describe("TabTracker with detached tab nodes", () => {
+  /** Window with A, B, C where A has been dragged into root group "g". */
+  async function detachedSetup() {
+    const ctx = await setup();
+    const w = ctx.fb.openWindow();
+    const a = ctx.fb.openTab(w.id, "https://a.test/", "A");
+    const b = ctx.fb.openTab(w.id, "https://b.test/", "B");
+    const c = ctx.fb.openTab(w.id, "https://c.test/", "C");
+    addRootGroup(ctx, "g");
+    await dropInside(ctx, nodeOf(ctx, a)?.id ?? "", "g");
+    expect(ctx.fb.moved).toEqual([]); // no browser move: the tab is only detached in the tree
+    expect(nodeOf(ctx, a)?.parentId).toBe("g");
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["B", "C"]);
+    return { ...ctx, w, a, b, c };
+  }
+
+  it("leaves the grouped node alone and mirrors the strip when another tab is moved", async () => {
+    const ctx = await detachedSetup();
+    const { fb, w, a, b, c } = ctx;
+    const aNode = nodeOf(ctx, a);
+    fb.moveTabInStrip(c.id, 0); // strip: C A B
+    expect(nodeOf(ctx, a)).toMatchObject({ id: aNode?.id, parentId: "g", liveTabId: a.id });
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["C", "B"]);
+    fb.moveTabInStrip(b.id, 0); // strip: B C A
+    expect(nodeOf(ctx, a)?.parentId).toBe("g");
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["B", "C"]);
+    // Moving a tab right after the detached one must not drag it into the group.
+    fb.moveTabInStrip(b.id, 2); // strip: C A B
+    expect(titlesUnder(ctx, "g")).toEqual(["A"]);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["C", "B"]);
+    expect(fb.moved).toEqual([]);
+  });
+
+  it("moving the detached tab in the strip changes nothing in the tree", async () => {
+    const ctx = await detachedSetup();
+    const { fb, w, a } = ctx;
+    const before = [...ctx.store.getTree().values()].map((n) => [n.id, n.parentId, n.order]);
+    fb.moveTabInStrip(a.id, 2); // strip: B C A
+    fb.moveTabInStrip(a.id, 1); // strip: B A C
+    expect([...ctx.store.getTree().values()].map((n) => [n.id, n.parentId, n.order])).toEqual(
+      before,
+    );
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["B", "C"]);
+  });
+
+  it("places a created tab by its nearest attached neighbour, skipping detached ones", async () => {
+    const ctx = await detachedSetup();
+    const { fb, w, a } = ctx;
+    // Strip: A N B C. A is detached, so N leads the window's own order.
+    fb.openTabAt(w.id, 1, "https://n.test/", "N");
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["N", "B", "C"]);
+    expect(titlesUnder(ctx, "g")).toEqual(["A"]);
+    // Strip: A N B M C.
+    fb.openTabAt(w.id, 3, "https://m.test/", "M");
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["N", "B", "M", "C"]);
+    // A new tab right after the detached one goes to the front of the window, not into the group.
+    fb.moveTabInStrip(a.id, 0); // strip: A N B M C (already there)
+    fb.openTabAt(w.id, 1, "https://p.test/", "P"); // strip: A P N B M C
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["P", "N", "B", "M", "C"]);
+    expect(titlesUnder(ctx, "g")).toEqual(["A"]);
+  });
+
+  it("re-attaches a node dropped back under its window and follows the strip again", async () => {
+    const ctx = await detachedSetup();
+    const { fb, w, a } = ctx;
+    const winNode = winNodeOf(ctx, w);
+    await dropInside(ctx, nodeOf(ctx, a)?.id ?? "", winNode?.id ?? ""); // appended: B C A
+    expect(titlesUnder(ctx, winNode?.id)).toEqual(["B", "C", "A"]);
+    // Re-attaching moves the browser tab to match the tree (final index after the move).
+    expect(fb.moved).toEqual([{ tabId: a.id, windowId: w.id, index: 2 }]);
+    fb.moveTabInStrip(a.id, 2); // the browser answers: B C A
+    expect(titlesUnder(ctx, winNode?.id)).toEqual(["B", "C", "A"]);
+    // From now on strip reorders apply to A again.
+    fb.moveTabInStrip(a.id, 0); // strip: A B C
+    expect(titlesUnder(ctx, winNode?.id)).toEqual(["A", "B", "C"]);
+    expect(fb.moved.length).toBe(1);
+  });
+
+  it("stays consistent with a detached tab present: no-op strip events keep user nesting", async () => {
+    const ctx = await detachedSetup();
+    const { fb, tracker, w, b, c } = ctx;
+    const bNode = nodeOf(ctx, b);
+    const cNode = nodeOf(ctx, c);
+    // User nests C under B: depth-first order B, C still equals the (attached) strip order.
+    await tracker.moveNode(cNode?.id ?? "", bNode?.id ?? "", 0);
+    expect(fb.moved).toEqual([]);
+    // Were the window deemed inconsistent, reconciliation would flatten C next to B.
+    tracker.handleTabMoved(c.id, { windowId: w.id, toIndex: 2 });
+    tracker.handleTabMoved(b.id, { windowId: w.id, toIndex: 1 });
+    expect(ctx.store.getTree().get(cNode?.id ?? "")?.parentId).toBe(bNode?.id);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["B"]);
+    expect(titlesUnder(ctx, "g")).toEqual(["A"]);
+  });
+
+  it("keeps live updates and close-to-saved for a detached tab", async () => {
+    const ctx = await detachedSetup();
+    const { fb, a } = ctx;
+    const aNode = nodeOf(ctx, a);
+    fb.tracker.handleTabUpdated(a.id, { ...a, title: "A2", favIconUrl: "https://a.test/f.ico" });
+    expect(ctx.store.getTree().get(aNode?.id ?? "")).toMatchObject({
+      parentId: "g",
+      title: "A2",
+      favIconUrl: "https://a.test/f.ico",
+    });
+    fb.closeTab(a.id);
+    expect(ctx.store.getTree().get(aNode?.id ?? "")).toMatchObject({ parentId: "g", title: "A2" });
+    expect(ctx.store.getTree().get(aNode?.id ?? "")?.liveTabId).toBeUndefined();
+  });
+
+  it("keeps a detached node in its group when the browser drags the tab to another window", async () => {
+    const ctx = await detachedSetup();
+    const { fb, w, a } = ctx;
+    const w2 = fb.openWindow();
+    const x = fb.openTab(w2.id, "https://x.test/", "X");
+    fb.moveTabToWindow(a.id, w2.id, 1); // w2 strip: X A
+    expect(nodeOf(ctx, a)).toMatchObject({ parentId: "g", liveWindowId: w2.id });
+    expect(titlesUnder(ctx, winNodeOf(ctx, w2)?.id)).toEqual(["X"]);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["B", "C"]);
+    // ...and both windows keep mirroring their strips around it.
+    const y = fb.openTabAt(w2.id, 2, "https://y.test/", "Y"); // w2 strip: X A Y
+    expect(titlesUnder(ctx, winNodeOf(ctx, w2)?.id)).toEqual(["X", "Y"]);
+    fb.moveTabInStrip(y.id, 0); // w2 strip: Y X A
+    expect(titlesUnder(ctx, winNodeOf(ctx, w2)?.id)).toEqual(["Y", "X"]);
+    expect(nodeOf(ctx, a)?.parentId).toBe("g");
+    expect(nodeOf(ctx, x)?.parentId).toBe(winNodeOf(ctx, w2)?.id);
+  });
+
+  it("targets the strip index around detached tabs when a node is dropped in the panel", async () => {
+    const ctx = await detachedSetup();
+    const { fb, w, a, b, c } = ctx;
+    const d = fb.openTab(w.id, "https://d.test/", "D"); // strip: A B C D, window node: B C D
+    // Drop D before B: the strip index is B's (detached A stays in front).
+    await drop(ctx, nodeOf(ctx, d)?.id ?? "", nodeOf(ctx, b)?.id ?? "", "before");
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["D", "B", "C"]);
+    expect(fb.moved).toEqual([{ tabId: d.id, windowId: w.id, index: 1 }]);
+    fb.moveTabInStrip(d.id, 1); // strip: A D B C
+    // Drop B after C: right after C in the strip (final index 3).
+    await drop(ctx, nodeOf(ctx, b)?.id ?? "", nodeOf(ctx, c)?.id ?? "", "after");
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["D", "C", "B"]);
+    expect(fb.moved.at(-1)).toEqual({ tabId: b.id, windowId: w.id, index: 3 });
+    fb.moveTabInStrip(b.id, 3); // strip: A D C B
+    expect(fb.stripOrder(w.id)).toEqual([a.id, d.id, c.id, b.id]);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["D", "C", "B"]);
+    expect(nodeOf(ctx, a)?.parentId).toBe("g");
+  });
+
+  it("survives a worker restart without pulling the detached node back", async () => {
+    const ctx = await detachedSetup();
+    const { fb, w, a, c } = ctx;
+    const { report } = await restartWorker(ctx);
+    expect(report).toMatchObject({ tabsMatched: 3, tabsCreated: 0, nodesSaved: 0 });
+    fb.moveTabInStrip(c.id, 0); // strip: C A B
+    expect(nodeOf(ctx, a)?.parentId).toBe("g");
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["C", "B"]);
   });
 });

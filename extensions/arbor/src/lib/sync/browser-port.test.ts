@@ -22,7 +22,7 @@ import { TabTracker } from "./tracker";
 
 type Listener = (...args: unknown[]) => void;
 
-/** fake-browser leaves these tab events unmocked; the tracker only needs to register listeners. */
+/** fake-browser leaves these tab events unmocked; tests fire them with `trigger` as Chrome would. */
 function stubEvent() {
   const listeners = new Set<Listener>();
   return {
@@ -30,7 +30,22 @@ function stubEvent() {
     removeListener: (l: Listener) => void listeners.delete(l),
     hasListener: (l: Listener) => listeners.has(l),
     hasListeners: () => listeners.size > 0,
+    trigger: (...args: unknown[]) => {
+      for (const l of listeners) l(...args);
+    },
   };
+}
+
+type StubEvent = ReturnType<typeof stubEvent>;
+
+function stubUnmockedTabEvents(): { onMoved: StubEvent } {
+  const tabs = fakeBrowser.tabs as unknown as Record<string, unknown>;
+  const onMoved = stubEvent();
+  tabs.onMoved = onMoved;
+  tabs.onAttached = stubEvent();
+  tabs.onDetached = stubEvent();
+  tabs.onReplaced = stubEvent();
+  return { onMoved };
 }
 
 const URLS_W1 = ["https://a.example/", "https://b.example/", "https://c.example/"];
@@ -100,13 +115,11 @@ async function renameLiveTab(tabId: number, title: string): Promise<void> {
   await tick();
 }
 
+let tabEvents: ReturnType<typeof stubUnmockedTabEvents>;
+
 beforeEach(() => {
   fakeBrowser.reset();
-  const tabs = fakeBrowser.tabs as unknown as Record<string, unknown>;
-  tabs.onMoved = stubEvent();
-  tabs.onAttached = stubEvent();
-  tabs.onDetached = stubEvent();
-  tabs.onReplaced = stubEvent();
+  tabEvents = stubUnmockedTabEvents();
 });
 
 describe("browserTabsPort + TabTracker on a browser that already has windows", () => {
@@ -203,6 +216,50 @@ describe("browserTabsPort + TabTracker on a browser that already has windows", (
     second.unbind();
   });
 
+  it("keeps mirroring the tab strip around a live tab dragged into a root group", async () => {
+    const { w1Id } = await seedBrowser();
+    const ctx = await startBackground();
+    const aId = await liveTabIdFor(URLS_W1[0] as string);
+    const bId = await liveTabIdFor(URLS_W1[1] as string);
+    const cId = await liveTabIdFor(URLS_W1[2] as string);
+    const bNode = findByLiveTabId(ctx.store.getTree(), bId);
+    if (!bNode) throw new Error("tab node missing");
+    await dragIntoNewRootGroup(ctx, bNode.id, "g");
+    expect(liveUrlsUnder(ctx.store.getTree(), w1Id)).toEqual([URLS_W1[0], URLS_W1[2]]);
+
+    // The user drags C to the front of the strip: A B C -> C A B. B stays in its group.
+    tabEvents.onMoved.trigger(cId, { windowId: w1Id, fromIndex: 2, toIndex: 0 });
+    await tick();
+    expect(liveUrlsUnder(ctx.store.getTree(), w1Id)).toEqual([URLS_W1[2], URLS_W1[0]]);
+    expect(ctx.store.getTree().get(bNode.id)).toMatchObject({ parentId: "g", liveTabId: bId });
+
+    // A tab opened at the end of the strip (C A B N) lands after A: the detached B is skipped.
+    const template = (await fakeBrowser.tabs.query({})).find((t) => t.id === aId);
+    if (!template) throw new Error("template tab missing");
+    await fakeBrowser.tabs.onCreated.trigger({
+      ...template,
+      id: 9001,
+      index: 3,
+      active: false,
+      url: "https://n.example/",
+      title: "N",
+    });
+    await tick();
+    expect(liveUrlsUnder(ctx.store.getTree(), w1Id)).toEqual([
+      URLS_W1[2],
+      URLS_W1[0],
+      "https://n.example/",
+    ]);
+    expect(childrenOf(ctx.store.getTree(), "g").map((n) => n.url)).toEqual([URLS_W1[1]]);
+
+    // Moving the detached tab itself in the strip (C A N B -> B C A N) changes nothing.
+    const before = ctx.store.getTree();
+    tabEvents.onMoved.trigger(bId, { windowId: w1Id, fromIndex: 2, toIndex: 0 });
+    await tick();
+    expect(ctx.store.getTree()).toBe(before);
+    ctx.unbind();
+  });
+
   it("re-attaches a live window dragged into a group when the service worker restarts", async () => {
     const { w2Id } = await seedBrowser();
     const first = await startBackground();
@@ -242,11 +299,7 @@ describe("browserTabsPort + TabTracker on a browser that already has windows", (
 
     // Browser restart: session restore recreates the same pages under new ids.
     fakeBrowser.reset();
-    const tabs = fakeBrowser.tabs as unknown as Record<string, unknown>;
-    tabs.onMoved = stubEvent();
-    tabs.onAttached = stubEvent();
-    tabs.onDetached = stubEvent();
-    tabs.onReplaced = stubEvent();
+    stubUnmockedTabEvents();
     // Burn some ids so they differ from the first session.
     await fakeBrowser.windows.remove(await createWindow(false));
     const { w1Id, w2Id } = await seedBrowser();
