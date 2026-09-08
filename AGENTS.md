@@ -9,7 +9,7 @@ Read this before changing anything. It applies to humans and to AI agents workin
 - `packages/ui` — shared React components + `styles.css` tokens. Spec in its README.
 - `extensions/arbor`, `extensions/reroute`, `extensions/cookiesweep` — WXT extensions. Each README is
   the product spec for that extension.
-- `site/public` — static site (Vercel + GitHub Pages).
+- The website is a separate repository (`browserforge-site`); nothing site-related lives here.
 
 ## Rules for parallel work
 

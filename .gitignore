@@ -15,9 +15,6 @@ coverage/
 !.env.example
 .env.submit
 
-# vercel
-.vercel/
-
 # editor / os
 .DS_Store
 Thumbs.db

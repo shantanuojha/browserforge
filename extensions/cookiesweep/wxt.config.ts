@@ -27,6 +27,6 @@ export default defineConfig({
   },
   zip: {
     sourcesRoot: "../../",
-    excludeSources: ["extensions/arbor/**", "extensions/reroute/**", "site/**", "**/.env*"],
+    excludeSources: ["extensions/arbor/**", "extensions/reroute/**", "**/.env*"],
   },
 });

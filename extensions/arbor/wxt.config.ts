@@ -37,6 +37,6 @@ export default defineConfig({
   zip: {
     // Firefox reviewers rebuild from the sources zip: include the whole monorepo minus siblings.
     sourcesRoot: "../../",
-    excludeSources: ["extensions/reroute/**", "extensions/cookiesweep/**", "site/**", "**/.env*"],
+    excludeSources: ["extensions/reroute/**", "extensions/cookiesweep/**", "**/.env*"],
   },
 });

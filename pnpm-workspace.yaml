@@ -1,7 +1,6 @@
 packages:
   - "extensions/*"
   - "packages/*"
-  - "site"
 
 onlyBuiltDependencies:
   - esbuild

@@ -38,5 +38,7 @@ can only update existing items.
 ```
 extensions/    arbor, reroute, cookiesweep   (WXT + React)
 packages/      shared, licensing, ui         (workspace libraries)
-site/          static marketing + privacy pages (Vercel + GitHub Pages)
 ```
+
+The website (browserforge.dev: product pages, privacy policy, terms, support) lives in its own
+repository, `browserforge-site`.

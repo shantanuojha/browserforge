@@ -36,6 +36,6 @@ export default defineConfig({
   },
   zip: {
     sourcesRoot: "../../",
-    excludeSources: ["extensions/arbor/**", "extensions/cookiesweep/**", "site/**", "**/.env*"],
+    excludeSources: ["extensions/arbor/**", "extensions/cookiesweep/**", "**/.env*"],
   },
 });
