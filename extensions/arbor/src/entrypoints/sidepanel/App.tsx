@@ -202,7 +202,7 @@ export function App() {
         {toast ? (
           <span>{toast}</span>
         ) : pro === false ? (
-          <UpsellRow compact feature="Scheduled local backups with rolling retention." />
+          <UpsellRow compact feature="Scheduled backups." />
         ) : (
           <span>Arrows move, Enter opens, Delete closes and saves, N adds a note.</span>
         )}

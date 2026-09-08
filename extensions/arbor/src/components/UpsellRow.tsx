@@ -19,10 +19,18 @@ export function UpsellRow({ feature, compact = false }: UpsellRowProps) {
     <div className={compact ? "upsell upsell--compact" : "upsell"} role="note">
       <ProBadge title="Pro feature" />
       <span className="upsell__text">
-        {feature}{" "}
-        <span className="upsell__price">
-          {purchasable ? PRO_PRICE_TEXT : "Pro \u2014 opening soon"}
-        </span>
+        {feature}
+        {purchasable ? (
+          <>
+            {" "}
+            <span className="upsell__price">{PRO_PRICE_TEXT}</span>
+          </>
+        ) : compact ? null : (
+          <>
+            {" "}
+            <span className="upsell__price">Pro {"\u2014"} opening soon</span>
+          </>
+        )}
       </span>
       <Button size="sm" variant={compact ? "ghost" : "primary"} onClick={openProPage}>
         {purchasable ? "Get Pro" : "About Pro"}
