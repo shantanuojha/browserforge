@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { childrenOf, findByLiveTabId, findWindowByLiveId, makeNode, ops } from "../model";
+import {
+  childrenOf,
+  findByLiveTabId,
+  findWindowByLiveId,
+  makeNode,
+  ops,
+  resolveDrop,
+  type NodeId,
+} from "../model";
 import { MemoryTreeStore } from "../store/memory";
 import { TabTracker } from "./tracker";
 import type { LiveTab, LiveWindow, TabsPort } from "./types";
@@ -496,6 +504,156 @@ describe("TabTracker.rebuild", () => {
     const windows = [...tree.values()].filter((n) => n.kind === "window");
     expect(windows.length).toBe(3);
     expect(windows.filter((n) => n.liveWindowId !== undefined).length).toBe(1);
+  });
+
+  /** What the side panel does on drop: resolve the destination, then ask the tracker to move. */
+  async function dropInside(
+    ctx: Awaited<ReturnType<typeof setup>>,
+    draggedId: NodeId,
+    targetId: NodeId,
+  ): Promise<void> {
+    const dest = resolveDrop(ctx.store.getTree(), draggedId, targetId, "inside");
+    if (!dest) throw new Error("drop refused");
+    await ctx.tracker.moveNode(draggedId, dest.parentId, dest.index);
+  }
+
+  function addRootGroup(ctx: Awaited<ReturnType<typeof setup>>, id: NodeId): void {
+    ctx.store.append([ops.add(makeNode({ id, parentId: null, kind: "group", title: id, ts: 1 }))]);
+  }
+
+  /** Service-worker restart: a fresh tracker over the same op log and the same live browser. */
+  async function restartWorker(ctx: Awaited<ReturnType<typeof setup>>) {
+    const fresh = new TabTracker(ctx.store, ctx.fb, { newId, now: () => 1 });
+    ctx.fb.tracker = fresh;
+    const report = await fresh.rebuild();
+    return { fresh, report };
+  }
+
+  it("re-matches a live tab dragged into a root-level group after a worker restart", async () => {
+    const ctx = await setup();
+    const { store, fb } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    fb.openTab(w.id, "https://b.test/", "B");
+    const aNode = findByLiveTabId(store.getTree(), a.id);
+    addRootGroup(ctx, "g");
+    await dropInside(ctx, aNode?.id ?? "", "g");
+    expect(fb.moved).toEqual([]); // the browser tab stays in its window
+    expect(store.getTree().get(aNode?.id ?? "")).toMatchObject({ parentId: "g", liveTabId: a.id });
+    const sizeBefore = store.getTree().size;
+
+    const { fresh, report } = await restartWorker(ctx);
+    expect(report).toMatchObject({
+      windowsMatched: 1,
+      windowsCreated: 0,
+      tabsMatched: 2,
+      tabsCreated: 0,
+      nodesSaved: 0,
+    });
+    const tree = store.getTree();
+    expect(tree.size).toBe(sizeBefore);
+    expect([...tree.values()].filter((n) => n.liveTabId === a.id).map((n) => n.id)).toEqual([
+      aNode?.id,
+    ]);
+    expect(tree.get(aNode?.id ?? "")).toMatchObject({
+      parentId: "g",
+      liveTabId: a.id,
+      liveWindowId: w.id,
+    });
+    // Later events keep landing on the moved node instead of a copy under the window.
+    fresh.handleTabUpdated(a.id, { ...a, title: "A renamed" });
+    expect(store.getTree().get(aNode?.id ?? "")?.title).toBe("A renamed");
+    expect(store.getTree().size).toBe(sizeBefore);
+  });
+
+  it("re-attaches a window whose only tab was dragged into a root-level group", async () => {
+    const ctx = await setup();
+    const { store, fb } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    const aNode = findByLiveTabId(store.getTree(), a.id);
+    const winNode = findWindowByLiveId(store.getTree(), w.id);
+    addRootGroup(ctx, "g");
+    await dropInside(ctx, aNode?.id ?? "", "g");
+    const sizeBefore = store.getTree().size;
+
+    const { report } = await restartWorker(ctx);
+    // The window node is verified through its stray tab, not left as a stale saved copy.
+    expect(report).toMatchObject({
+      windowsMatched: 1,
+      windowsCreated: 0,
+      tabsMatched: 1,
+      tabsCreated: 0,
+      nodesSaved: 0,
+    });
+    const tree = store.getTree();
+    expect(tree.size).toBe(sizeBefore);
+    expect(tree.get(winNode?.id ?? "")?.liveWindowId).toBe(w.id);
+    expect(tree.get(aNode?.id ?? "")).toMatchObject({ parentId: "g", liveTabId: a.id });
+  });
+
+  it("keeps a tab dragged into a group when a browser restart hands out new ids", async () => {
+    const ctx = await setup();
+    const { store, fb } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    fb.openTab(w.id, "https://b.test/", "B");
+    const aNode = findByLiveTabId(store.getTree(), a.id);
+    const winNode = findWindowByLiveId(store.getTree(), w.id);
+    addRootGroup(ctx, "g");
+    await dropInside(ctx, aNode?.id ?? "", "g");
+    const sizeBefore = store.getTree().size;
+    // Session restore: same pages, all new ids.
+    fb.windows = [];
+    fb.tabs = [];
+    const w2 = fb.addWindow(5000);
+    const a2 = fb.addTab(w2.id, "https://a.test/", "A");
+    fb.addTab(w2.id, "https://b.test/", "B");
+
+    const { report } = await restartWorker(ctx);
+    expect(report).toMatchObject({ windowsMatched: 1, tabsMatched: 2, tabsCreated: 0 });
+    const tree = store.getTree();
+    expect(tree.size).toBe(sizeBefore);
+    expect(tree.get(winNode?.id ?? "")?.liveWindowId).toBe(w2.id);
+    expect(tree.get(aNode?.id ?? "")).toMatchObject({
+      parentId: "g",
+      liveTabId: a2.id,
+      liveWindowId: w2.id,
+    });
+  });
+
+  it("re-attaches a live window that was dragged into a group after a worker restart", async () => {
+    const ctx = await setup();
+    const { store, fb } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    fb.openTab(w.id, "https://b.test/", "B");
+    const winNode = findWindowByLiveId(store.getTree(), w.id);
+    addRootGroup(ctx, "g");
+    await dropInside(ctx, winNode?.id ?? "", "g");
+    expect(store.getTree().get(winNode?.id ?? "")?.parentId).toBe("g");
+    const sizeBefore = store.getTree().size;
+
+    const { fresh, report } = await restartWorker(ctx);
+    expect(report).toMatchObject({
+      windowsMatched: 1,
+      windowsCreated: 0,
+      tabsMatched: 2,
+      tabsCreated: 0,
+      nodesSaved: 0,
+    });
+    const tree = store.getTree();
+    expect(tree.size).toBe(sizeBefore);
+    expect([...tree.values()].filter((n) => n.kind === "window").map((n) => n.id)).toEqual([
+      winNode?.id,
+    ]);
+    expect(tree.get(winNode?.id ?? "")).toMatchObject({ parentId: "g", liveWindowId: w.id });
+    fresh.handleTabUpdated(a.id, { ...a, title: "A renamed" });
+    expect(findByLiveTabId(store.getTree(), a.id)).toMatchObject({
+      title: "A renamed",
+      parentId: winNode?.id,
+    });
+    expect(store.getTree().size).toBe(sizeBefore);
   });
 
   it("does not trust colliding ids from a previous session", async () => {

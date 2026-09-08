@@ -473,10 +473,24 @@ export class TabTracker {
     const batch: OpBody[] = [];
 
     const windowNodes = [...tree.values()].filter((n) => n.kind === "window");
-    const tabNodesUnder = (winId: NodeId): TreeNode[] =>
-      descendantIds(tree, winId, index)
+    const tabNodes = [...tree.values()].filter((n) => n.kind === "tab");
+    /**
+     * Tab nodes that belong to a window node: its descendants plus any tab node anywhere in the
+     * tree that still carries the window's live id. Drag-and-drop lets a live tab sit outside its
+     * window's subtree (in a root group, under a saved window...) while the browser tab stays in
+     * the window; those nodes must be re-matched too or the rebuild duplicates them.
+     */
+    const tabNodesOf = (win: TreeNode): TreeNode[] => {
+      const out = descendantIds(tree, win.id, index)
         .map((id) => tree.get(id))
         .filter((n): n is TreeNode => n !== undefined && n.kind === "tab");
+      if (win.liveWindowId === undefined) return out;
+      const seen = new Set(out.map((n) => n.id));
+      for (const n of tabNodes) {
+        if (n.liveWindowId === win.liveWindowId && !seen.has(n.id)) out.push(n);
+      }
+      return out;
+    };
 
     interface Assignment {
       node: TreeNode | null;
@@ -493,7 +507,7 @@ export class TabTracker {
       //    blank page on both sides counts: a window holding only a new tab must re-attach too).
       const byId = windowNodes.find((n) => n.liveWindowId === w.id && !usedWindowNodes.has(n.id));
       if (byId) {
-        const kids = tabNodesUnder(byId.id);
+        const kids = tabNodesOf(byId);
         const samePage = (t: LiveTab, k: TreeNode) =>
           sameUrl(t.url, k.url) || (isBlankUrl(t.url) && isBlankUrl(k.url));
         const verified =
@@ -509,7 +523,7 @@ export class TabTracker {
         let best: { node: TreeNode; score: number } | undefined;
         for (const n of windowNodes) {
           if (usedWindowNodes.has(n.id)) continue;
-          const urls = tabNodesUnder(n.id).map((k) => k.url);
+          const urls = tabNodesOf(n).map((k) => k.url);
           const score = wTabs.filter((t) => urls.some((u) => sameUrl(u, t.url))).length;
           if (score > 0 && (!best || score > best.score)) best = { node: n, score };
         }
@@ -539,8 +553,11 @@ export class TabTracker {
     if (batch.length) this.store.append(batch.splice(0));
 
     for (const [windowId, assignment] of windowAssignments) {
-      const windowNode = assignment.node ?? this.windowNodeFor(windowId);
-      const candidates = tabNodesUnder(windowNode.id);
+      // `assignment.node` is the pre-update snapshot, so `tabNodesOf` sees the id the window node
+      // carried before this rebuild (the one its stray tab nodes still reference). A window that
+      // did not match has no nodes to offer; its tabs are all created below.
+      const candidates = assignment.node ? tabNodesOf(assignment.node) : [];
+      if (!assignment.node) this.windowNodeFor(windowId);
       const free = (k: TreeNode) => !usedTabNodes.has(k.id);
       const tabBatch: OpBody[] = [];
       const deferred: LiveTab[] = [];

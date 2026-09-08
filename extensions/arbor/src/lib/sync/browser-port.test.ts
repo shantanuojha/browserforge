@@ -6,7 +6,16 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
-import { childrenOf, findByLiveTabId, findWindowByLiveId, type Tree } from "../model";
+import {
+  childrenOf,
+  findByLiveTabId,
+  findWindowByLiveId,
+  makeNode,
+  ops,
+  resolveDrop,
+  type NodeId,
+  type Tree,
+} from "../model";
 import { MemoryLogBackend, MemoryTreeStore } from "../store/memory";
 import { bindTrackerEvents, browserTabsPort } from "./browser-port";
 import { TabTracker } from "./tracker";
@@ -63,6 +72,34 @@ function liveUrlsUnder(tree: Tree, windowId: number): string[] {
 
 const tick = () => new Promise((r) => setTimeout(r, 0));
 
+/** Side-panel drag-and-drop of `draggedId` into a new root-level group `groupId`. */
+async function dragIntoNewRootGroup(
+  ctx: Awaited<ReturnType<typeof startBackground>>,
+  draggedId: NodeId,
+  groupId: NodeId,
+): Promise<void> {
+  ctx.store.append([
+    ops.add(makeNode({ id: groupId, parentId: null, kind: "group", title: "Group", ts: 1 })),
+  ]);
+  const dest = resolveDrop(ctx.store.getTree(), draggedId, groupId, "inside");
+  if (!dest) throw new Error("drop refused");
+  await ctx.tracker.moveNode(draggedId, dest.parentId, dest.index);
+}
+
+async function liveTabIdFor(url: string): Promise<number> {
+  const tab = (await fakeBrowser.tabs.query({ url }))[0];
+  if (tab?.id === undefined) throw new Error(`no live tab for ${url}`);
+  return tab.id;
+}
+
+/** `tabs.update` is not mocked by fake-browser; fire the event a title change would produce. */
+async function renameLiveTab(tabId: number, title: string): Promise<void> {
+  const tab = (await fakeBrowser.tabs.query({})).find((t) => t.id === tabId);
+  if (!tab) throw new Error(`tab ${tabId} not found`);
+  await fakeBrowser.tabs.onUpdated.trigger(tabId, { title }, { ...tab, title });
+  await tick();
+}
+
 beforeEach(() => {
   fakeBrowser.reset();
   const tabs = fakeBrowser.tabs as unknown as Record<string, unknown>;
@@ -81,7 +118,9 @@ describe("browserTabsPort + TabTracker on a browser that already has windows", (
     expect(report.windowsCreated).toBeGreaterThanOrEqual(2);
     expect(liveUrlsUnder(tree, w1Id)).toEqual(URLS_W1);
     expect(liveUrlsUnder(tree, w2Id)).toEqual(URLS_W2);
-    const liveTabs = [...tree.values()].filter((n) => n.kind === "tab" && n.liveTabId !== undefined);
+    const liveTabs = [...tree.values()].filter(
+      (n) => n.kind === "tab" && n.liveTabId !== undefined,
+    );
     // 6 seeded tabs; fake-browser's default window contributes one blank tab.
     expect(liveTabs.length).toBeGreaterThanOrEqual(6);
     for (const url of [...URLS_W1, ...URLS_W2]) {
@@ -128,6 +167,69 @@ describe("browserTabsPort + TabTracker on a browser that already has windows", (
     expect(second.store.getTree().size).toBe(nodeCount);
     expect(liveUrlsUnder(second.store.getTree(), w1Id)).toEqual(URLS_W1);
     expect(liveUrlsUnder(second.store.getTree(), w2Id)).toEqual(URLS_W2);
+    second.unbind();
+  });
+
+  it("re-matches a live tab dragged into a root group when the service worker restarts", async () => {
+    const { w1Id } = await seedBrowser();
+    const first = await startBackground();
+    const tabId = await liveTabIdFor(URLS_W1[1] as string);
+    const node = findByLiveTabId(first.store.getTree(), tabId);
+    if (!node) throw new Error("tab node missing");
+    await dragIntoNewRootGroup(first, node.id, "g");
+    expect(first.store.getTree().get(node.id)?.parentId).toBe("g");
+    const nodeCount = first.store.getTree().size;
+    first.unbind();
+    await first.store.close();
+
+    const second = await startBackground(first.backend);
+    expect(second.report.tabsCreated).toBe(0);
+    expect(second.report.nodesSaved).toBe(0);
+    const tree = second.store.getTree();
+    expect(tree.size).toBe(nodeCount);
+    expect(tree.get(node.id)).toMatchObject({
+      parentId: "g",
+      liveTabId: tabId,
+      liveWindowId: w1Id,
+    });
+    expect([...tree.values()].filter((n) => n.liveTabId === tabId).map((n) => n.id)).toEqual([
+      node.id,
+    ]);
+    expect(liveUrlsUnder(tree, w1Id)).toEqual([URLS_W1[0], URLS_W1[2]]);
+
+    await renameLiveTab(tabId, "Renamed");
+    expect(second.store.getTree().get(node.id)?.title).toBe("Renamed");
+    expect(second.store.getTree().size).toBe(nodeCount);
+    second.unbind();
+  });
+
+  it("re-attaches a live window dragged into a group when the service worker restarts", async () => {
+    const { w2Id } = await seedBrowser();
+    const first = await startBackground();
+    const winNode = findWindowByLiveId(first.store.getTree(), w2Id);
+    if (!winNode) throw new Error("window node missing");
+    await dragIntoNewRootGroup(first, winNode.id, "g");
+    const nodeCount = first.store.getTree().size;
+    first.unbind();
+    await first.store.close();
+
+    const second = await startBackground(first.backend);
+    expect(second.report.windowsCreated).toBe(0);
+    expect(second.report.tabsCreated).toBe(0);
+    expect(second.report.nodesSaved).toBe(0);
+    const tree = second.store.getTree();
+    expect(tree.size).toBe(nodeCount);
+    expect(tree.get(winNode.id)).toMatchObject({ parentId: "g", liveWindowId: w2Id });
+    expect(findWindowByLiveId(tree, w2Id)?.id).toBe(winNode.id);
+    expect(liveUrlsUnder(tree, w2Id)).toEqual(URLS_W2);
+
+    const tabId = await liveTabIdFor(URLS_W2[0] as string);
+    await renameLiveTab(tabId, "Renamed");
+    expect(findByLiveTabId(second.store.getTree(), tabId)).toMatchObject({
+      title: "Renamed",
+      parentId: winNode.id,
+    });
+    expect(second.store.getTree().size).toBe(nodeCount);
     second.unbind();
   });
 
