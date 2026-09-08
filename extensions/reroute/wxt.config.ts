@@ -4,14 +4,16 @@ export default defineConfig({
   srcDir: "src",
   modules: ["@wxt-dev/module-react"],
   imports: false,
-  manifest: {
+  manifest: ({ mode, browser }) => ({
     name: "Reroute - URL Rewrite Rules",
     short_name: "Reroute",
     description:
       "Redirect and rewrite URLs with wildcard or regex rules, and strip tracking parameters automatically. Imports Redirector rules.",
     permissions: [
       "declarativeNetRequest",
-      "declarativeNetRequestFeedback",
+      // `onRuleMatchedDebug` diagnostics only run under `import.meta.env.DEV`, and Chrome only
+      // delivers the event to unpacked extensions, so the permission is dev-only too.
+      ...(mode === "development" ? ["declarativeNetRequestFeedback"] : []),
       "webNavigation",
       "tabs",
       "storage",
@@ -30,10 +32,11 @@ export default defineConfig({
         { id: "tracking-params", enabled: true, path: "rules/tracking-params.json" },
       ],
     },
-    browser_specific_settings: {
-      gecko: { id: "reroute@shantanuojha.com" },
-    },
-  },
+    // Firefox needs a stable add-on id; Chrome warns about the key, so only emit it for Firefox.
+    ...(browser === "firefox"
+      ? { browser_specific_settings: { gecko: { id: "reroute@shantanuojha.com" } } }
+      : {}),
+  }),
   zip: {
     sourcesRoot: "../../",
     excludeSources: ["extensions/arbor/**", "extensions/cookiesweep/**", "**/.env*"],

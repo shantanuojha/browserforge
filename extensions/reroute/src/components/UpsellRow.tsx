@@ -1,5 +1,5 @@
 import { Button } from "@browserforge/ui";
-import { openCheckout } from "../lib/licensing";
+import { LICENSING, openCheckout } from "../lib/licensing";
 import { PRO_UPSELL_LABEL } from "../lib/pro";
 
 export interface UpsellRowProps {
@@ -12,10 +12,14 @@ export function openProPage(): void {
 }
 
 export function UpsellRow({ feature }: UpsellRowProps) {
+  // Without a configured store nothing can be bought yet, so do not quote a price or say "Get".
+  const purchasable = LICENSING.configured;
   return (
     <div className="rr-upsell" role="note">
       <div>
-        <div className="rr-upsell__title">{PRO_UPSELL_LABEL}</div>
+        <div className="rr-upsell__title">
+          {purchasable ? PRO_UPSELL_LABEL : "Pro \u2014 opening soon"}
+        </div>
         <div className="rr-small">
           {feature
             ? `${feature} is a Pro feature. Unlock sync, rule packs and shareable links.`
@@ -23,7 +27,7 @@ export function UpsellRow({ feature }: UpsellRowProps) {
         </div>
       </div>
       <Button variant="primary" size="sm" onClick={openProPage}>
-        Get Pro
+        {purchasable ? "Get Pro" : "About Pro"}
       </Button>
     </div>
   );

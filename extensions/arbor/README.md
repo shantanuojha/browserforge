@@ -26,8 +26,11 @@ Pro (gated via `@browserforge/licensing`, feature ids: `scheduled-backups`, `dri
 `power-keys`, `multi-profile`):
 
 - Scheduled local backups (every N minutes, rolling retention) downloadable as files.
-- Google Drive backup via `chrome.identity` (optional permission, requested on enable).
-- Power keyboard/clipboard: multi-select, cut/paste subtrees, copy as Markdown/HTML list.
+- Planned, not shipped, and therefore not advertised as Pro in the UI (listed under "Planned" in
+  Options): Google Drive backup via `chrome.identity` (optional permission requested on enable;
+  hidden behind `DRIVE_BACKUP_ENABLED = false` in `src/lib/pro.ts` and absent from the manifest
+  until it works) and power keyboard/clipboard commands (multi-select, cut/paste subtrees, copy as
+  Markdown/HTML list).
 
 ## Data model
 
@@ -48,13 +51,16 @@ Pro is a $15 one-time Lemon Squeezy licence, handled by `@browserforge/licensing
 `src/lib/licensing.ts`. The store and variant ids are baked in at build time from WXT env vars (see
 `.env.example`: `WXT_LEMONSQUEEZY_STORE_ID`, `WXT_LEMONSQUEEZY_VARIANT_ID_ARBOR`, optional
 `WXT_LEMONSQUEEZY_CHECKOUT_URL_ARBOR`). Without them the build still works: Pro gates stay closed
-and the options page shows "Licensing not configured". The background schedules revalidation via
-`chrome.alarms`; the options page hosts the activate / deactivate dialog.
+and the options page shows a neutral "Pro purchases are opening soon" note (the developer-facing
+"Licensing not configured" wording only appears in dev builds). The background schedules
+revalidation via `chrome.alarms`; the options page hosts the activate / deactivate dialog.
 
 ## Constraints
 
-- Permissions stay as declared in `wxt.config.ts`; `identity` is optional and requested at runtime.
-  `host_permissions` covers only `https://api.lemonsqueezy.com/*` for the licence check.
+- Permissions stay as declared in `wxt.config.ts` (`tabs`, `storage`, `unlimitedStorage`,
+  `sidePanel`, `alarms`, `favicon`); every one is used by shipped code. The optional `identity`
+  permission returns only together with a working Drive upload. `host_permissions` covers only
+  `https://api.lemonsqueezy.com/*` for the licence check.
 - No remote code, no analytics. The only network call in the whole extension is the licence check.
 - Must run in Chrome and Edge; Firefox build should compile (side panel → sidebar_action fallback is
   a stretch goal).

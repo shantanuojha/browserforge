@@ -1,5 +1,5 @@
 import { Button, ProBadge } from "@browserforge/ui";
-import { openCheckout, PRO_PRICE_TEXT } from "@/lib/licensing";
+import { LICENSING, openCheckout, PRO_PRICE_TEXT } from "@/lib/licensing";
 
 export interface UpsellRowProps {
   /** What the user would unlock, e.g. "Scheduled backups". */
@@ -13,14 +13,19 @@ export function openProPage(): void {
 }
 
 export function UpsellRow({ feature, compact = false }: UpsellRowProps) {
+  // Without a configured store nothing can be bought yet, so do not quote a price or say "Get".
+  const purchasable = LICENSING.configured;
   return (
     <div className={compact ? "upsell upsell--compact" : "upsell"} role="note">
       <ProBadge title="Pro feature" />
       <span className="upsell__text">
-        {feature} <span className="upsell__price">{PRO_PRICE_TEXT}</span>
+        {feature}{" "}
+        <span className="upsell__price">
+          {purchasable ? PRO_PRICE_TEXT : "Pro \u2014 opening soon"}
+        </span>
       </span>
       <Button size="sm" variant={compact ? "ghost" : "primary"} onClick={openProPage}>
-        Get Pro
+        {purchasable ? "Get Pro" : "About Pro"}
       </Button>
     </div>
   );

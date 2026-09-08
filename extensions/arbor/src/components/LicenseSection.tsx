@@ -11,11 +11,12 @@ import {
   type KeyValueItem,
 } from "@browserforge/ui";
 import type { LicenseClient } from "@browserforge/licensing";
-import { LICENSING, getLicenseClient, openCheckout } from "@/lib/licensing";
+import { LICENSING, PRO_PAGE_URL, getLicenseClient, openCheckout } from "@/lib/licensing";
 
 /**
  * Options-page "Pro" section: licence status, activate/manage dialog and the "Buy Pro" link.
- * Renders a "not configured" notice when the build has no Lemon Squeezy ids.
+ * When the build has no Lemon Squeezy ids it shows a neutral "opening soon" note to end users
+ * (and the developer-facing reason in dev builds).
  */
 export function LicenseSection() {
   const client = getLicenseClient();
@@ -32,18 +33,27 @@ export function LicenseSection() {
 }
 
 function NotConfigured() {
+  if (import.meta.env.DEV) {
+    return (
+      <Callout tone="info" title="Licensing not configured (development build).">
+        No Lemon Squeezy store or variant id was set at build time, so licence keys cannot be
+        activated here. See <code>.env.example</code>.
+      </Callout>
+    );
+  }
   return (
     <>
-      <Callout tone="info" title="Licensing not configured.">
-        This build was made without a Lemon Squeezy store, so licence keys cannot be activated here.
-        Install Arbor from the store to unlock Pro.
+      <Callout tone="info" title="Pro purchases are opening soon.">
+        Everything you see is free to use. Licence keys will be activated here once{" "}
+        {LICENSING.productLabel} goes on sale.
       </Callout>
-      <p>{LICENSING.productLabel} is a $15 one-time purchase.</p>
-      <div className="button-row">
-        <Button size="sm" variant="secondary" onClick={openCheckout}>
-          Learn about Pro
-        </Button>
-      </div>
+      <p>
+        Follow along at{" "}
+        <a href={PRO_PAGE_URL} target="_blank" rel="noreferrer">
+          arbor.shantanuojha.com
+        </a>
+        .
+      </p>
     </>
   );
 }

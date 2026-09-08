@@ -8,6 +8,7 @@ import { useSettings } from "@/hooks/useSettings";
 import type { BackupMeta } from "@/lib/backups";
 import { downloadJson, formatDateTime } from "@/lib/download";
 import { msg } from "@/lib/messages";
+import { DRIVE_BACKUP_ENABLED } from "@/lib/pro";
 import type { Settings } from "@/lib/settings";
 
 function Field({
@@ -62,14 +63,16 @@ export function App() {
       .catch((e: unknown) => {
         if (!cancelled) setStatus(e instanceof Error ? e.message : String(e));
       });
-    browser.permissions
-      .contains({ permissions: ["identity"] })
-      .then((granted) => {
-        if (!cancelled) setIdentityGranted(granted);
-      })
-      .catch(() => {
-        if (!cancelled) setIdentityGranted(false);
-      });
+    if (DRIVE_BACKUP_ENABLED) {
+      browser.permissions
+        .contains({ permissions: ["identity"] })
+        .then((granted) => {
+          if (!cancelled) setIdentityGranted(granted);
+        })
+        .catch(() => {
+          if (!cancelled) setIdentityGranted(false);
+        });
+    }
     return () => {
       cancelled = true;
     };
@@ -250,45 +253,45 @@ export function App() {
             <p>No stored backups yet.</p>
           )}
 
-          <Field
-            label="Google Drive backup"
-            hint={
-              identityGranted
-                ? "Sign-in permission granted. Uploading is not implemented in this build yet."
-                : "Asks for the optional identity permission when enabled. Uploading is not implemented in this build yet."
-            }
-            htmlFor="drive-enabled"
-          >
-            <input
-              id="drive-enabled"
-              type="checkbox"
-              disabled={gated}
-              checked={settings.backups.driveEnabled}
-              onChange={(e) => void toggleDrive(e.target.checked)}
-            />
-          </Field>
-          {gated ? <UpsellRow feature="Google Drive backup." /> : null}
+          {DRIVE_BACKUP_ENABLED ? (
+            <>
+              <Field
+                label="Google Drive backup"
+                hint={
+                  identityGranted
+                    ? "Sign-in permission granted."
+                    : "Asks for the optional identity permission when enabled."
+                }
+                htmlFor="drive-enabled"
+              >
+                <input
+                  id="drive-enabled"
+                  type="checkbox"
+                  disabled={gated}
+                  checked={settings.backups.driveEnabled}
+                  onChange={(e) => void toggleDrive(e.target.checked)}
+                />
+              </Field>
+              {gated ? <UpsellRow feature="Google Drive backup." /> : null}
+            </>
+          ) : null}
           {status ? <div className="notice">{status}</div> : null}
         </div>
       </section>
 
+      <LicenseSection />
+
       <section className="section">
         <div className="section__header">
-          <h2 className="section__title">
-            Power keys <ProBadge title="Pro feature" />
-          </h2>
+          <h2 className="section__title">Planned</h2>
         </div>
         <div className="section__body">
-          <p>Multi-select, cut and paste subtrees, copy a subtree as a Markdown or HTML list.</p>
-          {gated ? (
-            <UpsellRow feature="Power keyboard and clipboard commands." />
-          ) : (
-            <p>Coming in a later build. Your licence already covers it.</p>
-          )}
+          <p>
+            Not in this version and not part of Pro yet: Google Drive backup, and power keys
+            (multi-select, cut and paste subtrees, copy a subtree as a Markdown or HTML list).
+          </p>
         </div>
       </section>
-
-      <LicenseSection />
     </div>
   );
 }

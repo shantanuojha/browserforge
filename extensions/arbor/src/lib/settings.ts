@@ -12,7 +12,8 @@ export interface Settings {
     enabled: boolean;
     intervalMinutes: number;
     retention: number;
-    /** Pro: placeholder toggle; requests the optional `identity` permission. Upload not implemented. */
+    /** Pro (planned): Google Drive backup. Hidden while `DRIVE_BACKUP_ENABLED` is false; kept so
+     *  stored settings stay forward-compatible. */
     driveEnabled: boolean;
   };
 }

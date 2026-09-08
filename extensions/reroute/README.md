@@ -34,8 +34,9 @@ resourceTypes[], transforms: ("decodeURIComponent" | "encodeURIComponent" | "ato
   `patternType` wildcard|regex, `processMatches` noProcessing|urlDecode|urlEncode|base64decode,
   `appliesTo`), ClearURLs allowlist. Exporter to our JSON.
 - Options page: rule list with enable toggles, editor with live tester, import/export, per-site
-  allowlist, "what fired recently" log via `declarativeNetRequestFeedback` (`onRuleMatchedDebug`
-  only in unpacked builds) plus our own JS-fallback log.
+  allowlist, "what fired recently" log via `declarativeNetRequestFeedback` (`onRuleMatchedDebug`;
+  the permission and the listener exist only in development builds, since Chrome only fires the
+  event for unpacked extensions) plus our own JS-fallback log.
 - Popup: on/off for this site, count of rules active, quick "clean this link".
 
 Pro (feature ids: `sync`, `rule-packs`, `share`):
@@ -55,8 +56,10 @@ Pro is a $9 one-time Lemon Squeezy licence, handled by `@browserforge/licensing`
 `src/lib/licensing.ts`. The store and variant ids are baked in at build time from WXT env vars (see
 `.env.example`: `WXT_LEMONSQUEEZY_STORE_ID`, `WXT_LEMONSQUEEZY_VARIANT_ID_REROUTE`, optional
 `WXT_LEMONSQUEEZY_CHECKOUT_URL_REROUTE`). Without them the build still works: Pro gates stay closed
-and the options page shows "Licensing not configured". The background schedules revalidation via
-`chrome.alarms` (hence the `alarms` permission); the Pro tab hosts the activate / deactivate dialog.
+and the Pro tab shows a neutral "Pro purchases are opening soon" note (the developer-facing
+"Licensing not configured" wording only appears in dev builds). The background schedules
+revalidation via `chrome.alarms` (hence the `alarms` permission); the Pro tab hosts the activate /
+deactivate dialog.
 
 ## Constraints
 
