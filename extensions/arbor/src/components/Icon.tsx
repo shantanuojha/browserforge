@@ -6,6 +6,7 @@ export type IconName =
   | "globe"
   | "close"
   | "restore"
+  | "rename"
   | "trash"
   | "plus"
   | "search"
@@ -20,6 +21,7 @@ const PATHS: Record<IconName, string> = {
     "M6 1.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 1 0 0-9M1.5 6h9M6 1.5c-2 2.5-2 6.5 0 9M6 1.5c2 2.5 2 6.5 0 9",
   close: "M2.5 2.5l7 7M9.5 2.5l-7 7",
   restore: "M2.5 6a3.5 3.5 0 1 1 1 2.5M2.5 3v3h3",
+  rename: "M8.5 1.5l2 2-6.5 6.5H2v-2zM7 3l2 2",
   trash: "M2 3h8M4.5 3V1.5h3V3M3 3l.5 7.5h5L9 3",
   plus: "M6 2v8M2 6h8",
   search: "M5 1.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 1 0 0-7M7.5 7.5l3 3",

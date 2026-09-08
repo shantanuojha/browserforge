@@ -10,10 +10,24 @@ import { UpsellRow } from "@/components/UpsellRow";
 import { usePro } from "@/hooks/usePro";
 import { useSettings } from "@/hooks/useSettings";
 import { useTreeState } from "@/hooks/useTreeState";
+import { summarizeContainer } from "@/lib/container-actions";
 import { msg } from "@/lib/messages";
-import { descendantIds, ops, type NodeId } from "@/lib/model";
+import { descendantIds, ops, type NodeId, type Tree } from "@/lib/model";
 
 type View = "tree" | "recovery" | "io";
+
+/** Body of the delete confirmation: what goes, and how many open tabs it closes unsaved. */
+function deleteWarning(tree: Tree, id: NodeId): string {
+  const node = tree.get(id);
+  if (!node) return "";
+  const nested = descendantIds(tree, id).length;
+  const live = summarizeContainer(tree, node).liveTabs + (node.liveTabId !== undefined ? 1 : 0);
+  const what = `This removes "${node.title}"${nested ? ` and ${nested} nested node(s)` : ""}.`;
+  const open = live
+    ? ` ${live} open tab${live === 1 ? " is" : "s are"} closed without being saved.`
+    : "";
+  return `${what}${open} Earlier snapshots in Recovery still contain them.`;
+}
 
 /** Chromium exposes cached favicons at `/_favicon/` when the `favicon` permission is granted. */
 function faviconFallback(): ((url: string) => string) | null {
@@ -76,6 +90,14 @@ export function App() {
       },
       closeAndSave: (id) => run(msg.closeAndSave.send({ id })),
       restore: (id) => run(msg.restoreNode.send({ id })),
+      reopenAll: (id) =>
+        run(
+          msg.reopenAll
+            .send({ id })
+            .then((n) =>
+              setToast(n ? `Reopened ${n} saved tab${n === 1 ? "" : "s"}.` : "Nothing to reopen."),
+            ),
+        ),
       deleteNode: (id) => {
         const n = tree.get(id);
         if (!n) return;
@@ -241,12 +263,7 @@ export function App() {
           }}
           onCancel={() => setConfirm(null)}
         >
-          This removes &quot;{tree.get(confirm.id)?.title}&quot;
-          {descendantIds(tree, confirm.id).length
-            ? ` and ${descendantIds(tree, confirm.id).length} nested node(s)`
-            : ""}
-          . Open tabs in it are closed without being saved. Earlier snapshots in Recovery still
-          contain them.
+          {deleteWarning(tree, confirm.id)}
         </ConfirmDialog>
       ) : null}
     </div>

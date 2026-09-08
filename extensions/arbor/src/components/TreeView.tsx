@@ -8,6 +8,13 @@ import {
   type KeyboardEvent,
 } from "react";
 import {
+  containerActions,
+  deleteKeyAction,
+  isContainer,
+  type ContainerAction,
+  type ContainerActionHandlers,
+} from "@/lib/container-actions";
+import {
   buildChildIndex,
   flattenTree,
   resolveDrop,
@@ -39,6 +46,8 @@ export interface TreeActions {
   primary(id: NodeId): void;
   closeAndSave(id: NodeId): void;
   restore(id: NodeId): void;
+  /** Container action: reopen every saved tab beneath a window/group in place. */
+  reopenAll(id: NodeId): void;
   deleteNode(id: NodeId): void;
   move(id: NodeId, parentId: NodeId | null, index: number): void;
   addGroup(parentId: NodeId | null, index: number): void;
@@ -180,6 +189,7 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
       },
       onCloseAndSave: (id) => actions.closeAndSave(id),
       onRestore: (id) => actions.restore(id),
+      onReopenAll: (id) => actions.reopenAll(id),
       onDelete: (id) => actions.deleteNode(id),
       onEditNote: (id) => {
         setRenamingId(null);
@@ -248,6 +258,26 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
     [actions, tree, drag?.id, dropTarget],
   );
 
+  // -- container actions (windows and groups share one definition) -----------------------------
+
+  const containerHandlers = useMemo<ContainerActionHandlers>(
+    () => ({
+      reopenAll: cb.onReopenAll,
+      closeAndSave: cb.onCloseAndSave,
+      editNote: cb.onEditNote,
+      startRename: cb.onStartRename,
+      toggleCollapse: (id, collapsed) => actions.toggleCollapse(id, collapsed),
+      deleteNode: cb.onDelete,
+    }),
+    [cb, actions],
+  );
+
+  const actionsFor = useCallback(
+    (node: TreeNode): ContainerAction[] | null =>
+      isContainer(node) ? containerActions(tree, node, containerHandlers, childIndex) : null,
+    [tree, childIndex, containerHandlers],
+  );
+
   // -- keyboard -------------------------------------------------------------------------------
 
   const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
@@ -313,17 +343,18 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
         else actions.primary(node.id);
         return;
       case "Delete":
-      case "Backspace":
+      case "Backspace": {
         e.preventDefault();
-        if (
-          (node.kind === "tab" && node.liveTabId !== undefined) ||
-          (node.kind === "window" && node.liveWindowId !== undefined)
-        ) {
+        const container = actionsFor(node);
+        if (container) {
+          deleteKeyAction(container)?.run();
+        } else if (node.kind === "tab" && node.liveTabId !== undefined) {
           actions.closeAndSave(node.id);
         } else {
           actions.deleteNode(node.id);
         }
         return;
+      }
       case "F2":
         e.preventDefault();
         if (node.kind !== "tab") setRenamingId(node.id);
@@ -346,30 +377,54 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
     if (!menu) return [];
     const n = tree.get(menu.id);
     if (!n) return [];
-    const liveTab = n.kind === "tab" && n.liveTabId !== undefined;
-    const liveWin = n.kind === "window" && n.liveWindowId !== undefined;
     const siblings = childIndex.get(n.parentId) ?? [];
     const myIndex = siblings.findIndex((s) => s.id === n.id);
-    const items: MenuEntry[] = [];
-    if (liveTab || liveWin)
-      items.push({ label: "Focus", shortcut: "Enter", onSelect: () => actions.primary(n.id) });
-    else if (n.kind === "tab" || n.kind === "window" || n.kind === "group") {
-      items.push({
-        label:
-          n.kind === "tab"
-            ? "Restore tab"
-            : n.kind === "window"
-              ? "Reopen window"
-              : "Open all saved tabs",
-        shortcut: "Enter",
-        onSelect: () => actions.restore(n.id),
+    const newItems: MenuEntry[] = [
+      { label: "New group inside", onSelect: () => actions.addGroup(n.id, 0) },
+      { label: "New note inside", onSelect: () => actions.addNote(n.id, 0) },
+      { label: "New group after", onSelect: () => actions.addGroup(n.parentId, myIndex + 1) },
+    ];
+
+    const container = actionsFor(n);
+    if (container) {
+      // Windows and groups: the shared definition, section by section, plus the "New ..." entries
+      // and "Focus" for a live window.
+      const entry = (a: ContainerAction): MenuEntry => ({
+        label: a.label,
+        shortcut: a.shortcut,
+        danger: a.danger,
+        disabled: a.disabled,
+        onSelect: a.run,
       });
+      const items: MenuEntry[] = [];
+      if (n.kind === "window" && n.liveWindowId !== undefined) {
+        items.push({ label: "Focus", shortcut: "Enter", onSelect: () => actions.primary(n.id) });
+      }
+      items.push(...container.filter((a) => a.section === "open").map(entry));
+      items.push("separator");
+      const edit = container.filter((a) => a.section === "edit").map(entry);
+      items.push(...edit.slice(0, 2), ...newItems, ...edit.slice(2));
+      items.push("separator");
+      items.push(...container.filter((a) => a.section === "danger").map(entry));
+      return items;
     }
-    if (liveTab || liveWin) {
+
+    // Tabs and notes.
+    const liveTab = n.kind === "tab" && n.liveTabId !== undefined;
+    const items: MenuEntry[] = [];
+    if (liveTab) {
+      items.push({ label: "Focus", shortcut: "Enter", onSelect: () => actions.primary(n.id) });
       items.push({
-        label: liveWin ? "Close window and save" : "Close and save",
+        label: "Close and save",
         shortcut: "Del",
         onSelect: () => actions.closeAndSave(n.id),
+      });
+    } else if (n.kind === "tab") {
+      items.push({
+        label: "Restore tab",
+        shortcut: "Enter",
+        disabled: !n.url,
+        onSelect: () => actions.restore(n.id),
       });
     }
     items.push("separator");
@@ -378,16 +433,12 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
       shortcut: "N",
       onSelect: () => setEditingNoteId(n.id),
     });
-    if (n.kind !== "tab")
+    if (n.kind === "note") {
       items.push({ label: "Rename", shortcut: "F2", onSelect: () => setRenamingId(n.id) });
-    if (n.kind !== "note") {
-      items.push({ label: "New group inside", onSelect: () => actions.addGroup(n.id, 0) });
-      items.push({ label: "New note inside", onSelect: () => actions.addNote(n.id, 0) });
+      items.push(newItems[2] as MenuEntry);
+    } else {
+      items.push(...newItems);
     }
-    items.push({
-      label: "New group after",
-      onSelect: () => actions.addGroup(n.parentId, myIndex + 1),
-    });
     if (childIndex.get(n.id)?.length) {
       items.push({
         label: n.collapsed ? "Expand" : "Collapse",
@@ -397,12 +448,12 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
     }
     items.push("separator");
     items.push({
-      label: liveTab || liveWin ? "Delete (closes without saving)" : "Delete",
+      label: liveTab ? "Delete (closes without saving)" : "Delete",
       danger: true,
       onSelect: () => actions.deleteNode(n.id),
     });
     return items;
-  }, [menu, tree, childIndex, actions]);
+  }, [menu, tree, childIndex, actions, actionsFor]);
 
   // -- render ---------------------------------------------------------------------------------
 
@@ -479,6 +530,7 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
                   dragging={drag?.id === id}
                   dropPosition={drag?.over?.id === id ? drag.over.pos : null}
                   childCount={childIndex.get(id)?.length ?? 0}
+                  containerActions={actionsFor(row.node)}
                   faviconFallback={faviconFallback}
                   cb={cb}
                 />

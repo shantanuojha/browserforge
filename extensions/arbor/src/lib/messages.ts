@@ -30,6 +30,8 @@ export const msg = {
   moveNode: defineMessage<{ id: NodeId; parentId: NodeId | null; index: number }, void>("moveNode"),
   focusNode: defineMessage<{ id: NodeId }, void>("focusNode"),
   restoreNode: defineMessage<{ id: NodeId }, void>("restoreNode"),
+  /** Container action: reopen every saved tab beneath a window/group in place. Returns the count. */
+  reopenAll: defineMessage<{ id: NodeId }, number>("reopenAll"),
   closeAndSave: defineMessage<{ id: NodeId }, number>("closeAndSave"),
   closeAllAndSave: defineMessage<void, number>("closeAllAndSave"),
   deleteNode: defineMessage<{ id: NodeId }, void>("deleteNode"),

@@ -8,6 +8,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
+import type { ContainerAction } from "@/lib/container-actions";
 import type { DropPosition, FlatRow, NodeId, TreeNode } from "@/lib/model";
 import { Icon } from "./Icon";
 
@@ -20,6 +21,7 @@ export interface RowCallbacks {
   onContextMenu(id: NodeId, x: number, y: number): void;
   onCloseAndSave(id: NodeId): void;
   onRestore(id: NodeId): void;
+  onReopenAll(id: NodeId): void;
   onDelete(id: NodeId): void;
   onEditNote(id: NodeId): void;
   onSaveNote(id: NodeId, note: string): void;
@@ -43,6 +45,8 @@ export interface TreeRowProps {
   dragging: boolean;
   dropPosition: DropPosition | null;
   childCount: number;
+  /** Shared window/group actions (see `containerActions`); `null` for tab and note rows. */
+  containerActions: ContainerAction[] | null;
   faviconFallback: ((url: string) => string) | null;
   cb: RowCallbacks;
 }
@@ -160,6 +164,7 @@ export const TreeRow = memo(function TreeRow({
   dragging,
   dropPosition,
   childCount,
+  containerActions,
   faviconFallback,
   cb,
 }: TreeRowProps) {
@@ -193,7 +198,8 @@ export const TreeRow = memo(function TreeRow({
   };
   const onKeyDownInEditor = (e: KeyboardEvent) => e.stopPropagation();
 
-  const canRestore = saved && (node.kind === "window" || node.url);
+  // Tab rows only; window and group rows get their buttons from `containerActions`.
+  const canRestore = saved && !!node.url;
 
   return (
     <div
@@ -276,57 +282,80 @@ export const TreeRow = memo(function TreeRow({
         {live && node.kind === "tab" ? <span className="row__live" title="Open tab" /> : null}
 
         <span className="row__actions" onDoubleClick={(e) => e.stopPropagation()}>
-          <button
-            type="button"
-            className="icon-btn"
-            tabIndex={-1}
-            title="Note"
-            onClick={(e) => {
-              e.stopPropagation();
-              cb.onEditNote(node.id);
-            }}
-          >
-            <Icon name="note" />
-          </button>
-          {live ? (
-            <button
-              type="button"
-              className="icon-btn"
-              tabIndex={-1}
-              title={node.kind === "window" ? "Close window and save" : "Close and save"}
-              onClick={(e) => {
-                e.stopPropagation();
-                cb.onCloseAndSave(node.id);
-              }}
-            >
-              <Icon name="close" />
-            </button>
-          ) : canRestore ? (
-            <button
-              type="button"
-              className="icon-btn"
-              tabIndex={-1}
-              title="Restore"
-              onClick={(e) => {
-                e.stopPropagation();
-                cb.onRestore(node.id);
-              }}
-            >
-              <Icon name="restore" />
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="icon-btn icon-btn--danger"
-            tabIndex={-1}
-            title="Delete"
-            onClick={(e) => {
-              e.stopPropagation();
-              cb.onDelete(node.id);
-            }}
-          >
-            <Icon name="trash" />
-          </button>
+          {containerActions ? (
+            // Window and group rows: one definition drives buttons and context menu alike.
+            containerActions
+              .filter((a) => a.inRow && !a.disabled)
+              .map((a) => (
+                <button
+                  key={a.id}
+                  type="button"
+                  className={a.danger ? "icon-btn icon-btn--danger" : "icon-btn"}
+                  tabIndex={-1}
+                  title={a.label}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    a.run();
+                  }}
+                >
+                  <Icon name={a.icon} />
+                </button>
+              ))
+          ) : (
+            <>
+              <button
+                type="button"
+                className="icon-btn"
+                tabIndex={-1}
+                title="Note"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cb.onEditNote(node.id);
+                }}
+              >
+                <Icon name="note" />
+              </button>
+              {live ? (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  tabIndex={-1}
+                  title="Close and save"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    cb.onCloseAndSave(node.id);
+                  }}
+                >
+                  <Icon name="close" />
+                </button>
+              ) : canRestore ? (
+                <button
+                  type="button"
+                  className="icon-btn"
+                  tabIndex={-1}
+                  title="Restore"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    cb.onRestore(node.id);
+                  }}
+                >
+                  <Icon name="restore" />
+                </button>
+              ) : null}
+              <button
+                type="button"
+                className="icon-btn icon-btn--danger"
+                tabIndex={-1}
+                title="Delete"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  cb.onDelete(node.id);
+                }}
+              >
+                <Icon name="trash" />
+              </button>
+            </>
+          )}
         </span>
       </div>
 

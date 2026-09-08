@@ -1019,6 +1019,87 @@ describe("TabTracker.restore in place", () => {
     expect(fb.stripOrder(w.id).length).toBe(5);
   });
 
+  it("reopenAll on a group: nodes stay put, become live, count unchanged, then close & save all", async () => {
+    const ctx = await groupSetup();
+    const { store, fb, tracker, w, a, b, size } = ctx;
+    // Mixed group: T is already open (dragged in earlier), S and C are saved.
+    await tracker.restore("t");
+    const tTab = store.getTree().get("t")?.liveTabId ?? -1;
+    const before = [...store.getTree().values()].map((n) => [n.id, n.parentId, n.order]);
+
+    const opened = await tracker.reopenAll("g");
+    expect(opened).toBe(2);
+    const tree = store.getTree();
+    expect(tree.size).toBe(size);
+    // Same ids, same parents, same sibling order: nothing moved.
+    expect([...tree.values()].map((n) => [n.id, n.parentId, n.order])).toEqual(before);
+    for (const id of ["s", "c", "t"]) {
+      expect(tree.get(id)?.liveTabId).toBeDefined();
+      expect(tree.get(id)?.liveWindowId).toBe(w.id);
+    }
+    expect(tree.get("t")?.liveTabId).toBe(tTab); // the open one was left alone
+    expect(fb.stripOrder(w.id).length).toBe(5);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "B"]);
+    // A second run has nothing left to do.
+    expect(await tracker.reopenAll("g")).toBe(0);
+    expect(fb.stripOrder(w.id).length).toBe(5);
+
+    // Close & save all on the group: only its tabs close, every node stays in place as saved.
+    const closed = await tracker.closeAndSave("g");
+    expect(closed).toBe(3);
+    expect(fb.stripOrder(w.id)).toEqual([a.id, b.id]);
+    const after = store.getTree();
+    expect(after.size).toBe(size);
+    expect([...after.values()].map((n) => [n.id, n.parentId, n.order])).toEqual(before);
+    for (const id of ["s", "c", "t"]) {
+      expect(after.get(id)?.liveTabId).toBeUndefined();
+      expect(after.get(id)?.liveWindowId).toBeUndefined();
+    }
+    expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
+    expect(titlesUnder(ctx, "s")).toEqual(["C"]);
+    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "B"]);
+  });
+
+  it("reopenAll on a live window reopens its closed tabs at their strip positions", async () => {
+    const ctx = await setup();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    const s1 = fb.openTab(w.id, "https://s1.test/", "S1");
+    const b = fb.openTab(w.id, "https://b.test/", "B");
+    const s2 = fb.openTab(w.id, "https://s2.test/", "S2");
+    const winNode = winNodeOf(ctx, w);
+    fb.closeTab(s1.id);
+    fb.closeTab(s2.id); // W: A, S1(saved), B, S2(saved); strip: A B
+    const size = store.getTree().size;
+    expect(await tracker.reopenAll(winNode?.id ?? "")).toBe(2);
+    const tree = store.getTree();
+    expect(tree.size).toBe(size);
+    expect(tree.get(winNode?.id ?? "")?.liveWindowId).toBe(w.id); // no new window
+    const kids = childrenOf(tree, winNode?.id ?? "");
+    expect(kids.map((k) => k.title)).toEqual(["A", "S1", "B", "S2"]);
+    expect(kids.map((k) => k.liveTabId)).toEqual(fb.stripOrder(w.id));
+    expect(fb.stripOrder(w.id)[0]).toBe(a.id);
+    expect(fb.stripOrder(w.id)[2]).toBe(b.id);
+  });
+
+  it("reopenAll on a saved window reopens it as one new window", async () => {
+    const ctx = await setup();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    fb.openTab(w.id, "https://a.test/", "A");
+    fb.openTab(w.id, "https://b.test/", "B");
+    const winNode = winNodeOf(ctx, w);
+    fb.closeWindow(w.id);
+    expect(await tracker.reopenAll(winNode?.id ?? "")).toBe(2);
+    expect(fb.windows.length).toBe(1);
+    const win = store.getTree().get(winNode?.id ?? "");
+    expect(win?.liveWindowId).toBe(fb.windows[0]?.id);
+    expect(childrenOf(store.getTree(), win?.id ?? "").every((k) => k.liveTabId !== undefined)).toBe(
+      true,
+    );
+  });
+
   it("opens a saved node under a live window at the strip index matching the tree", async () => {
     const ctx = await setup();
     const { store, fb, tracker } = ctx;

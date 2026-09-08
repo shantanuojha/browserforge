@@ -2,9 +2,9 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 export interface MenuItem {
   label: string;
-  shortcut?: string;
-  danger?: boolean;
-  disabled?: boolean;
+  shortcut?: string | undefined;
+  danger?: boolean | undefined;
+  disabled?: boolean | undefined;
   onSelect: () => void;
 }
 

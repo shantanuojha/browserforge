@@ -797,8 +797,9 @@ export class TabTracker {
    * - A tab node under a live window opens in that window at the strip index matching its place
    *   in the tree. Anywhere else (root group, saved window...) it opens in the focused window and
    *   becomes a detached live tab. Its saved children stay saved.
-   * - A window node reopens as a new browser window whose tabs are its saved descendants.
-   * - A group or note reopens every saved tab beneath it (each in place, as above).
+   * - A saved window node reopens as a new browser window whose tabs are its saved descendants;
+   *   a live one is focused.
+   * - A group or note reopens every saved tab beneath it (see `reopenAll`).
    */
   async restore(nodeId: NodeId): Promise<void> {
     const node = this.tree.get(nodeId);
@@ -808,47 +809,63 @@ export class TabTracker {
       await this.reopenTab(node, true);
       return;
     }
-    if (node.kind === "window") {
-      if (node.liveWindowId !== undefined) return this.focus(nodeId);
-      const urls = descendantIds(this.tree, nodeId)
-        .map((id) => this.tree.get(id))
-        .filter(
-          (n): n is TreeNode => !!n && n.kind === "tab" && n.liveTabId === undefined && !!n.url,
-        )
-        .map((n) => n.url as string);
-      if (!urls.length) return;
-      this.adoptWindow = { nodeId, urls };
-      let created: { window: LiveWindow; tabs: LiveTab[] };
-      try {
-        created = await this.port.createWindow(urls);
-      } finally {
-        this.adoptWindow = null;
-      }
-      const { window: win, tabs } = created;
-      const current = this.tree.get(nodeId);
-      if (current && current.liveWindowId === undefined) {
-        this.store.append([ops.update(nodeId, { liveWindowId: win.id })]);
-      }
-      const used = new Set<NodeId>();
-      for (const t of tabs) {
-        const url = t.pendingUrl || t.url;
-        const target = url ? this.savedDescendantByUrl(nodeId, url, used) : undefined;
-        if (target) {
-          used.add(target.id);
-          this.finishTabAdoption(target.id, t);
-        }
-      }
-      this.adoptTabs = this.adoptTabs.filter((a) => a.windowId !== win.id);
-      this.foldDuplicateWindowNodes(nodeId, win.id);
-      return;
-    }
-    // group / note: open every saved tab beneath it.
+    if (node.kind === "window" && node.liveWindowId !== undefined) return this.focus(nodeId);
+    await this.reopenAll(nodeId);
+  }
+
+  /**
+   * "Reopen all" on a container: every saved tab beneath it becomes live in place. A saved window
+   * node reopens as one new browser window holding all of them; under a live window or a group
+   * the tabs open one by one (each `tabs.create` is awaited so the pending restores match their
+   * `onCreated` events in order even when urls repeat) and land where their nodes sit.
+   */
+  async reopenAll(nodeId: NodeId): Promise<number> {
+    const node = this.tree.get(nodeId);
+    if (!node) return 0;
+    if (node.kind === "window" && node.liveWindowId === undefined) return this.reopenWindow(node);
+    let opened = 0;
     for (const id of descendantIds(this.tree, nodeId)) {
       const n = this.tree.get(id);
       if (n && n.kind === "tab" && n.liveTabId === undefined && n.url) {
         await this.reopenTab(n, false);
+        opened++;
       }
     }
+    return opened;
+  }
+
+  /** Reopen a saved window node as a new browser window; its saved descendants become its tabs. */
+  private async reopenWindow(node: TreeNode): Promise<number> {
+    const nodeId = node.id;
+    const urls = descendantIds(this.tree, nodeId)
+      .map((id) => this.tree.get(id))
+      .filter((n): n is TreeNode => !!n && n.kind === "tab" && n.liveTabId === undefined && !!n.url)
+      .map((n) => n.url as string);
+    if (!urls.length) return 0;
+    this.adoptWindow = { nodeId, urls };
+    let created: { window: LiveWindow; tabs: LiveTab[] };
+    try {
+      created = await this.port.createWindow(urls);
+    } finally {
+      this.adoptWindow = null;
+    }
+    const { window: win, tabs } = created;
+    const current = this.tree.get(nodeId);
+    if (current && current.liveWindowId === undefined) {
+      this.store.append([ops.update(nodeId, { liveWindowId: win.id })]);
+    }
+    const used = new Set<NodeId>();
+    for (const t of tabs) {
+      const url = t.pendingUrl || t.url;
+      const target = url ? this.savedDescendantByUrl(nodeId, url, used) : undefined;
+      if (target) {
+        used.add(target.id);
+        this.finishTabAdoption(target.id, t);
+      }
+    }
+    this.adoptTabs = this.adoptTabs.filter((a) => a.windowId !== win.id);
+    this.foldDuplicateWindowNodes(nodeId, win.id);
+    return urls.length;
   }
 
   /** Open a browser tab for saved tab `node` so that `node` itself becomes live in place. */

@@ -91,7 +91,9 @@ export default defineBackground(() => {
   browser.runtime.onStartup.addListener(() => {
     void resync("startup").catch((e: unknown) => log.error("resync failed", e));
     // Alarms survive worker restarts; 30 s is the shortest delay Chrome allows in release builds.
-    void browser.alarms.create(STARTUP_RESYNC_ALARM, { delayInMinutes: 0.5 }).catch(() => undefined);
+    void browser.alarms
+      .create(STARTUP_RESYNC_ALARM, { delayInMinutes: 0.5 })
+      .catch(() => undefined);
   });
 
   watchSettings((next) => {
@@ -216,6 +218,10 @@ export default defineBackground(() => {
     .on(
       msg.restoreNode,
       gated(({ id }) => tracker.restore(id)),
+    )
+    .on(
+      msg.reopenAll,
+      gated(({ id }) => tracker.reopenAll(id)),
     )
     .on(
       msg.closeAndSave,
