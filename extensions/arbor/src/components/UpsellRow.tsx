@@ -1,6 +1,5 @@
 import { Button, ProBadge } from "@browserforge/ui";
-import { browser } from "wxt/browser";
-import { PRO_PRICE_TEXT, PRO_URL } from "@/lib/pro";
+import { openCheckout, PRO_PRICE_TEXT } from "@/lib/licensing";
 
 export interface UpsellRowProps {
   /** What the user would unlock, e.g. "Scheduled backups". */
@@ -8,8 +7,9 @@ export interface UpsellRowProps {
   compact?: boolean;
 }
 
+/** Opens the hosted checkout (or the product page when no checkout is configured) in a new tab. */
 export function openProPage(): void {
-  void browser.tabs.create({ url: PRO_URL });
+  openCheckout();
 }
 
 export function UpsellRow({ feature, compact = false }: UpsellRowProps) {

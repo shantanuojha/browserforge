@@ -49,8 +49,18 @@ Port fixture cases from Redirector's README/examples and from the ClearURLs test
 wildcard→regex conversion, capture groups, each transform, exclude patterns, RE2 compatibility
 detection, DNR rule generation shape, importer round-trips, loop protection.
 
+## Licensing
+
+Pro is a $9 one-time Lemon Squeezy licence, handled by `@browserforge/licensing` through
+`src/lib/licensing.ts`. The store and variant ids are baked in at build time from WXT env vars (see
+`.env.example`: `WXT_LEMONSQUEEZY_STORE_ID`, `WXT_LEMONSQUEEZY_VARIANT_ID_REROUTE`, optional
+`WXT_LEMONSQUEEZY_CHECKOUT_URL_REROUTE`). Without them the build still works: Pro gates stay closed
+and the options page shows "Licensing not configured". The background schedules revalidation via
+`chrome.alarms` (hence the `alarms` permission); the Pro tab hosts the activate / deactivate dialog.
+
 ## Constraints
 
-- No remote code or runtime rule fetching; the catalog is compiled at build time.
+- No remote code or runtime rule fetching; the catalog is compiled at build time. The only network
+  call is the licence check against `api.lemonsqueezy.com` (covered by `<all_urls>`).
 - `<all_urls>` host permission is needed for `modifyHeaders`-free redirects on any site; document the
   justification for the store listing.

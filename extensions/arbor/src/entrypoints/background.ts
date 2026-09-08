@@ -13,6 +13,7 @@ import {
 } from "@/lib/messages";
 import { makeNode, ops, serializeNodes, type OpBody, type TreeNode } from "@/lib/model";
 import { newId } from "@/lib/ids";
+import { onLicenseChange, setupLicensing } from "@/lib/licensing";
 import { isPro } from "@/lib/pro";
 import { loadSettings, watchSettings, type Settings } from "@/lib/settings";
 import { IndexedDbTreeStore } from "@/lib/store/indexeddb";
@@ -45,6 +46,14 @@ export default defineBackground(() => {
   const startup: StartupInfo = { report: null, rebuild: null, startedAt: Date.now() };
   let settings: Settings | null = null;
 
+  // ---- licensing -----------------------------------------------------------------------------
+
+  // Creates the Lemon Squeezy client (when this build is configured) and keeps the stored licence
+  // fresh: a cheap validate() now, a forced one on the periodic alarm. Offline stays Pro for the
+  // grace period. Nothing here runs when licensing is not configured.
+  const license = setupLicensing();
+  license?.scheduleRevalidation(browser.alarms);
+
   // ---- startup -------------------------------------------------------------------------------
 
   const ready: Promise<void> = (async () => {
@@ -69,6 +78,13 @@ export default defineBackground(() => {
     settings = next;
     store.setCompactionInterval(next.compactionIntervalMinutes * 60_000);
     void ready.then(async () => scheduler.configure(next.backups, await isPro()));
+  });
+
+  // Activation, deactivation or a failed revalidation flips the Pro gate: re-arm or stop backups.
+  onLicenseChange(() => {
+    void ready.then(async () => {
+      if (settings) await scheduler.configure(settings.backups, await isPro());
+    });
   });
 
   browser.alarms.onAlarm.addListener((alarm) => {

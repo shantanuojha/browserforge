@@ -16,7 +16,11 @@ export default defineConfig({
       "tabs",
       "storage",
       "contextMenus",
+      // Periodic licence revalidation (`@browserforge/licensing` scheduleRevalidation).
+      "alarms",
     ],
+    // `<all_urls>` is needed for redirects on any site; it also covers the only API Reroute calls,
+    // https://api.lemonsqueezy.com/* (licence activation/validation).
     host_permissions: ["<all_urls>"],
     action: { default_title: "Reroute" },
     options_ui: { page: "options.html", open_in_tab: true },

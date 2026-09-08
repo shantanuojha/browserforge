@@ -1,10 +1,10 @@
-import { Button, ProBadge } from "@browserforge/ui";
+import { Button } from "@browserforge/ui";
 import { useState } from "react";
 import { RULE_PACKS, instantiatePack, missingVariables, type RulePack } from "../lib/packs";
 import { PRO_FEATURES } from "../lib/pro";
 import type { Rule } from "../lib/rules/model";
+import { LicensePanel } from "./LicensePanel";
 import { Toggle } from "./Toggle";
-import { UpsellRow } from "./UpsellRow";
 
 export interface ProPanelProps {
   pro: boolean | null;
@@ -83,13 +83,7 @@ export function ProPanel({ pro, syncEnabled, onSyncToggle, onInstallPack }: ProP
   const isPro = pro === true;
   return (
     <div className="rr-stack">
-      {pro === false ? <UpsellRow /> : null}
-      {isPro ? (
-        <div className="rr-row">
-          <ProBadge />
-          <span>Pro features are unlocked on this browser.</span>
-        </div>
-      ) : null}
+      <LicensePanel />
 
       <section className="rr-section">
         <h2>{PRO_FEATURES.sync.title}</h2>

@@ -1,13 +1,14 @@
 import { Button } from "@browserforge/ui";
-import { browser } from "wxt/browser";
-import { PRO_UPSELL_LABEL, PRO_URL } from "../lib/pro";
+import { openCheckout } from "../lib/licensing";
+import { PRO_UPSELL_LABEL } from "../lib/pro";
 
 export interface UpsellRowProps {
   feature?: string;
 }
 
+/** Opens the hosted checkout (or the product page when no checkout is configured) in a new tab. */
 export function openProPage(): void {
-  void browser.tabs.create({ url: PRO_URL });
+  openCheckout();
 }
 
 export function UpsellRow({ feature }: UpsellRowProps) {

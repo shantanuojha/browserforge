@@ -20,6 +20,8 @@ export default defineConfig({
       "favicon",
     ],
     optional_permissions: ["identity"],
+    // Licence activation/validation (Lemon Squeezy License API). The only host Arbor talks to.
+    host_permissions: ["https://api.lemonsqueezy.com/*"],
     action: { default_title: "Arbor" },
     side_panel: { default_path: "sidepanel.html" },
     commands: {

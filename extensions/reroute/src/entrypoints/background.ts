@@ -3,6 +3,7 @@ import { browser, type Browser } from "wxt/browser";
 import { defineBackground } from "wxt/utils/define-background";
 import type { DnrRule } from "../lib/dnr";
 import { DNR_ID_RANGE } from "../lib/dnr";
+import { setupLicensing } from "../lib/licensing";
 import { appendLog, type LogEntry } from "../lib/log";
 import { isMessage, type Message, type StatusResponse } from "../lib/messages";
 import { isPro } from "../lib/pro";
@@ -64,6 +65,15 @@ export default defineBackground(() => {
   /** Serialised rules last written to or applied from sync; prevents echo loops. */
   let lastSyncedText: string | null = null;
   let syncTimer: ReturnType<typeof setTimeout> | null = null;
+
+  // -------------------------------------------------------------------------
+  // Licensing
+  // -------------------------------------------------------------------------
+
+  // Creates the Lemon Squeezy client (when this build is configured) and keeps the stored licence
+  // fresh: a cheap validate() now, a forced one on the periodic alarm. Offline stays Pro for the
+  // grace period. `isPro()` below reads the cached state, so nothing else needs to change.
+  setupLicensing()?.scheduleRevalidation(browser.alarms);
 
   // -------------------------------------------------------------------------
   // Logging

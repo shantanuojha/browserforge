@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { browser } from "wxt/browser";
 import { Button, ProBadge } from "@browserforge/ui";
-import { openProPage, UpsellRow } from "@/components/UpsellRow";
+import { LicenseSection } from "@/components/LicenseSection";
+import { UpsellRow } from "@/components/UpsellRow";
 import { usePro } from "@/hooks/usePro";
 import { useSettings } from "@/hooks/useSettings";
 import type { BackupMeta } from "@/lib/backups";
@@ -287,33 +288,7 @@ export function App() {
         </div>
       </section>
 
-      <section className="section">
-        <div className="section__header">
-          <h2 className="section__title">Pro</h2>
-        </div>
-        <div className="section__body">
-          <p>
-            {pro
-              ? "Pro is active on this browser."
-              : "Arbor Pro is a $15 one-time purchase. The licence key dialog will appear here once licensing ships."}
-          </p>
-          <div className="button-row">
-            <span title="Coming soon" style={{ display: "inline-flex" }}>
-              <Button size="sm" variant="secondary" disabled aria-describedby="licence-hint">
-                Enter licence key
-              </Button>
-            </span>
-            <span id="licence-hint" className="list__muted">
-              Coming soon
-            </span>
-            {!pro ? (
-              <Button size="sm" onClick={openProPage}>
-                Get Pro
-              </Button>
-            ) : null}
-          </div>
-        </div>
-      </section>
+      <LicenseSection />
     </div>
   );
 }

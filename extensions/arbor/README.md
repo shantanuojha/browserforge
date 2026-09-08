@@ -42,9 +42,19 @@ interface Snapshot { seq: number; ts: number; nodes: TreeNode[]; nodeCount: numb
 
 Persistence lives in `src/lib/store/` behind an interface so tests use an in-memory adapter.
 
+## Licensing
+
+Pro is a $15 one-time Lemon Squeezy licence, handled by `@browserforge/licensing` through
+`src/lib/licensing.ts`. The store and variant ids are baked in at build time from WXT env vars (see
+`.env.example`: `WXT_LEMONSQUEEZY_STORE_ID`, `WXT_LEMONSQUEEZY_VARIANT_ID_ARBOR`, optional
+`WXT_LEMONSQUEEZY_CHECKOUT_URL_ARBOR`). Without them the build still works: Pro gates stay closed
+and the options page shows "Licensing not configured". The background schedules revalidation via
+`chrome.alarms`; the options page hosts the activate / deactivate dialog.
+
 ## Constraints
 
 - Permissions stay as declared in `wxt.config.ts`; `identity` is optional and requested at runtime.
+  `host_permissions` covers only `https://api.lemonsqueezy.com/*` for the licence check.
 - No remote code, no analytics. The only network call in the whole extension is the licence check.
 - Must run in Chrome and Edge; Firefox build should compile (side panel → sidebar_action fallback is
   a stretch goal).
