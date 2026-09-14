@@ -243,9 +243,37 @@ export function createLicenseClient(options: LicenseClientOptions): LicenseClien
     return buildInstanceName(productName, browserFamily(userAgent), suffix);
   }
 
+  /** `valid: true` for an active key of an allowed variant. */
+  function isValidAnswer(body: LicenseResponse): boolean {
+    const status = body.license_key?.status ?? "active";
+    return body.valid === true && status === "active" && variantAllowed(body.meta);
+  }
+
   async function activate(input: string): Promise<LicenseResult<LicenseState>> {
     const key = normalizeKey(input);
     if (key.length === 0) return err(licenseError("invalid_key"));
+
+    // Same key as the one already on disk (typical after "grace expired" or a store hiccup):
+    // re-validate the instance we hold instead of consuming a second activation seat.
+    const stored = await loadStored();
+    if (stored && stored.kind !== "free" && stored.key === key) {
+      const check = await callLicenseApi(fetchImpl, baseUrl, "validate", {
+        license_key: key,
+        instance_id: stored.instanceId,
+      });
+      if (!check.ok) return check;
+      if (isValidAnswer(check.value.body)) {
+        const record = activatedRecord(
+          key,
+          stored.instanceId,
+          stored.instanceName,
+          check.value.body,
+          now(),
+        );
+        return ok(await save(record));
+      }
+      // The instance is gone or the key changed state: fall through to a fresh activation.
+    }
 
     const instanceName = await getInstanceName();
     const res = await callLicenseApi(fetchImpl, baseUrl, "activate", {
@@ -366,6 +394,10 @@ const MIN_ALARM_PERIOD_MINUTES = 1;
  * Registers a periodic `chrome.alarms` alarm named `${productName}:license-revalidate` and a
  * handler that force-revalidates when it fires. Call once from the background entrypoint.
  * Returns a function that removes the listener and clears the alarm.
+ *
+ * The background script re-runs on every service-worker start, so the alarm is only created
+ * when it does not already exist with the right period: re-creating it would reschedule the
+ * first fire and force a licence-server round-trip after every wake-up.
  */
 export function scheduleRevalidation(
   alarms: AlarmsLike,
@@ -381,9 +413,7 @@ export function scheduleRevalidation(
   };
 
   alarms.onAlarm.addListener(handler);
-  void Promise.resolve(alarms.create(name, { periodInMinutes, delayInMinutes: 1 })).catch(
-    () => undefined,
-  );
+  void ensureAlarm(alarms, name, periodInMinutes);
   if (options.validateOnStart ?? true) {
     void client.validate().catch(() => undefined);
   }
@@ -392,4 +422,15 @@ export function scheduleRevalidation(
     alarms.onAlarm.removeListener(handler);
     void Promise.resolve(alarms.clear?.(name)).catch(() => undefined);
   };
+}
+
+async function ensureAlarm(alarms: AlarmsLike, name: string, periodInMinutes: number) {
+  try {
+    const existing = alarms.get ? await alarms.get(name) : undefined;
+    if (existing && existing.periodInMinutes === periodInMinutes) return;
+    // First fire one full period out: `validateOnStart` already covers a stale cache now.
+    await alarms.create(name, { periodInMinutes, delayInMinutes: periodInMinutes });
+  } catch {
+    // Alarms unavailable in this context; the cheap validate() on start still runs.
+  }
 }

@@ -86,10 +86,18 @@ export interface ValidateOptions {
   force?: boolean;
 }
 
+/** The parts of a `chrome.alarms.Alarm` that `scheduleRevalidation` inspects. */
+export interface AlarmInfo {
+  name: string;
+  periodInMinutes?: number | undefined;
+}
+
 /** Subset of `chrome.alarms` used by `scheduleRevalidation`. */
 export interface AlarmsLike {
   create(name: string, info: { periodInMinutes?: number; delayInMinutes?: number }): unknown;
   clear?(name: string): unknown;
+  /** Used to avoid re-creating (and thereby rescheduling) an alarm that already exists. */
+  get?(name: string): Promise<AlarmInfo | undefined> | AlarmInfo | undefined;
   onAlarm: {
     addListener(cb: (alarm: { name: string }) => void): void;
     removeListener(cb: (alarm: { name: string }) => void): void;

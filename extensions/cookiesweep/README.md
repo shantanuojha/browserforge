@@ -14,13 +14,22 @@ free, imports Cookie AutoDelete settings and cleans localStorage/IndexedDB/cache
   main frame), browser startup (`runtime.onStartup`), manual "clean now".
 - Cleanup planner (`src/lib/planner.ts`, pure, fully unit-tested): given open tabs, the whitelist /
   greylist (greylist = keep until browser restart), and the set of cookie domains, decide which
-  domains are safe to clean. Never clean a domain that still has an open tab. Respect the shared
-  `hostMatchesPattern` semantics from `@browserforge/shared`.
+  domains are safe to clean. Never clean a domain that still has an open tab; a tab that is
+  mid-navigation owns both its `url` and its `pendingUrl`. Respect the shared
+  `hostMatchesPattern` semantics from `@browserforge/shared`. Patterns are stored in the ASCII
+  (punycode) form cookie domains use, so `münchen.de` matches `xn--mnchen-3ya.de`.
 - Executor: `cookies.getAll` per cookie store (incl. partitioned cookies via `partitionKey`),
   `cookies.remove`, `browsingData.remove({ origins }, { localStorage, indexedDB, cacheStorage,
 serviceWorkers })` (Chrome 74+ `origins` filter), optional delay via `alarms` (default 15 s).
-- Containers/stores: iterate `cookies.getAllCookieStores()`; incognito store handled if the
-  extension is allowed in incognito.
+  Runs never overlap: triggers arriving during a run collapse into one follow-up run.
+- Containers/stores: iterate `cookies.getAllCookieStores()` plus every store id seen before
+  (`cookiesweep:knownStores`). The browser only lists stores that currently own a tab (Firefox
+  always, Chrome for incognito), so a container would otherwise drop out of the list exactly when
+  its last tab closes. A remembered store the browser rejects is forgotten again. Incognito is
+  handled if the extension is allowed in incognito.
+- Background tests (`src/background.test.ts`) drive the real entrypoint against fake-browser and
+  simulate service-worker restarts; sub-30 s timers lost with a worker are re-armed from the
+  pending trigger kept in `storage.session`.
 - Options: whitelist/greylist editor with wildcard patterns, import Cookie AutoDelete settings
   export (its JSON has `domain`, `listType` WHITE|GREY, `storeId`, `expression`), export ours,
   activity log (last 500 cleanups), notification toggle, delay setting, "also clean site data" toggle

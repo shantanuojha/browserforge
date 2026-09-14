@@ -54,12 +54,25 @@ function parseListType(value: unknown): ListType | null {
   return null;
 }
 
-/** "default" (CAD's name for the default store) means "every store" for us. */
+/**
+ * "default" (CAD's name for the default store) means "every store" for us. CAD's `getStoreId()`
+ * also rewrites Chrome's incognito store "1" to "private" before saving, so map it back;
+ * Firefox's "firefox-private" is already a real store id.
+ */
 function parseStoreId(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
   const v = value.trim();
   if (!v || v.toLowerCase() === "default") return undefined;
+  if (v.toLowerCase() === "private") return "1";
   return v;
+}
+
+/**
+ * CAD's "Create default options" button stores per-container defaults as pseudo-expressions
+ * named `_Default:WHITE` / `_Default:GREY`. They are settings, not domains.
+ */
+function isCadInternalExpression(expression: string): boolean {
+  return /^_default:/i.test(expression.trim());
 }
 
 /** Translate a Cookie AutoDelete expression into our pattern syntax. */
@@ -160,6 +173,10 @@ export function parseImport(source: string | unknown): ImportResult {
     const expression = raw.expression ?? raw.domain ?? raw.pattern ?? raw.host;
     if (typeof expression !== "string" || expression.trim() === "") {
       skipped.push({ index: item.index, reason: "Missing expression/domain", raw });
+      continue;
+    }
+    if (format !== "cookiesweep" && isCadInternalExpression(expression)) {
+      skipped.push({ index: item.index, reason: "Cookie AutoDelete internal default entry", raw });
       continue;
     }
     const pattern =

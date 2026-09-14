@@ -113,7 +113,8 @@ export function App() {
               </label>
               <p className="cs-field__hint">
                 Seconds to wait after a trigger, so quick tab switches do not log you out. Delays
-                under 30 s use a timer that may be lost if the browser suspends the extension.
+                under 30 s use a timer; if the browser suspends the extension first, the cleanup
+                runs when it wakes up again.
               </p>
             </div>
             <DelayField

@@ -12,9 +12,13 @@ called from client software):
 - `POST https://api.lemonsqueezy.com/v1/licenses/validate` body `license_key`, `instance_id`
 - `POST https://api.lemonsqueezy.com/v1/licenses/deactivate` body `license_key`, `instance_id`
 
-All are `application/x-www-form-urlencoded` (JSON also accepted) and return JSON with
-`activated`/`valid`, `error`, `license_key { status, activation_limit, activation_usage, expires_at }`,
-`instance { id, name }`, `meta { store_id, product_id, variant_id, customer_email, ... }`.
+The docs recommend `application/x-www-form-urlencoded`; the API also parses `application/json`
+(verified against production: a JSON body yields `license_key not found.`, not a 422), which is what
+this client sends. Responses are JSON with `activated`/`valid`/`deactivated`, `error`,
+`license_key { status, activation_limit, activation_usage, expires_at }`, `instance { id, name }`,
+`meta { store_id, product_id, variant_id, customer_email, ... }`. Validation failures (422) and
+rate limiting (429, 60 req/min) come back as Laravel `{ message, errors? }` bodies with none of
+those keys; the client treats them as transport problems, never as a licence rejection.
 
 ### Public API
 
@@ -56,7 +60,11 @@ lastValidatedAt, expiresAt?, email? }`, `{ kind: "grace", ...pro, graceEndsAt }`
 - Feature gates: `defineFeatures({ backups: "pro", drive: "pro", tree: "free" })` returns a typed
   `can(feature)` helper that reads the cached state synchronously after `init()`.
 - Background usage: expose `scheduleRevalidation(alarms)` that registers a `chrome.alarms` alarm
-  named `${productName}:license-revalidate` and a handler.
+  named `${productName}:license-revalidate` and a handler. It runs on every service-worker start,
+  so it must only create the alarm when `alarms.get()` says it is missing or has a stale period;
+  re-creating it would reschedule the first fire and force a network check after every wake-up.
+- `activate(key)` with the key that is already stored re-validates the existing instance first and
+  only performs a fresh activation (a new seat) when that instance is gone.
 
 ### Tests (vitest, node env)
 

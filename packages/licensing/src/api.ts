@@ -113,7 +113,8 @@ export async function callLicenseApi(
     return err(licenseError("network", cause instanceof Error ? cause.message : String(cause)));
   }
 
-  if (response.status >= 500) {
+  // 5xx and 429 (Lemon Squeezy throttles at 60 req/min) say nothing about the licence itself.
+  if (response.status >= 500 || response.status === 429) {
     return err(licenseError("network", `HTTP ${response.status}`));
   }
 
@@ -128,5 +129,21 @@ export async function callLicenseApi(
   if (!parsed.success) {
     return err(licenseError("bad_response", parsed.error.message));
   }
+  // Every field in the schema is optional, so a Laravel validation error (`{ message, errors }`),
+  // a proxy page or an empty `{}` also parses. Only a body that actually answers the question
+  // counts as an application-level verdict; anything else must not demote a stored licence.
+  if (!isLicenseVerdict(parsed.data)) {
+    return err(licenseError("bad_response", `HTTP ${response.status}: no ${endpoint} result`));
+  }
   return ok({ httpStatus: response.status, body: parsed.data });
+}
+
+/** True when the body carries an activate/validate/deactivate verdict or an explicit `error`. */
+export function isLicenseVerdict(body: LicenseResponse): boolean {
+  return (
+    typeof body.activated === "boolean" ||
+    typeof body.valid === "boolean" ||
+    typeof body.deactivated === "boolean" ||
+    typeof body.error === "string"
+  );
 }

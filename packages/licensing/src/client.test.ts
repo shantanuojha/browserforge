@@ -162,6 +162,44 @@ describe("activate()", () => {
     expect(!res.ok && res.error.code).toBe("network");
   });
 
+  it("reports a 429 as a transient error the user can retry", async () => {
+    const fx = setup(() => ({ status: 429, json: { message: "Too Many Attempts." } }));
+    const res = await fx.client.activate(RAW_KEY);
+    expect(!res.ok && res.error.code).toBe("network");
+    await expect(fx.client.getState()).resolves.toEqual({ kind: "free" });
+  });
+
+  it("re-validates the existing instance instead of burning a seat for the same key", async () => {
+    // Offline long enough for the grace period to lapse...
+    const fx = await activated();
+    fx.setResponder(() => new TypeError("offline"));
+    fx.clock.t = T0 + 15 * DAY;
+    expect((await fx.client.validate()).kind).toBe("free");
+    // ...then the user pastes the same key again once back online.
+    fx.setResponder(() => ({ json: validBody() }));
+    const res = await fx.client.activate(RAW_KEY);
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    expect(res.value.kind).toBe("pro");
+    if (res.value.kind !== "pro") return;
+    expect(res.value.instanceId).toBe(INSTANCE_ID);
+    // No second "activate" round-trip: the seat we already hold is reused.
+    expect(fx.calls.map((c) => c.endpoint)).toEqual(["activate", "validate", "validate"]);
+    expect(fx.calls.at(-1)?.body).toEqual({ license_key: RAW_KEY, instance_id: INSTANCE_ID });
+  });
+
+  it("falls back to a fresh activation when the stored instance is gone", async () => {
+    const fx = await activated();
+    fx.setResponder((endpoint) =>
+      endpoint === "validate"
+        ? { status: 404, json: { valid: false, error: "instance_id not found." } }
+        : { json: activatedBody({ instance: { id: "new-instance" } }) },
+    );
+    const res = await fx.client.activate(RAW_KEY);
+    expect(res.ok && res.value.kind === "pro" && res.value.instanceId).toBe("new-instance");
+    expect(fx.calls.map((c) => c.endpoint)).toEqual(["activate", "validate", "activate"]);
+  });
+
   it("surfaces malformed responses", async () => {
     const fx = setup(() => ({ json: { activated: "yes" } }));
     const res = await fx.client.activate(RAW_KEY);
@@ -274,6 +312,33 @@ describe("validate()", () => {
     fx.setResponder(() => ({ status: 503, json: {} }));
     fx.clock.t = T0 + 8 * DAY;
     expect((await fx.client.validate()).kind).toBe("grace");
+  });
+
+  it("treats a 429 rate-limit answer as transient, not as a rejection", async () => {
+    // Lemon Squeezy throttles at 60 req/min and answers with Laravel's `{ message }` body.
+    const fx = await activated();
+    fx.setResponder(() => ({ status: 429, json: { message: "Too Many Attempts." } }));
+    fx.clock.t = T0 + 8 * DAY;
+    const state = await fx.client.validate();
+    expect(state.kind).toBe("grace");
+    await expect(fx.client.isPro()).resolves.toBe(true);
+  });
+
+  it("treats a JSON body without a validate result as a bad response, not a rejection", async () => {
+    // Real 422 shape from api.lemonsqueezy.com: `{ message, errors }`, no `valid`/`error` keys.
+    const fx = await activated();
+    fx.setResponder(() => ({
+      status: 422,
+      json: {
+        message: "The license key field is required.",
+        errors: { license_key: ["The license key field is required."] },
+      },
+    }));
+    expect((await fx.client.validate({ force: true })).kind).toBe("grace");
+    // Same for an empty 200 body (proxy / captive portal handing back `{}`).
+    fx.setResponder(() => ({ json: {} }));
+    expect((await fx.client.validate({ force: true })).kind).toBe("grace");
+    await expect(fx.client.isPro()).resolves.toBe(true);
   });
 
   it("does nothing for a free profile", async () => {
@@ -391,19 +456,39 @@ describe("state and storage", () => {
 });
 
 describe("scheduleRevalidation()", () => {
-  function fakeAlarms() {
+  interface StoredAlarm {
+    name: string;
+    periodInMinutes?: number;
+    delayInMinutes?: number;
+  }
+
+  /** In-memory `chrome.alarms`: `create` replaces same-named alarms, like the real API. */
+  function fakeAlarms(existing: StoredAlarm[] = []) {
     const listeners = new Set<(alarm: { name: string }) => void>();
-    const alarms: AlarmsLike & { fire(name: string): void } = {
-      create: vi.fn(),
-      clear: vi.fn(),
+    const stored = [...existing];
+    const create = vi.fn((name: string, info: Omit<StoredAlarm, "name">) => {
+      const i = stored.findIndex((a) => a.name === name);
+      if (i >= 0) stored.splice(i, 1);
+      stored.push({ name, ...info });
+    });
+    const alarms: AlarmsLike & { fire(name: string): void; stored: StoredAlarm[] } = {
+      create,
+      clear: vi.fn((name: string) => {
+        const i = stored.findIndex((a) => a.name === name);
+        if (i >= 0) stored.splice(i, 1);
+      }),
+      get: async (name: string) => stored.find((a) => a.name === name),
       onAlarm: {
         addListener: (cb) => void listeners.add(cb),
         removeListener: (cb) => void listeners.delete(cb),
       },
       fire: (name) => listeners.forEach((cb) => cb({ name })),
+      stored,
     };
     return alarms;
   }
+
+  const flush = () => new Promise((r) => setTimeout(r, 0));
 
   it("registers the alarm and force-validates when it fires", async () => {
     const fx = await activated();
@@ -413,9 +498,10 @@ describe("scheduleRevalidation()", () => {
       validateOnStart: false,
       revalidateEveryMs: 7 * DAY,
     });
+    await flush();
     expect(alarms.create).toHaveBeenCalledWith("arbor:license-revalidate", {
       periodInMinutes: 7 * 24 * 60,
-      delayInMinutes: 1,
+      delayInMinutes: 7 * 24 * 60,
     });
     alarms.fire("something-else");
     alarms.fire("arbor:license-revalidate");
@@ -424,7 +510,7 @@ describe("scheduleRevalidation()", () => {
     );
     stop();
     alarms.fire("arbor:license-revalidate");
-    await new Promise((r) => setTimeout(r, 0));
+    await flush();
     expect(fx.calls).toHaveLength(2);
     expect(alarms.clear).toHaveBeenCalledWith("arbor:license-revalidate");
   });
@@ -433,10 +519,45 @@ describe("scheduleRevalidation()", () => {
     const fx = await activated();
     const alarms = fakeAlarms();
     fx.client.scheduleRevalidation(alarms, { validateOnStart: false });
+    await flush();
     expect(alarms.create).toHaveBeenCalledWith(fx.client.alarmName, {
       periodInMinutes: 7 * 24 * 60,
-      delayInMinutes: 1,
+      delayInMinutes: 7 * 24 * 60,
     });
+  });
+
+  it("does not reset an alarm that already exists when the service worker restarts", async () => {
+    // The background script runs `scheduleRevalidation` on every worker start (Arbor, Reroute).
+    // Re-creating the alarm each time would reschedule its first fire to "1 minute from now"
+    // and force a licence-server round-trip after every wake-up.
+    const fx = await activated();
+    const alarms = fakeAlarms([
+      { name: fx.client.alarmName, periodInMinutes: 7 * 24 * 60, delayInMinutes: 1 },
+    ]);
+    fx.client.scheduleRevalidation(alarms, { validateOnStart: false });
+    await flush();
+    fx.client.scheduleRevalidation(alarms, { validateOnStart: false });
+    await flush();
+    expect(alarms.create).not.toHaveBeenCalled();
+    expect(alarms.stored).toHaveLength(1);
+  });
+
+  it("replaces an alarm whose period no longer matches the configured interval", async () => {
+    const fx = await activated();
+    const alarms = fakeAlarms([{ name: fx.client.alarmName, periodInMinutes: 5 }]);
+    fx.client.scheduleRevalidation(alarms, { validateOnStart: false });
+    await flush();
+    expect(alarms.create).toHaveBeenCalledTimes(1);
+    expect(alarms.stored[0]?.periodInMinutes).toBe(7 * 24 * 60);
+  });
+
+  it("still creates the alarm on a runtime without alarms.get()", async () => {
+    const fx = await activated();
+    const alarms = fakeAlarms();
+    delete alarms.get;
+    fx.client.scheduleRevalidation(alarms, { validateOnStart: false });
+    await flush();
+    expect(alarms.create).toHaveBeenCalledTimes(1);
   });
 });
 

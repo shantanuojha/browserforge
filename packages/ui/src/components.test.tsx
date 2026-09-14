@@ -11,6 +11,7 @@ import {
   Button,
   Callout,
   EmptyState,
+  FOCUSABLE_SELECTOR,
   IconButton,
   KeyValueList,
   Panel,
@@ -22,6 +23,7 @@ import {
   Toggle,
   cx,
   hasRestorableKey,
+  nextFocusTarget,
   openExternal,
   summarizeLicenseState,
   useLicense,
@@ -303,6 +305,13 @@ describe("ActivateLicenseDialog", () => {
     expect(html).not.toContain("Deactivate this browser");
   });
 
+  it("can take focus itself so keyboard handling works before anything inside is focused", () => {
+    // In the Pro state nothing autofocuses; without a focusable container the opener keeps
+    // focus, Escape never reaches the dialog's key handler and Tab walks the page behind it.
+    const html = renderToStaticMarkup(<ActivateLicenseDialog client={client} onClose={() => {}} />);
+    expect(html).toMatch(/<div[^>]*role="dialog"[^>]*tabindex="-1"/);
+  });
+
   it("summarises licence states for banners", () => {
     const pro: LicenseState = {
       kind: "pro",
@@ -328,6 +337,37 @@ describe("ActivateLicenseDialog", () => {
     expect(hasRestorableKey({ kind: "free" })).toBe(false);
     expect(hasRestorableKey({ kind: "free", reason: "grace_expired" })).toBe(true);
     expect(hasRestorableKey({ kind: "invalid", reason: "expired" })).toBe(true);
+  });
+});
+
+describe("focus trap", () => {
+  const a = { id: "a" };
+  const b = { id: "b" };
+  const c = { id: "c" };
+  const outside = { id: "outside" };
+
+  it("enters the dialog from outside or from the container itself", () => {
+    expect(nextFocusTarget([a, b, c], outside, false)).toBe(a);
+    expect(nextFocusTarget([a, b, c], outside, true)).toBe(c);
+    expect(nextFocusTarget([a, b, c], null, false)).toBe(a);
+  });
+
+  it("wraps at both ends and leaves inner moves to the browser", () => {
+    expect(nextFocusTarget([a, b, c], c, false)).toBe(a);
+    expect(nextFocusTarget([a, b, c], a, true)).toBe(c);
+    expect(nextFocusTarget([a, b, c], b, false)).toBeNull();
+    expect(nextFocusTarget([a, b, c], b, true)).toBeNull();
+  });
+
+  it("does nothing when there is nothing to focus", () => {
+    expect(nextFocusTarget([], outside, false)).toBeNull();
+    expect(nextFocusTarget([a], a, false)).toBe(a);
+  });
+
+  it("only considers enabled, tabbable controls", () => {
+    expect(FOCUSABLE_SELECTOR).toContain("button:not([disabled])");
+    expect(FOCUSABLE_SELECTOR).toContain('[tabindex]:not([tabindex="-1"])');
+    expect(FOCUSABLE_SELECTOR).not.toMatch(/(^|,)\s*button\s*(,|$)/);
   });
 });
 

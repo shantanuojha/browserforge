@@ -21,4 +21,5 @@ export {
   type LicenseSummary,
 } from "./ActivateLicenseDialog.js";
 export { useLicense, type UseLicenseResult } from "./useLicense.js";
+export { FOCUSABLE_SELECTOR, focusableElements, nextFocusTarget } from "./focusTrap.js";
 export { cx } from "./classNames.js";
