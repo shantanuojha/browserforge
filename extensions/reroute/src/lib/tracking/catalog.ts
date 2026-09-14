@@ -474,6 +474,63 @@ export function urlPatternToCondition(urlPattern: string): UrlCondition {
 }
 
 // ---------------------------------------------------------------------------
+// Condition nesting
+// ---------------------------------------------------------------------------
+
+function hostCovers(parent: string, host: string): boolean {
+  return host === parent || host.endsWith("." + parent);
+}
+
+/**
+ * The literal host a provider regex is anchored on, when it has the ClearURLs
+ * shape `^https?:\/\/<optional subdomain group>host\.tld` followed by nothing
+ * host-like (end, `$`, a path or a query). `terminal` is true when nothing at
+ * all follows the host, i.e. the regex behaves like a domain condition.
+ */
+export function literalHostOfRegex(source: string): { host: string; terminal: boolean } | null {
+  const m =
+    /^\^?https\?:(?:\\\/\\\/|\/\/)(?:\(\?:\[a-z0-9-\]\+\\\.\)\*\??|\(\?:[a-z0-9-]+\\\.\)\?|\(\?:www\\\.\)\?)?((?:[a-z0-9-]+\\\.)+[a-z]{2,})(\$?$|\\\/|\/|\\\?|\[)/i.exec(
+      source,
+    );
+  if (!m) return null;
+  return {
+    host: (m[1] as string).replace(/\\\./g, ".").toLowerCase(),
+    terminal: /^\$?$/.test(m[2] as string),
+  };
+}
+
+const QUANTIFIER_OR_ALTERNATION = /^[*+?{|]/;
+
+/** True when every URL that matches `inner` also matches `outer`. Conservative. */
+export function conditionCovers(outer: UrlCondition, inner: UrlCondition): boolean {
+  if (outer.kind === "unsupported" || inner.kind === "unsupported") return false;
+  if (outer.kind === "all") return true;
+  if (inner.kind === "all") return false;
+  if (outer.kind === "domains") {
+    if (inner.kind === "domains") {
+      return inner.requestDomains.every((h) => outer.requestDomains.some((p) => hostCovers(p, h)));
+    }
+    const host = literalHostOfRegex(inner.regexFilter);
+    return host !== null && outer.requestDomains.some((p) => hostCovers(p, host.host));
+  }
+  // outer is a regex
+  if (inner.kind === "regex") {
+    if (inner.regexFilter === outer.regexFilter) return true;
+    if (
+      inner.regexFilter.startsWith(outer.regexFilter) &&
+      !QUANTIFIER_OR_ALTERNATION.test(inner.regexFilter.slice(outer.regexFilter.length))
+    )
+      return true;
+  }
+  const outerHost = literalHostOfRegex(outer.regexFilter);
+  if (!outerHost || !outerHost.terminal) return false;
+  if (inner.kind === "domains")
+    return inner.requestDomains.every((h) => hostCovers(outerHost.host, h));
+  const innerHost = literalHostOfRegex(inner.regexFilter);
+  return innerHost !== null && hostCovers(outerHost.host, innerHost.host);
+}
+
+// ---------------------------------------------------------------------------
 // Rule generation
 // ---------------------------------------------------------------------------
 
@@ -552,6 +609,13 @@ export function toRemoveParamsRules(
   let nextId = idBase;
   const exceptionSeen = new Set<string>();
 
+  interface Prepared {
+    provider: ClearUrlsProvider;
+    condition: Exclude<UrlCondition, { kind: "unsupported" }>;
+    params: Set<string>;
+  }
+  const prepared: Prepared[] = [];
+
   for (const provider of providers) {
     report.rawRulesSkipped += provider.rawRules.length;
     report.redirectionsSkipped += provider.redirections.length;
@@ -591,6 +655,49 @@ export function toRemoveParamsRules(
       report.providersSkipped.push({ name: provider.name, reason: "no expressible parameters" });
       continue;
     }
+    prepared.push({ provider, condition, params });
+  }
+
+  // Chrome applies a single redirect rule per request and does not fall through when its
+  // removeParams is a no-op, so a provider whose condition is covered by another's (the global
+  // catch-all covers everyone; bilibili.com covers m.bilibili.com; ...) must outrank it and
+  // carry its parameters. `covered[i]` = indices whose condition covers i (transitively).
+  const covered: Set<number>[] = prepared.map(() => new Set<number>());
+  const equivalent: Set<number>[] = prepared.map(() => new Set<number>());
+  for (let i = 0; i < prepared.length; i++) {
+    for (let j = 0; j < prepared.length; j++) {
+      if (i === j) continue;
+      const ij = conditionCovers(prepared[i]!.condition, prepared[j]!.condition);
+      const ji = conditionCovers(prepared[j]!.condition, prepared[i]!.condition);
+      if (ij && ji) equivalent[j]!.add(i);
+      else if (ij) covered[j]!.add(i);
+    }
+  }
+  for (let changed = true; changed;) {
+    changed = false;
+    for (let j = 0; j < prepared.length; j++) {
+      for (const i of [...covered[j]!]) {
+        for (const k of covered[i]!) {
+          if (!covered[j]!.has(k)) {
+            covered[j]!.add(k);
+            changed = true;
+          }
+        }
+      }
+    }
+  }
+
+  prepared.forEach((entry, index) => {
+    const { provider, condition } = entry;
+    const params = new Set<string>(entry.params);
+    for (const i of covered[index]!) for (const p of prepared[i]!.params) params.add(p);
+    for (const i of equivalent[index]!) for (const p of prepared[i]!.params) params.add(p);
+    const priority = DNR_PRIORITY.tracking + covered[index]!.size;
+    if (priority >= DNR_PRIORITY.trackingException) {
+      throw new Error(
+        `Provider "${provider.name}" is nested ${covered[index]!.size} deep; raise DNR_PRIORITY.trackingException`,
+      );
+    }
 
     const dnrCondition: DnrRule["condition"] = {
       resourceTypes: [...TRACKING_RESOURCE_TYPES],
@@ -604,7 +711,7 @@ export function toRemoveParamsRules(
 
     rules.push({
       id: nextId++,
-      priority: DNR_PRIORITY.tracking,
+      priority,
       condition: dnrCondition,
       action: {
         type: "redirect",
@@ -636,7 +743,7 @@ export function toRemoveParamsRules(
         report.regexRules++;
       }
     }
-  }
+  });
 
   report.rulesGenerated = rules.length;
   return { rules, report };

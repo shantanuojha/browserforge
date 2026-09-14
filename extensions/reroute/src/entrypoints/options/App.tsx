@@ -11,7 +11,7 @@ import { TrackingPanel } from "../../components/TrackingPanel";
 import { usePro } from "../../hooks/usePro";
 import { useStorageItem } from "../../hooks/useStorageItem";
 import type { Message, StatusResponse } from "../../lib/messages";
-import { createRule, type Rule } from "../../lib/rules/model";
+import { appendRules, createRule, type Rule } from "../../lib/rules/model";
 import { allowlistItem, logItem, rulesItem, settingsItem } from "../../lib/storage";
 
 type Tab = "rules" | "import" | "tracking" | "allowlist" | "activity" | "pro";
@@ -78,7 +78,7 @@ export function App() {
 
   const importRules = useCallback(
     (incoming: Rule[], mode: "append" | "replace") => {
-      void setRules(mode === "replace" ? incoming : [...rules, ...incoming]);
+      void setRules(mode === "replace" ? incoming : appendRules(rules, incoming));
     },
     [rules, setRules],
   );

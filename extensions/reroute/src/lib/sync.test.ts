@@ -9,6 +9,7 @@ import {
   clearSync,
   decodePayload,
   encodePayload,
+  mergeRulesOnJoin,
   readRulesFromSync,
   writeRulesToSync,
 } from "./sync";
@@ -84,6 +85,16 @@ describe("sync chunking", () => {
     await clearSync();
     expect(Object.keys(await fakeBrowser.storage.sync.get(null))).toEqual([]);
     expect(await readRulesFromSync()).toBeNull();
+  });
+
+  it("mergeRulesOnJoin keeps the remote order and appends local-only rules", () => {
+    const r = (id: string) =>
+      createRule({ id, include: `https://${id}/*`, redirectTo: "https://x/" });
+    const remote = [r("a"), r("b")];
+    const local = [r("b"), r("c")];
+    expect(mergeRulesOnJoin(remote, local).map((x) => x.id)).toEqual(["a", "b", "c"]);
+    expect(mergeRulesOnJoin([], local)).toEqual(local);
+    expect(mergeRulesOnJoin(remote, [])).toEqual(remote);
   });
 
   it("returns null while a write is partial", async () => {

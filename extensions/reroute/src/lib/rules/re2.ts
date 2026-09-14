@@ -47,6 +47,10 @@ export function checkRE2Compatible(source: string): RE2CheckResult {
         return { ok: false, reason: "\\u escape" };
       }
       if (next === "c") return { ok: false, reason: "control escape" };
+      // JS reads these as the plain letter; RE2 reads \A \z as anchors, \Q..\E as a literal
+      // span, \C as "any byte" and \a as BEL, so the two engines would disagree.
+      if ("AzQECa".includes(next))
+        return { ok: false, reason: `\\${next} means something else in RE2` };
       i++;
       continue;
     }

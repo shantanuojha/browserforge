@@ -23,9 +23,13 @@ export { checkRE2Compatible, isRE2Compatible } from "./re2";
 
 const REGEX_SPECIALS = /[-[\]{}()+?.,\\^$|#\s]/g;
 
-/** Redirector-compatible wildcard conversion: escape everything, `*` -> `(.*)`, anchor. */
+/**
+ * Redirector-compatible wildcard conversion: escape everything, `*` -> `(.*?)`, anchor.
+ * The captures are lazy exactly as in Redirector, so with several `*` the
+ * earlier ones take the shortest split: two wildcards over `a/b/c` give `a` and `b/c`.
+ */
 export function wildcardToRegex(pattern: string): string {
-  const escaped = pattern.replace(REGEX_SPECIALS, "\\$&").replace(/\*/g, "(.*)");
+  const escaped = pattern.replace(REGEX_SPECIALS, "\\$&").replace(/\*/g, "(.*?)");
   return `^${escaped}$`;
 }
 
@@ -157,7 +161,8 @@ export interface MatchDetail {
 export function isValidAbsoluteUrl(value: string): boolean {
   try {
     const u = new URL(value);
-    return u.protocol.length > 1;
+    // Neither tabs.update nor a DNR redirect will navigate to a javascript: URL.
+    return u.protocol.length > 1 && u.protocol !== "javascript:";
   } catch {
     return false;
   }
@@ -279,10 +284,34 @@ export interface CompiledRules {
   dnrIdByRuleId: Record<string, number>;
 }
 
+/** True when `|` occurs outside every group, class and escape, i.e. `^a|b$` anchors only one branch. */
+export function hasTopLevelAlternation(source: string): boolean {
+  let depth = 0;
+  let inClass = false;
+  for (let i = 0; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === "\\") {
+      i++;
+      continue;
+    }
+    if (inClass) {
+      if (ch === "]") inClass = false;
+      continue;
+    }
+    if (ch === "[") inClass = true;
+    else if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (ch === "|" && depth === 0) return true;
+  }
+  return false;
+}
+
 /** Wraps a regex so that DNR's "replace the first match" becomes "replace the whole URL". */
 export function anchorForDNR(source: string): string {
-  const startsAnchored = source.startsWith("^");
-  const endsAnchored = /(^|[^\\])(\\\\)*\$$/.test(source);
+  // A leading `^` / trailing `$` only anchors its own branch when there is a top-level `|`.
+  const alternation = hasTopLevelAlternation(source);
+  const startsAnchored = !alternation && source.startsWith("^");
+  const endsAnchored = !alternation && /(^|[^\\])(\\\\)*\$$/.test(source);
   if (startsAnchored && endsAnchored) return source;
   const head = startsAnchored ? "" : "^.*?";
   const tail = endsAnchored ? "" : ".*$";
@@ -355,25 +384,58 @@ export function compileToDNR(rules: readonly Rule[], idBase: number): CompiledRu
   return { dnrRules, jsOnlyRuleIds, jsOnlyReasons, dnrIdByRuleId };
 }
 
-/** Per-site allowlist -> high-priority allow rules. Patterns may be `host`, `*.host`, `*host`. */
+const escapeForRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/**
+ * Per-site allowlist -> high-priority allow rules with the same semantics as
+ * `hostMatchesPattern`: `host` is the exact host, `*.host` its subdomains only,
+ * `*host` both. `requestDomains` always includes subdomains, so only the last
+ * form can use it; the other two become one RE2 regex each over the URL.
+ */
 export function allowlistToDNR(patterns: readonly string[], idBase: number): DnrRule[] {
+  const exact = new Set<string>();
+  const subdomains = new Set<string>();
   const domains = new Set<string>();
   for (const raw of patterns) {
-    const host = raw
-      .trim()
-      .toLowerCase()
-      .replace(/^\*\.?/, "")
-      .replace(/^\.+|\.+$/g, "");
-    if (host) domains.add(host);
+    const pat = raw.trim().toLowerCase();
+    const host = pat.replace(/^\*\.?/, "").replace(/^\.+|\.+$/g, "");
+    if (!host) continue;
+    if (pat.startsWith("*.")) subdomains.add(host);
+    else if (pat.startsWith("*")) domains.add(host);
+    else exact.add(host);
   }
-  if (domains.size === 0) return [];
-  // requestDomains matches the domain and all its subdomains, which covers every pattern form.
-  return [
-    {
+  const rules: DnrRule[] = [];
+  const base = { priority: DNR_PRIORITY.siteAllow, action: { type: "allow" } as const };
+  const resourceTypes = [...RESOURCE_TYPES];
+  if (domains.size > 0) {
+    rules.push({
+      ...base,
       id: idBase,
-      priority: DNR_PRIORITY.siteAllow,
-      condition: { requestDomains: [...domains], resourceTypes: [...RESOURCE_TYPES] },
-      action: { type: "allow" },
-    },
-  ];
+      condition: { requestDomains: [...domains], resourceTypes },
+    });
+  }
+  const hostGroup = (hosts: Set<string>) => `(?:${[...hosts].map(escapeForRegex).join("|")})`;
+  if (exact.size > 0) {
+    rules.push({
+      ...base,
+      id: idBase + 1,
+      condition: {
+        regexFilter: `^[^:/?#]+://${hostGroup(exact)}(?::\\d+)?/`,
+        isUrlFilterCaseSensitive: false,
+        resourceTypes,
+      },
+    });
+  }
+  if (subdomains.size > 0) {
+    rules.push({
+      ...base,
+      id: idBase + 2,
+      condition: {
+        regexFilter: `^[^:/?#]+://[^/?#]*\\.${hostGroup(subdomains)}(?::\\d+)?/`,
+        isUrlFilterCaseSensitive: false,
+        resourceTypes,
+      },
+    });
+  }
+  return rules;
 }

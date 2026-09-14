@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { DnrRule } from "../dnr";
 import { DNR_PRIORITY } from "../dnr";
 import {
   FALLBACK_PROVIDERS,
@@ -204,10 +205,13 @@ describe("toRemoveParamsRules", () => {
     const youtube = rules[4]!;
     expect(youtube.condition.requestDomains).toEqual(["youtube.com", "youtu.be"]);
     expect(youtube.condition.regexFilter).toBeUndefined();
-    expect(youtube.action.redirect!.transform!.queryTransform!.removeParams).toEqual([
-      "feature",
-      "si",
-    ]);
+    // Own parameters plus the catch-all's, since only one rule applies per request.
+    const youtubeParams = youtube.action.redirect!.transform!.queryTransform!.removeParams!;
+    expect(youtubeParams).toEqual(
+      expect.arrayContaining(["feature", "si", "fbclid", "utm_source"]),
+    );
+    expect(youtube.priority).toBe(DNR_PRIORITY.tracking + 1);
+    expect([...youtubeParams].sort()).toEqual(youtubeParams);
 
     expect(report.regexRules).toBe(3); // amazon filter + 2 exceptions
   });
@@ -243,8 +247,125 @@ describe("toRemoveParamsRules", () => {
   });
 });
 
+/**
+ * Chrome applies exactly one matching redirect rule per request: the highest
+ * priority one (ties broken by index order), and when its removeParams changes
+ * nothing the request goes through untouched, with no fall-through to other
+ * matching rules. Verified against Edge 140 (see REVIEW.md). A provider rule
+ * therefore has to outrank every rule whose condition covers it and carry those
+ * rules' parameters itself.
+ */
+describe("one-rule-per-request composition", () => {
+  const { rules } = toRemoveParamsRules(parseClearUrlsCatalog(CATALOG), 100);
+  const byParams = (needle: string) =>
+    rules.find((r) =>
+      r.action.redirect?.transform?.queryTransform?.removeParams?.includes(needle),
+    )!;
+  const params = (r: DnrRule) => r.action.redirect!.transform!.queryTransform!.removeParams!;
+
+  it("provider rules outrank the catch-all rule and include its parameters", () => {
+    const global = byParams("fbclid");
+    const youtube = byParams("si");
+    const amazon = byParams("qid");
+    expect(global.priority).toBe(DNR_PRIORITY.tracking);
+    expect(youtube.priority!).toBeGreaterThan(global.priority!);
+    expect(amazon.priority!).toBeGreaterThan(global.priority!);
+    for (const p of params(global)) {
+      expect(params(youtube)).toContain(p);
+      expect(params(amazon)).toContain(p);
+    }
+    expect(params(global)).not.toContain("si");
+  });
+
+  it("exception allow rules outrank every removeParams rule", () => {
+    const maxRemove = Math.max(
+      ...rules.filter((r) => r.action.type === "redirect").map((r) => r.priority!),
+    );
+    for (const r of rules.filter((r) => r.action.type === "allow"))
+      expect(r.priority!).toBeGreaterThan(maxRemove);
+  });
+
+  it("nests domain, regex-prefix and regex-host providers under their parents", () => {
+    const { rules: nested } = toRemoveParamsRules(
+      parseClearUrlsCatalog({
+        providers: {
+          globalRules: { urlPattern: ".*", rules: ["g_one"] },
+          "bilibili.com": {
+            urlPattern: "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?bilibili\\.com",
+            rules: ["b_one"],
+          },
+          "m.bilibili.com": {
+            urlPattern: "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?m\\.bilibili\\.com",
+            rules: ["m_one"],
+          },
+          amazon: {
+            urlPattern: "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?amazon(?:\\.[a-z]{2,}){1,}",
+            rules: ["a_one"],
+          },
+          "amazon search": {
+            urlPattern: "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?amazon(?:\\.[a-z]{2,}){1,}\\/s\\?",
+            rules: ["s_one"],
+          },
+          LinkedIn: {
+            urlPattern: "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?linkedin\\.com",
+            rules: ["l_one"],
+          },
+          "LinkedIn Learning": {
+            urlPattern: "^https?:\\/\\/(?:[a-z0-9-]+\\.)*?linkedin\\.com\\/learning",
+            rules: ["ll_one"],
+          },
+          // Not nested: different hosts.
+          other: { urlPattern: "^https?:\\/\\/(?:www\\.)?other\\.example", rules: ["o_one"] },
+        },
+      }),
+    );
+    const find = (needle: string) =>
+      nested.find((r) =>
+        r.action.redirect?.transform?.queryTransform?.removeParams?.includes(needle),
+      )!;
+    expect(find("g_one").priority).toBe(1);
+    expect(params(find("b_one"))).toEqual(["b_one", "g_one"]);
+    expect(find("b_one").priority).toBe(2);
+    expect(params(find("m_one"))).toEqual(["b_one", "g_one", "m_one"]);
+    expect(find("m_one").priority).toBe(3);
+    expect(params(find("s_one"))).toEqual(["a_one", "g_one", "s_one"]);
+    expect(find("s_one").priority).toBe(3);
+    expect(params(find("ll_one"))).toEqual(["g_one", "l_one", "ll_one"]);
+    expect(find("ll_one").priority).toBe(3);
+    expect(params(find("o_one"))).toEqual(["g_one", "o_one"]);
+    expect(find("o_one").priority).toBe(2);
+    // The catch-all does not absorb anyone else's parameters.
+    expect(params(find("g_one"))).toEqual(["g_one"]);
+  });
+});
+
 describe("cleanUrl (JS evaluator)", () => {
   const { rules } = toRemoveParamsRules(parseClearUrlsCatalog(CATALOG));
+
+  it("applies only the winning rule, as the network layer does", () => {
+    const remove = (id: number, priority: number, condition: DnrRule["condition"], p: string[]) =>
+      ({
+        id,
+        priority,
+        condition: { resourceTypes: ["main_frame", "sub_frame"], ...condition },
+        action: {
+          type: "redirect",
+          redirect: { transform: { queryTransform: { removeParams: p } } },
+        },
+      }) as DnrRule;
+    const tie = [
+      remove(7001, 1, {}, ["zzz"]),
+      remove(7002, 2, { requestDomains: ["tie.example"] }, ["si"]),
+    ];
+    // Observed in Edge: the higher-priority rule strips si and then shadows the catch-all.
+    expect(cleanUrl("https://tie.example/?si=1&zzz=2&k=3", tie).url).toBe(
+      "https://tie.example/?zzz=2&k=3",
+    );
+    expect(cleanUrl("https://tie.example/?zzz=2&k=3", tie).changed).toBe(false);
+    expect(cleanUrl("https://elsewhere.example/?zzz=2&k=3", tie).url).toBe(
+      "https://elsewhere.example/?k=3",
+    );
+  });
 
   it("removes global params anywhere", () => {
     const r = cleanUrl(

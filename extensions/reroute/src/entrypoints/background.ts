@@ -23,7 +23,7 @@ import {
   settingsItem,
   type Settings,
 } from "../lib/storage";
-import { newOrigin, readRulesFromSync, writeRulesToSync } from "../lib/sync";
+import { mergeRulesOnJoin, newOrigin, readRulesFromSync, writeRulesToSync } from "../lib/sync";
 import { cleanUrl } from "../lib/tracking/clean";
 import { loadTrackingRules } from "../lib/tracking/load";
 
@@ -91,6 +91,13 @@ export default defineBackground(() => {
       // storage quota or transient failure; the in-memory log still has it
     }
   }
+
+  // The options page clears the log by writing []; keep the in-memory copy in step so the next
+  // event does not resurrect the cleared entries.
+  logItem.watch((next) => {
+    log = next ?? [];
+    logLoaded = true;
+  });
 
   // -------------------------------------------------------------------------
   // DNR management
@@ -219,7 +226,8 @@ export default defineBackground(() => {
 
       state.jsOnlyRuleIds = jsOnly;
       state.jsOnlyReasons = reasons;
-      state.dnrRuleCount = desired.length - failed.size;
+      // User redirect rules only; the allowlist allow rules are not "rules" to the UI.
+      state.dnrRuleCount = accepted.filter((r) => !failed.has(r.id)).length;
       state.lastError = null;
       state.lastRebuildAt = Date.now();
 
@@ -328,7 +336,10 @@ export default defineBackground(() => {
     void rebuild().then(() => scheduleSyncWrite());
   });
   allowlistItem.watch(() => void rebuild());
-  settingsItem.watch(() => void rebuild().then(() => scheduleSyncWrite()));
+  settingsItem.watch((next, prev) => {
+    const turnedOn = next?.syncEnabled === true && prev?.syncEnabled !== true;
+    void rebuild().then(() => (turnedOn ? joinSync() : scheduleSyncWrite()));
+  });
 
   // -------------------------------------------------------------------------
   // Pro: sync mirroring
@@ -356,6 +367,40 @@ export default defineBackground(() => {
         }
       })();
     }, 1_500);
+  }
+
+  /**
+   * Sync was just switched on. If another device already published a rule set, adopt it (merged
+   * with whatever is local) rather than overwriting it with this device's copy; the merged set is
+   * then written back through the normal rules watcher. Without a remote set, publish ours.
+   */
+  async function joinSync(): Promise<void> {
+    if (!state.settings.syncEnabled || !(await isPro())) return;
+    let snap: Awaited<ReturnType<typeof readRulesFromSync>>;
+    try {
+      snap = await readRulesFromSync();
+    } catch (e) {
+      await record({
+        kind: "error",
+        from: "",
+        detail: `Sync read failed: ${e instanceof Error ? e.message : String(e)}`,
+      });
+      return;
+    }
+    if (!snap) {
+      scheduleSyncWrite();
+      return;
+    }
+    const merged = mergeRulesOnJoin(snap.rules, state.rules);
+    lastSyncWrite = snap.meta.updatedAt;
+    // Marks the remote copy as "already synced": if the merge adds nothing, no write follows;
+    // if it does, the rules watcher publishes the merged set.
+    lastSyncedText = JSON.stringify(snap.rules);
+    if (JSON.stringify(merged) !== JSON.stringify(state.rules)) {
+      await rulesItem.setValue(merged);
+    } else {
+      scheduleSyncWrite();
+    }
   }
 
   browser.storage.onChanged.addListener((changes, area) => {
