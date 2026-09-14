@@ -12,6 +12,7 @@ import {
   ops,
   resolveDrop,
   type NodeId,
+  type TreeNode,
 } from "../../model";
 import { MemoryTreeStore } from "../../store/memory";
 import { TabTracker } from "../tracker";
@@ -207,7 +208,7 @@ export async function setup() {
   const store = new MemoryTreeStore();
   await store.open();
   const fb = new FakeBrowser();
-  const tracker = new TabTracker(store, fb, { newId, now: () => 1 });
+  const tracker = new TabTracker(store, fb, { newId, clock: () => 1 });
   fb.tracker = tracker;
   return { store, fb, tracker };
 }
@@ -221,7 +222,7 @@ export async function drop(
   targetId: NodeId,
   pos: "before" | "after" | "inside",
 ): Promise<void> {
-  const dest = resolveDrop(ctx.store.getTree(), draggedId, targetId, pos);
+  const dest = resolveDrop(ctx.store.getTree(), { draggedId, targetId, pos });
   if (!dest) throw new Error("drop refused");
   await ctx.tracker.moveNode(draggedId, dest.parentId, dest.index);
 }
@@ -246,7 +247,7 @@ export function addSavedTab(ctx: Ctx, id: NodeId, parentId: NodeId, url: string,
 
 /** Service-worker restart: a fresh tracker over the same op log and the same live browser. */
 export async function restartWorker(ctx: Ctx) {
-  const fresh = new TabTracker(ctx.store, ctx.fb, { newId, now: () => 1 });
+  const fresh = new TabTracker(ctx.store, ctx.fb, { newId, clock: () => 1 });
   ctx.fb.tracker = fresh;
   const report = await fresh.rebuild();
   return { fresh, report };
@@ -259,6 +260,38 @@ export function titlesUnder(ctx: Ctx, parentId: NodeId | undefined): string[] {
 
 export const nodeOf = (ctx: Ctx, tab: LiveTab) => findByLiveTabId(ctx.store.getTree(), tab.id);
 export const winNodeOf = (ctx: Ctx, w: LiveWindow) => findWindowByLiveId(ctx.store.getTree(), w.id);
+
+/** The node of a live tab; fails the test when the tab is not in the tree. */
+export function idOf(ctx: Ctx, tab: LiveTab): NodeId {
+  const node = nodeOf(ctx, tab);
+  if (!node) throw new Error(`no node for tab ${tab.id}`);
+  return node.id;
+}
+
+/** The container bound to a browser window; fails the test when there is none. */
+export function winIdOf(ctx: Ctx, w: LiveWindow): NodeId {
+  const node = winNodeOf(ctx, w);
+  if (!node) throw new Error(`no container for window ${w.id}`);
+  return node.id;
+}
+
+/** A node that must exist. */
+export function nodeAt(ctx: Ctx, id: NodeId): TreeNode {
+  const node = ctx.store.getTree().get(id);
+  if (!node) throw new Error(`no node ${id}`);
+  return node;
+}
+
+/** The live tab id of a node (undefined while it is saved). */
+export const liveTabIdOf = (ctx: Ctx, id: NodeId): number | undefined =>
+  ctx.store.getTree().get(id)?.liveTabId;
+
+/** The live window id a container is bound to; fails the test when it is unbound. */
+export function boundWindowOf(ctx: Ctx, id: NodeId): number {
+  const windowId = nodeAt(ctx, id).liveWindowId;
+  if (windowId === undefined) throw new Error(`${id} is not bound to a window`);
+  return windowId;
+}
 
 /** Ids of every container in the tree (windows and groups alike). */
 export function windowNodeIds(ctx: Ctx): NodeId[] {

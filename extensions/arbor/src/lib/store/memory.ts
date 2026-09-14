@@ -93,11 +93,17 @@ export class MemoryLogBackend implements LogBackend {
   }
 }
 
+/** A clock that ticks once per call, so timestamps are distinct and repeatable. */
+function tickingClock(): () => number {
+  let t = 0;
+  return () => ++t;
+}
+
 export class MemoryTreeStore extends LogTreeStore {
   constructor(
     readonly memory: MemoryLogBackend = new MemoryLogBackend(),
-    options: LogStoreOptions = {},
+    options: Partial<LogStoreOptions> = {},
   ) {
-    super(memory, { flushDelayMs: 0, ...options });
+    super(memory, { flushDelayMs: 0, now: tickingClock(), ...options });
   }
 }

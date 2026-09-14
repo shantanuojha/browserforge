@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import {
-  applyTheme,
-  DEFAULT_SETTINGS,
-  loadSettings,
-  saveSettings,
-  watchSettings,
-  type Settings,
-} from "@/lib/settings";
+import { loadSettings, saveSettings, watchSettings } from "@/adapters/settings-store";
+import { DEFAULT_SETTINGS, type Settings, type ThemeMode } from "@/lib/settings";
+
+/** Apply the theme choice to the document root (every extension page does this once). */
+export function applyTheme(theme: ThemeMode, root: HTMLElement = document.documentElement): void {
+  if (theme === "system") root.removeAttribute("data-theme");
+  else root.setAttribute("data-theme", theme);
+}
 
 export function useSettings(): [Settings, (next: Settings) => Promise<void>, boolean] {
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);

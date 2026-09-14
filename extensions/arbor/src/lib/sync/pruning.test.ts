@@ -267,7 +267,7 @@ describe("empty window pruning", () => {
     fb.closeEmptyWindows = true;
     const w = fb.addWindow();
     fb.addTab(w.id, "https://a.test/", "A");
-    const tracker = new TabTracker(store, fb, { newId, now: () => 1 });
+    const tracker = new TabTracker(store, fb, { newId, clock: () => 1 });
     fb.tracker = tracker;
     const report = await tracker.rebuild();
     expect(report.migrated).toBe(3); // three "Window" titles became empty

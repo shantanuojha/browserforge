@@ -1,15 +1,15 @@
-import { browser } from "wxt/browser";
-import { createExport, type ArborExport } from "./io/arbor-json";
-import type { Tree } from "./model";
-import { openDatabase, request, STORES, withStores } from "./store/idb";
-
 /**
  * Pro: scheduled local backups.
  *
- * The extension has no `downloads` permission, so a backup is a full export written to the
- * `backups` object store on a timer; the Options page lists them and lets the user save any of
- * them as a file. Retention keeps the newest N.
+ * The extension has no `downloads` permission, so a backup is a full export written to a
+ * `BackupRepository` on a timer; the Options page lists them and lets the user save any of them
+ * as a file. Retention keeps the newest N. The repository is a port (`adapters/backup-store.ts`
+ * keeps it in IndexedDB); the alarm that drives the schedule is another (`AlarmsPort`).
  */
+import type { Clock } from "@browserforge/shared";
+import type { AlarmsPort } from "./background/ports";
+import { createExport, type ArborExport } from "./io/arbor-json";
+import type { Tree } from "./model";
 
 export const BACKUP_ALARM = "arbor-scheduled-backup";
 
@@ -24,61 +24,23 @@ export interface BackupMeta {
   nodeCount: number;
 }
 
-export class BackupStore {
-  private db: IDBDatabase | null = null;
+/** Where backups live. `list` returns the newest first. */
+export interface BackupRepository {
+  list(): Promise<BackupMeta[]>;
+  get(ts: number): Promise<BackupRecord | undefined>;
+  put(record: BackupRecord): Promise<void>;
+  delete(ts: number): Promise<void>;
+}
 
-  constructor(private readonly factory: IDBFactory = indexedDB) {}
-
-  private async database(): Promise<IDBDatabase> {
-    if (!this.db) this.db = await openDatabase(this.factory);
-    return this.db;
-  }
-
-  async list(): Promise<BackupMeta[]> {
-    const db = await this.database();
-    const rows = await withStores(db, [STORES.backups], "readonly", (s) =>
-      request(s(STORES.backups).getAll()),
-    );
-    return (rows as Partial<BackupRecord>[])
-      .filter((r): r is BackupRecord => typeof r.ts === "number")
-      .map((r) => ({ ts: r.ts, nodeCount: r.nodeCount ?? r.data?.nodeCount ?? 0 }))
-      .sort((a, b) => b.ts - a.ts);
-  }
-
-  async get(ts: number): Promise<BackupRecord | undefined> {
-    const db = await this.database();
-    const row = await withStores(db, [STORES.backups], "readonly", (s) =>
-      request(s(STORES.backups).get(ts)),
-    );
-    return row as BackupRecord | undefined;
-  }
-
-  async put(record: BackupRecord): Promise<void> {
-    const db = await this.database();
-    await withStores(db, [STORES.backups], "readwrite", async (s) => {
-      s(STORES.backups).put(record);
-    });
-  }
-
-  async delete(ts: number): Promise<void> {
-    const db = await this.database();
-    await withStores(db, [STORES.backups], "readwrite", async (s) => {
-      s(STORES.backups).delete(ts);
-    });
-  }
-
-  /** Keep only the newest `retention` backups. Returns how many were removed. */
-  async trim(retention: number): Promise<number> {
-    const all = await this.list();
-    const excess = all.slice(Math.max(1, retention));
-    for (const b of excess) await this.delete(b.ts);
-    return excess.length;
-  }
-
-  async close(): Promise<void> {
-    this.db?.close();
-    this.db = null;
-  }
+/** Keep only the newest `retention` backups (at least one). Returns how many were removed. */
+export async function trimBackups(
+  repository: BackupRepository,
+  retention: number,
+): Promise<number> {
+  const all = await repository.list();
+  const excess = all.slice(Math.max(1, retention));
+  for (const b of excess) await repository.delete(b.ts);
+  return excess.length;
 }
 
 export interface BackupSchedule {
@@ -87,22 +49,27 @@ export interface BackupSchedule {
   retention: number;
 }
 
+export interface BackupSchedulerDeps {
+  backups: BackupRepository;
+  alarms: AlarmsPort;
+  getTree: () => Tree;
+  clock: Clock;
+}
+
 /** Owns the alarm and writes backups; the background decides when Pro/settings allow it. */
 export class BackupScheduler {
-  constructor(
-    private readonly backups: BackupStore,
-    private readonly getTree: () => Tree,
-  ) {}
+  constructor(private readonly deps: BackupSchedulerDeps) {}
 
   async configure(schedule: BackupSchedule, pro: boolean): Promise<void> {
+    const { alarms } = this.deps;
     const active = pro && schedule.enabled;
-    const existing = await browser.alarms.get(BACKUP_ALARM);
+    const existing = await alarms.get(BACKUP_ALARM);
     if (!active) {
-      if (existing) await browser.alarms.clear(BACKUP_ALARM);
+      if (existing) await alarms.clear(BACKUP_ALARM);
       return;
     }
     if (!existing || existing.periodInMinutes !== schedule.intervalMinutes) {
-      await browser.alarms.create(BACKUP_ALARM, {
+      await alarms.create(BACKUP_ALARM, {
         periodInMinutes: schedule.intervalMinutes,
         delayInMinutes: schedule.intervalMinutes,
       });
@@ -110,10 +77,10 @@ export class BackupScheduler {
   }
 
   async runNow(retention: number): Promise<BackupMeta> {
-    const data = createExport(this.getTree());
+    const data = createExport(this.deps.getTree(), this.deps.clock());
     const record: BackupRecord = { ts: data.exportedAt, nodeCount: data.nodeCount, data };
-    await this.backups.put(record);
-    await this.backups.trim(retention);
+    await this.deps.backups.put(record);
+    await trimBackups(this.deps.backups, retention);
     return { ts: record.ts, nodeCount: record.nodeCount };
   }
 }

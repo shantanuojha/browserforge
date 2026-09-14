@@ -1,80 +1,56 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
+import { errorMessage } from "@browserforge/shared";
 import { Button } from "@browserforge/ui";
-import { formatDateTime } from "@/lib/download";
-import { msg, type StartupInfo } from "@/lib/messages";
-import type { QuarantinedOp, SnapshotMeta } from "@/lib/store/types";
+import { msg } from "@/adapters/messaging";
+import { useRecoveryData } from "@/hooks/useRecoveryData";
+import { formatDateTime } from "@/lib/format";
+import type { SnapshotMeta } from "@/lib/store/types";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { IntegrityReport } from "./recovery/IntegrityReport";
+import { SnapshotList } from "./recovery/SnapshotList";
 
 export interface RecoveryViewProps {
   currentNodeCount: number;
 }
 
 export function RecoveryView({ currentNodeCount }: RecoveryViewProps) {
-  const [snapshots, setSnapshots] = useState<SnapshotMeta[] | null>(null);
-  const [quarantine, setQuarantine] = useState<QuarantinedOp[]>([]);
-  const [startup, setStartup] = useState<StartupInfo | null>(null);
-  const [pending, setPending] = useState<SnapshotMeta | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [pending, setPending] = useState<SnapshotMeta | null>(null);
   const [busy, setBusy] = useState(false);
+  const onError = useCallback((message: string) => setStatus(message), []);
+  const { snapshots, quarantine, startup, refresh } = useRecoveryData(onError);
 
-  const refresh = useCallback(async () => {
-    const [snaps, q, info] = await Promise.all([
-      msg.listSnapshots.send(),
-      msg.listQuarantine.send(),
-      msg.getStartupInfo.send(),
-    ]);
-    setSnapshots(snaps);
-    setQuarantine(q);
-    setStartup(info);
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    Promise.all([msg.listSnapshots.send(), msg.listQuarantine.send(), msg.getStartupInfo.send()])
-      .then(([snaps, q, info]) => {
-        if (cancelled) return;
-        setSnapshots(snaps);
-        setQuarantine(q);
-        setStartup(info);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setStatus(e instanceof Error ? e.message : String(e));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const restore = async (snap: SnapshotMeta) => {
+  /** Run a background operation, show its outcome, then reload the lists. */
+  const perform = async (operation: () => Promise<string>) => {
     setBusy(true);
     try {
-      const count = await msg.restoreSnapshot.send({ seq: snap.seq });
-      setStatus(`Restored snapshot #${snap.seq} (${count} nodes). Open windows were re-linked.`);
+      setStatus(await operation());
       await refresh();
     } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
+      setStatus(errorMessage(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const restore = async (snap: SnapshotMeta) => {
+    try {
+      await perform(async () => {
+        const count = await msg.restoreSnapshot.send({ seq: snap.seq });
+        return `Restored snapshot #${snap.seq} (${count} nodes). Open windows were re-linked.`;
+      });
+    } finally {
       setPending(null);
     }
   };
 
-  const snapshotNow = async () => {
-    setBusy(true);
-    try {
+  const snapshotNow = () =>
+    perform(async () => {
       const meta = await msg.compactNow.send();
-      setStatus(
-        meta ? `Snapshot #${meta.seq} written (${meta.nodeCount} nodes).` : "Nothing to snapshot.",
-      );
-      await refresh();
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const report = startup?.report;
+      return meta
+        ? `Snapshot #${meta.seq} written (${meta.nodeCount} nodes).`
+        : "Nothing to snapshot.";
+    });
 
   return (
     <div className="page">
@@ -92,37 +68,7 @@ export function RecoveryView({ currentNodeCount }: RecoveryViewProps) {
             time; the current tree is kept as a new snapshot first, so you can always come back.
           </p>
           <p>Current tree: {currentNodeCount} nodes.</p>
-          {snapshots === null ? (
-            <p>Loading...</p>
-          ) : snapshots.length === 0 ? (
-            <p>No snapshots yet. The first one is written after a few changes.</p>
-          ) : (
-            <div className="list" role="list">
-              {snapshots.map((s, i) => (
-                <div
-                  key={s.seq}
-                  className={i === 0 ? "list__item list__item--current" : "list__item"}
-                  role="listitem"
-                >
-                  <div className="list__grow">
-                    <div>
-                      {formatDateTime(s.ts)} <span className="list__muted">#{s.seq}</span>
-                      {i === 0 ? <span className="list__muted"> (latest)</span> : null}
-                    </div>
-                    <div className="list__muted">{s.nodeCount} nodes</div>
-                  </div>
-                  <Button
-                    size="sm"
-                    variant="secondary"
-                    disabled={busy}
-                    onClick={() => setPending(s)}
-                  >
-                    Restore
-                  </Button>
-                </div>
-              ))}
-            </div>
-          )}
+          <SnapshotList snapshots={snapshots} busy={busy} onRestore={setPending} />
           {status ? <div className="notice">{status}</div> : null}
         </div>
       </section>
@@ -132,58 +78,7 @@ export function RecoveryView({ currentNodeCount }: RecoveryViewProps) {
           <h2 className="section__title">Integrity check</h2>
         </div>
         <div className="section__body">
-          {report ? (
-            <>
-              <p>
-                Last start: loaded snapshot #{report.snapshotSeq}, replayed {report.replayed} change
-                {report.replayed === 1 ? "" : "s"}
-                {report.quarantined ? `, quarantined ${report.quarantined}` : ""}
-                {report.skippedSnapshots
-                  ? `, skipped ${report.skippedSnapshots} unreadable snapshot(s)`
-                  : ""}
-                .
-              </p>
-              {report.warnings.length ? (
-                <div className="notice notice--warn">
-                  Recovered with warnings:
-                  <ul>
-                    {report.warnings.slice(0, 6).map((w, i) => (
-                      <li key={i}>{w}</li>
-                    ))}
-                  </ul>
-                </div>
-              ) : null}
-              {startup?.rebuild ? (
-                <p>
-                  Live windows: {startup.rebuild.windowsMatched} matched,{" "}
-                  {startup.rebuild.windowsCreated} new; tabs: {startup.rebuild.tabsMatched} matched,{" "}
-                  {startup.rebuild.tabsCreated} new; {startup.rebuild.nodesSaved} node(s) marked
-                  saved
-                  {startup.rebuild.windowsPruned
-                    ? `; ${startup.rebuild.windowsPruned} empty window node(s) removed`
-                    : ""}
-                  .
-                </p>
-              ) : null}
-            </>
-          ) : (
-            <p>Loading...</p>
-          )}
-          {quarantine.length ? (
-            <div className="notice notice--warn">
-              {quarantine.length} change(s) could not be replayed and were set aside so the rest of
-              the tree could load. They are kept for inspection but are not part of the tree.
-              <ul>
-                {quarantine.slice(0, 5).map((q) => (
-                  <li key={q.op.seq}>
-                    #{q.op.seq} {q.op.type}: {q.reason}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ) : (
-            <p>No quarantined changes.</p>
-          )}
+          <IntegrityReport startup={startup} quarantine={quarantine} />
         </div>
       </section>
 

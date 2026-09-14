@@ -48,6 +48,11 @@ entrypoint hands in the browser one.
 | `SessionStore`, `AlarmsPort`                           | cookiesweep `lib/background/scheduler.ts`                           | `adapters/session-store.ts`, `adapters/alarms.ts`                    |
 | `BadgePainter`                                         | cookiesweep `lib/background/badge.ts`                               | `adapters/badge-painter.ts`                                          |
 | `StoreRegistry` deps, `ActivityLog`, `CleanupNotifier` | cookiesweep `lib/background/*`                                      | wired in `entrypoints/background.ts`                                 |
+| `TabsPort`, `TrackerEventSink`                         | arbor `lib/sync/types.ts`                                           | `adapters/tabs-port.ts`, `adapters/tracker-events.ts`                |
+| `TreeStore` / `LogBackend`                             | arbor `lib/store/types.ts`                                          | `adapters/indexeddb-store.ts` (`MemoryTreeStore` in tests)           |
+| `BackupRepository`                                     | arbor `lib/backups.ts`                                              | `adapters/backup-store.ts`                                           |
+| `AlarmsPort`, `SettingsStore`                          | arbor `lib/background/ports.ts`                                     | `adapters/alarms.ts`, `adapters/settings-store.ts`                   |
+| `MessageTransport`, `TreePortSink`                     | arbor `lib/messaging.ts`, `lib/background/tree-broadcaster.ts`      | `adapters/messaging.ts`, `adapters/tree-port.ts`                     |
 | `LicenseApi`, `LicenseStorage`, `AlarmsLike`           | `@browserforge/licensing`                                           | `createLicenseApi(fetch)`, `browser.storage.local`, `browser.alarms` |
 | `Clock`                                                | `@browserforge/shared`                                              | `systemClock`                                                        |
 
@@ -58,14 +63,16 @@ Rules of thumb:
 - Adapters are thin: convert types, catch browser-specific failures, nothing else. If an adapter
   grows a decision, that decision moves into the application layer behind a port.
 - The `browser` object is imported in `adapters/`, `entrypoints/`, `hooks/` and `components/`
-  only. `lib/` has no framework imports.
+  only. `lib/` has no framework imports. Arbor goes one step further: only `adapters/` imports
+  `wxt/browser`, `chrome.*` or `indexedDB`; its hooks, components and entrypoints call adapters.
 
 ## Background services
 
-Both extensions follow the same shape. The entrypoint builds the services with the browser
+All three extensions follow the same shape. The entrypoint builds the services with the browser
 adapters, then registers listeners in a handful of small `register*` functions. All behaviour is
 in `lib/background`, unit-tested with fakes, and covered end to end by `src/background.test.ts`
-running the real entrypoint against `@webext-core/fake-browser`.
+running the real entrypoint against `@webext-core/fake-browser` (Reroute, CookieSweep) or by
+`lib/background/service.test.ts` over in-memory ports (Arbor).
 
 **Reroute** (`lib/background/service.ts` composes):
 
@@ -86,6 +93,29 @@ running the real entrypoint against `@webext-core/fake-browser`.
 - `badge` decides what the toolbar badge shows (pure) and paints it (port).
 - `store-registry` remembers cookie stores the browser stops listing.
 - `tab-hosts` classifies committed navigations as "left the site" or not.
+
+**Arbor** (`lib/background/service.ts` composes; `entrypoints/background.ts` wires adapters):
+
+- `service` opens the store, mirrors the browser through the tracker, keeps the compaction and
+  backup alarms honest, and offers the operations the message handlers call (add node, import,
+  restore snapshot, backup now).
+- `message-handler` is three tables from message definition to handler; every handler waits for
+  startup. `tree-broadcaster` pushes the tree to connected side panels, debounced.
+- `lib/sync` is the tracker, one module per responsibility behind the `TabTracker` facade:
+  `live-books` (the browser's own state), `tree-writer` (window node on demand, tab nodes,
+  patches, save-or-drop), `placement` (tree position vs strip position, detached rules),
+  `pruning` (untitled containers left empty), `adoption` (restores in flight), `mirror` (the
+  browser events), `rebuild` + `matchers` (re-matching on startup: by live id, by URL overlap),
+  `reopen` + `containers` (focus, close-and-save, restore, reopen in place or as a window),
+  `edits` (delete and move with the browser following), `history-runner` (undo/redo steps as a
+  table keyed by kind).
+- `lib/model` and `lib/history` are pure: op appliers, coercers and step runners are tables keyed
+  by op or step kind, so a new kind is one entry each. The op-log, snapshot and export formats
+  are the same as before the refactor.
+- The side panel is `entrypoints/sidepanel/App.tsx` composing `components/panel/*` with hooks
+  (`useTreeState`, `useHistory`, `useTreeActions`, `useToast`, `usePanelShortcuts`); the tree
+  itself is `TreeView` over `useTreeSelection`, `useVirtualRows`, `useTreeDrag`,
+  `useTreeKeyboard` and the pure `lib/tree-search`, `lib/tree-layout`, `lib/tree-menu`.
 
 ## Vocabulary
 
@@ -115,8 +145,10 @@ something else; keep the two consistent within a product.
 ## Tests
 
 - Domain and application code: colocated `*.test.ts`, no browser, in-memory ports
-  (`lib/background/testing.ts` in Reroute, `@browserforge/licensing/testing` for licensing).
+  (`lib/background/testing.ts` in Reroute, `lib/sync/testing/fake-browser.ts` in Arbor,
+  `@browserforge/licensing/testing` for licensing).
 - Adapters and wiring: `src/background.test.ts` drives the real entrypoint against
-  `@webext-core/fake-browser` plus hand-rolled stubs for APIs the fake lacks.
+  `@webext-core/fake-browser` plus hand-rolled stubs for APIs the fake lacks. Arbor's adapter
+  tests sit next to the adapters (`adapters/*.test.ts`, with `adapters/testing/fake-indexeddb.ts`).
 - Test doubles are shared, not copied: `createMemoryStorage`, `createFakeFetch` and the Lemon
   Squeezy body builders live in `@browserforge/licensing/testing`.

@@ -1,3 +1,4 @@
+import { createLogger, errorMessage, type Logger } from "@browserforge/shared";
 import {
   applyOp,
   applyOps,
@@ -22,22 +23,23 @@ import type {
   TreeStore,
 } from "./types";
 
-const DEFAULTS: Required<LogStoreOptions> = {
+const DEFAULTS = {
   compactEveryOps: 200,
   compactIntervalMs: 5 * 60_000,
   snapshotRetention: 30,
   flushDelayMs: 250,
-  now: () => Date.now(),
 };
 
-/** Parse a raw snapshot record; returns undefined when unusable. */
-export function coerceSnapshot(value: unknown): Snapshot | undefined {
+type ResolvedOptions = Required<Omit<LogStoreOptions, "logger">> & { logger: Logger };
+
+/** Parse a raw snapshot record; returns undefined when unusable. `now` fills missing timestamps. */
+export function coerceSnapshot(value: unknown, now: number): Snapshot | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const v = value as Record<string, unknown>;
   if (typeof v.seq !== "number" || !Array.isArray(v.nodes)) return undefined;
   const nodes: TreeNode[] = [];
   for (const raw of v.nodes) {
-    const n = coerceNode(raw);
+    const n = coerceNode(raw, now);
     if (!n) return undefined;
     nodes.push(n);
   }
@@ -47,6 +49,18 @@ export function coerceSnapshot(value: unknown): Snapshot | undefined {
     nodes,
     nodeCount: nodes.length,
   };
+}
+
+/** Outcome of replaying the op log on top of a snapshot. */
+interface Replay {
+  tree: Tree;
+  maxSeq: number;
+  replayed: number;
+  /** Ops that did not apply, kept for inspection. */
+  bad: QuarantinedOp[];
+  /** Sequence numbers to remove from the log: the quarantined ops and unreadable records. */
+  badSeqs: number[];
+  warnings: string[];
 }
 
 /**
@@ -66,13 +80,13 @@ export class LogTreeStore implements TreeStore {
   private listeners = new Set<TreeListener>();
   private opened = false;
   private closed = false;
-  private readonly opts: Required<LogStoreOptions>;
+  private readonly opts: ResolvedOptions;
 
   constructor(
     private readonly backend: LogBackend,
-    options: LogStoreOptions = {},
+    options: LogStoreOptions,
   ) {
-    this.opts = { ...DEFAULTS, ...options };
+    this.opts = { ...DEFAULTS, logger: createLogger("arbor:store"), ...options };
   }
 
   // -- lifecycle -----------------------------------------------------------------------------
@@ -85,70 +99,82 @@ export class LogTreeStore implements TreeStore {
       skippedSnapshots: 0,
       warnings: [],
     };
-
-    // 1. Newest valid snapshot.
-    const metas = (await this.backend.listSnapshotMeta()).sort((a, b) => b.seq - a.seq);
-    let base: Snapshot | undefined;
-    for (const meta of metas) {
-      const snap = coerceSnapshot(await this.backend.getSnapshot(meta.seq));
-      if (!snap) {
-        report.skippedSnapshots++;
-        report.warnings.push(`snapshot ${meta.seq} is unreadable`);
-        continue;
-      }
-      const problems = validateTree(createTree(snap.nodes));
-      if (problems.length) {
-        report.skippedSnapshots++;
-        report.warnings.push(`snapshot ${meta.seq} is inconsistent: ${problems[0]}`);
-        continue;
-      }
-      base = snap;
-      break;
-    }
-
-    let tree = createTree(base?.nodes ?? []);
+    const base = await this.newestValidSnapshot(report);
     this.lastSnapshotSeq = base?.seq ?? 0;
     this.lastSnapshotTs = base?.ts ?? this.opts.now();
     report.snapshotSeq = this.lastSnapshotSeq;
 
-    // 2. Replay the log after the snapshot; quarantine anything that does not apply.
-    const rawOps = await this.backend.readOpsAfter(this.lastSnapshotSeq);
-    const bad: QuarantinedOp[] = [];
-    const badSeqs: number[] = [];
-    let maxSeq = this.lastSnapshotSeq;
-    for (const raw of rawOps) {
-      const op = coerceOp(raw);
-      if (!op) {
-        const seq = (raw as { seq?: unknown } | null)?.seq;
-        if (typeof seq === "number") badSeqs.push(seq);
-        report.warnings.push("dropped an unreadable op record");
-        continue;
-      }
-      maxSeq = Math.max(maxSeq, op.seq);
-      try {
-        tree = applyOp(tree, op, op.ts);
-        report.replayed++;
-      } catch (e) {
-        bad.push({ op, reason: e instanceof Error ? e.message : String(e), ts: this.opts.now() });
-        badSeqs.push(op.seq);
-      }
-    }
-    report.quarantined = bad.length;
+    const replay = this.replay(
+      createTree(base?.nodes ?? []),
+      await this.backend.readOpsAfter(this.lastSnapshotSeq),
+    );
+    report.replayed = replay.replayed;
+    report.quarantined = replay.bad.length;
+    report.warnings.push(...replay.warnings);
 
-    this.tree = tree;
-    this.nextSeq = Math.max(maxSeq, await this.backend.maxSeq()) + 1;
-    this.opsSinceSnapshot = report.replayed;
+    this.tree = replay.tree;
+    this.nextSeq = Math.max(replay.maxSeq, await this.backend.maxSeq()) + 1;
+    this.opsSinceSnapshot = replay.replayed;
     this.opened = true;
 
-    // 3. Repair: move bad ops out of the log and pin the good state in a fresh snapshot.
-    if (badSeqs.length) {
-      await this.enqueue(async () => {
-        if (bad.length) await this.backend.addQuarantine(bad);
-        await this.backend.deleteOps(badSeqs);
-      });
-      await this.compact(true);
-    }
+    if (replay.badSeqs.length) await this.repair(replay);
     return report;
+  }
+
+  /** Newest snapshot that parses and describes a consistent tree; unusable ones are reported. */
+  private async newestValidSnapshot(report: OpenReport): Promise<Snapshot | undefined> {
+    const metas = (await this.backend.listSnapshotMeta()).sort((a, b) => b.seq - a.seq);
+    for (const meta of metas) {
+      const snap = coerceSnapshot(await this.backend.getSnapshot(meta.seq), this.opts.now());
+      const problem = snap ? validateTree(createTree(snap.nodes))[0] : undefined;
+      if (snap && problem === undefined) return snap;
+      report.skippedSnapshots++;
+      report.warnings.push(
+        snap
+          ? `snapshot ${meta.seq} is inconsistent: ${problem}`
+          : `snapshot ${meta.seq} is unreadable`,
+      );
+    }
+    return undefined;
+  }
+
+  /** Replay the log after the snapshot; anything that does not apply is set aside. */
+  private replay(base: Tree, rawOps: readonly unknown[]): Replay {
+    const result: Replay = {
+      tree: base,
+      maxSeq: this.lastSnapshotSeq,
+      replayed: 0,
+      bad: [],
+      badSeqs: [],
+      warnings: [],
+    };
+    for (const raw of rawOps) {
+      const op = coerceOp(raw, this.opts.now());
+      if (!op) {
+        const seq = (raw as { seq?: unknown } | null)?.seq;
+        if (typeof seq === "number") result.badSeqs.push(seq);
+        result.warnings.push("dropped an unreadable op record");
+        continue;
+      }
+      result.maxSeq = Math.max(result.maxSeq, op.seq);
+      try {
+        result.tree = applyOp(result.tree, op, op.ts);
+        result.replayed++;
+      } catch (e) {
+        result.bad.push({ op, reason: errorMessage(e), ts: this.opts.now() });
+        result.badSeqs.push(op.seq);
+      }
+    }
+    return result;
+  }
+
+  /** Move bad ops out of the log and pin the good state in a fresh snapshot. */
+  private async repair(replay: Replay): Promise<void> {
+    await this.enqueue(async () => {
+      if (replay.bad.length) await this.backend.addQuarantine(replay.bad);
+      await this.backend.deleteOps(replay.badSeqs);
+    });
+    await this.compact(true);
   }
 
   async close(): Promise<void> {
@@ -171,7 +197,7 @@ export class LogTreeStore implements TreeStore {
       try {
         l(this.tree, ops);
       } catch (e) {
-        console.error("[arbor:store] listener failed", e);
+        this.opts.logger.error("listener failed", e);
       }
     }
   }
@@ -184,7 +210,7 @@ export class LogTreeStore implements TreeStore {
     const ts = this.opts.now();
     const ops: Op[] = bodies.map((b) => ({ ...b, seq: this.nextSeq++, ts }));
     try {
-      this.tree = applyOps(this.tree, ops);
+      this.tree = applyOps(this.tree, ops, ts);
     } catch (e) {
       this.nextSeq -= ops.length; // nothing was applied; do not burn sequence numbers
       throw e;
@@ -194,7 +220,7 @@ export class LogTreeStore implements TreeStore {
     this.scheduleFlush();
     this.notify(ops);
     if (this.opsSinceSnapshot >= this.opts.compactEveryOps) {
-      void this.compact().catch((e) => console.error("[arbor:store] compaction failed", e));
+      void this.compact().catch((e) => this.opts.logger.error("compaction failed", e));
     }
     return ops;
   }
@@ -203,7 +229,7 @@ export class LogTreeStore implements TreeStore {
     if (this.flushTimer !== null) return;
     this.flushTimer = setTimeout(() => {
       this.flushTimer = null;
-      void this.flush().catch((e) => console.error("[arbor:store] flush failed", e));
+      void this.flush().catch((e) => this.opts.logger.error("flush failed", e));
     }, this.opts.flushDelayMs);
   }
 
@@ -230,20 +256,25 @@ export class LogTreeStore implements TreeStore {
     await this.flush();
     return this.enqueue(async () => {
       if (!force && this.opsSinceSnapshot === 0) return null;
-      const seq = this.nextSeq - 1;
       const covered = this.opsSinceSnapshot;
-      const nodes = serializeNodes(this.tree);
-      const snapshot: Snapshot = { seq, ts: this.opts.now(), nodes, nodeCount: nodes.length };
-      await this.backend.putSnapshot(snapshot);
-      await this.backend.deleteOpsThrough(seq);
-      this.lastSnapshotSeq = seq;
-      this.lastSnapshotTs = snapshot.ts;
+      const snapshot = await this.pinSnapshot(this.nextSeq - 1);
       // Ops appended while the snapshot was being written (append is synchronous) are not in it
       // and stay pending, so the next compaction or replaceTree still pins them.
       this.opsSinceSnapshot -= covered;
       await this.pruneSnapshots();
       return snapshot;
     });
+  }
+
+  /** Persist the current tree as snapshot `seq` and drop the log it covers. */
+  private async pinSnapshot(seq: number): Promise<Snapshot> {
+    const nodes = serializeNodes(this.tree);
+    const snapshot: Snapshot = { seq, ts: this.opts.now(), nodes, nodeCount: nodes.length };
+    await this.backend.putSnapshot(snapshot);
+    await this.backend.deleteOpsThrough(seq);
+    this.lastSnapshotSeq = seq;
+    this.lastSnapshotTs = snapshot.ts;
+    return snapshot;
   }
 
   setCompactionInterval(ms: number): void {
@@ -275,7 +306,7 @@ export class LogTreeStore implements TreeStore {
   }
 
   async getSnapshot(seq: number): Promise<Snapshot | undefined> {
-    return coerceSnapshot(await this.backend.getSnapshot(seq));
+    return coerceSnapshot(await this.backend.getSnapshot(seq), this.opts.now());
   }
 
   async restoreSnapshot(seq: number): Promise<Tree> {
@@ -295,18 +326,7 @@ export class LogTreeStore implements TreeStore {
     await this.enqueue(async () => {
       this.pending = [];
       this.tree = tree;
-      const seq = this.nextSeq++;
-      const serialised = serializeNodes(tree);
-      const snapshot: Snapshot = {
-        seq,
-        ts: this.opts.now(),
-        nodes: serialised,
-        nodeCount: serialised.length,
-      };
-      await this.backend.putSnapshot(snapshot);
-      await this.backend.deleteOpsThrough(seq);
-      this.lastSnapshotSeq = seq;
-      this.lastSnapshotTs = snapshot.ts;
+      await this.pinSnapshot(this.nextSeq++);
       this.opsSinceSnapshot = 0;
       await this.pruneSnapshots();
     });

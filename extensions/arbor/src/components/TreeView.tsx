@@ -1,15 +1,10 @@
-import {
-  useCallback,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type DragEvent,
-  type KeyboardEvent,
-} from "react";
+import { useCallback, useMemo, useState } from "react";
+import { useTreeDrag } from "@/hooks/useTreeDrag";
+import { useTreeKeyboard } from "@/hooks/useTreeKeyboard";
+import { useTreeSelection, type SelectionApi } from "@/hooks/useTreeSelection";
+import { useVirtualRows } from "@/hooks/useVirtualRows";
 import {
   containerActions,
-  deleteKeyAction,
   isContainer,
   type ContainerAction,
   type ContainerActionHandlers,
@@ -17,22 +12,17 @@ import {
 import {
   buildChildIndex,
   flattenTree,
-  isBound,
-  resolveDrop,
-  type DropDestination,
-  type FlatRow,
+  type ChildIndex,
   type NodeId,
   type Tree,
   type TreeNode,
 } from "@/lib/model";
 import type { LiveState } from "@/lib/sync/tracker";
-import { ContextMenu, type MenuEntry } from "./ContextMenu";
-import { TreeRow, type DropPosition, type RowCallbacks } from "./TreeRow";
-
-const ROW = 28;
-const NOTE_PREVIEW = 22;
-const NOTE_EDITOR = 78;
-const OVERSCAN = 6;
+import { ROW_HEIGHT } from "@/lib/tree-layout";
+import { buildContextMenu, type MenuEntry } from "@/lib/tree-menu";
+import { searchMatcher } from "@/lib/tree-search";
+import { ContextMenu } from "./ContextMenu";
+import { TreeRow, type RowCallbacks } from "./TreeRow";
 
 /** Return keyboard focus to the tree after an inline editor closes (one tree per page). */
 function focusTree(): void {
@@ -67,120 +57,25 @@ export interface TreeViewProps {
   faviconFallback: ((url: string) => string) | null;
 }
 
-function matcher(query: string): ((n: TreeNode) => boolean) | undefined {
-  const q = query.trim().toLowerCase();
-  if (!q) return undefined;
-  const terms = q.split(/\s+/);
-  return (n) => {
-    const hay = `${n.title}\n${n.url ?? ""}\n${n.note ?? ""}`.toLowerCase();
-    return terms.every((t) => hay.includes(t));
-  };
-}
-
-interface DragState {
+interface MenuAnchor {
   id: NodeId;
-  over: { id: NodeId; pos: DropPosition } | null;
-  overRoot: boolean;
+  x: number;
+  y: number;
 }
 
-export function TreeView({ tree, live, query, actions, faviconFallback }: TreeViewProps) {
-  const containerRef = useRef<HTMLDivElement>(null);
-  const [rawFocusedId, setFocusedId] = useState<NodeId | null>(null);
-  const [rawEditingNoteId, setEditingNoteId] = useState<NodeId | null>(null);
-  const [rawRenamingId, setRenamingId] = useState<NodeId | null>(null);
-  // Ids are only meaningful while the node exists; derive instead of syncing with an effect.
-  const focusedId = rawFocusedId && tree.has(rawFocusedId) ? rawFocusedId : null;
-  const editingNoteId = rawEditingNoteId && tree.has(rawEditingNoteId) ? rawEditingNoteId : null;
-  const renamingId = rawRenamingId && tree.has(rawRenamingId) ? rawRenamingId : null;
-  const [drag, setDrag] = useState<DragState | null>(null);
-  const [menu, setMenu] = useState<{ id: NodeId; x: number; y: number } | null>(null);
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewport, setViewport] = useState(600);
+type EditCallbacks = Omit<RowCallbacks, "onDragStart" | "onDragOver" | "onDragLeave" | "onDrop">;
 
-  const filter = useMemo(() => matcher(query), [query]);
-  const rows = useMemo(() => flattenTree(tree, filter), [tree, filter]);
-  const childIndex = useMemo(() => buildChildIndex(tree), [tree]);
-  const activeTabs = useMemo(() => new Set(live.activeTabIds), [live.activeTabIds]);
-
-  // Heights are per-row so note previews / editors can expand a row.
-  const layout = useMemo(() => {
-    const offsets = new Array<number>(rows.length);
-    const heights = new Array<number>(rows.length);
-    let y = 0;
-    rows.forEach((r, i) => {
-      let h = ROW;
-      if (editingNoteId === r.node.id) h += NOTE_EDITOR;
-      else if (r.node.note) h += NOTE_PREVIEW;
-      offsets[i] = y;
-      heights[i] = h;
-      y += h;
-    });
-    return { offsets, heights, total: y };
-  }, [rows, editingNoteId]);
-
-  useLayoutEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const update = () => setViewport(el.clientHeight);
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, []);
-
-  const indexOfRow = useCallback((id: NodeId) => rows.findIndex((r) => r.node.id === id), [rows]);
-
-  const scrollRowIntoView = useCallback(
-    (i: number) => {
-      const el = containerRef.current;
-      if (!el || i < 0) return;
-      const top = layout.offsets[i] ?? 0;
-      const bottom = top + (layout.heights[i] ?? ROW);
-      if (top < el.scrollTop) el.scrollTop = top;
-      else if (bottom > el.scrollTop + el.clientHeight) el.scrollTop = bottom - el.clientHeight;
-    },
-    [layout],
-  );
-
-  const focusRow = useCallback(
-    (i: number) => {
-      const row = rows[Math.max(0, Math.min(i, rows.length - 1))];
-      if (!row) return;
-      setFocusedId(row.node.id);
-      scrollRowIntoView(rows.indexOf(row));
-    },
-    [rows, scrollRowIntoView],
-  );
-
-  // -- drag & drop -----------------------------------------------------------------------------
-
-  // Placement is presentation only: every node kind may be nested under a container (or any
-  // non-note node) or reordered among any siblings. `resolveDrop` only refuses cycles and nesting
-  // under a note; whether the real browser tab follows is decided by the tracker on `actions.move`.
-  const dropTarget = useCallback(
-    (draggedId: NodeId, targetId: NodeId, pos: DropPosition): DropDestination | null =>
-      resolveDrop(tree, draggedId, targetId, pos, childIndex),
-    [tree, childIndex],
-  );
-
-  const positionFor = (e: DragEvent, target: TreeNode): DropPosition => {
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const y = (e.clientY - rect.top) / Math.min(rect.height, ROW);
-    if (target.kind === "note") return y < 0.5 ? "before" : "after";
-    if (y < 0.28) return "before";
-    if (y > 0.72) return "after";
-    return "inside";
-  };
-
-  const rootDrop = (draggedId: NodeId): DropDestination | null =>
-    resolveDrop(tree, draggedId, null, "inside", childIndex);
-
-  // -- row callbacks (stable) -----------------------------------------------------------------
-
-  const cb = useMemo<RowCallbacks>(
+/** Row callbacks other than drag-and-drop: selection, editing and the node actions. */
+function useRowCallbacks(
+  tree: Tree,
+  actions: TreeActions,
+  selection: SelectionApi,
+  openMenu: (anchor: MenuAnchor) => void,
+): EditCallbacks {
+  return useMemo(
     () => ({
       onSelect: (id) => {
-        setFocusedId(id);
+        selection.setFocusedId(id);
         focusTree();
       },
       onPrimary: (id) => actions.primary(id),
@@ -189,20 +84,16 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
         if (n) actions.toggleCollapse(id, !n.collapsed);
       },
       onContextMenu: (id, x, y) => {
-        setFocusedId(id);
-        setMenu({ id, x, y });
+        selection.setFocusedId(id);
+        openMenu({ id, x, y });
       },
       onCloseAndSave: (id) => actions.closeAndSave(id),
       onRestore: (id) => actions.restore(id),
       onReopenAll: (id) => actions.reopenAll(id),
       onDelete: (id) => actions.deleteNode(id),
-      onEditNote: (id) => {
-        setRenamingId(null);
-        setEditingNoteId(id);
-        setFocusedId(id);
-      },
+      onEditNote: (id) => selection.startEditingNote(id),
       onSaveNote: (id, note) => {
-        setEditingNoteId(null);
+        selection.setEditingNoteId(null);
         const current = tree.get(id)?.note ?? "";
         if (note.trim() !== current.trim()) actions.setNote(id, note.trim());
         focusTree();
@@ -210,62 +101,30 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
       onStartRename: (id) => {
         const n = tree.get(id);
         if (!n || n.kind === "tab") return;
-        setEditingNoteId(null);
-        setRenamingId(id);
+        selection.startRenaming(id);
       },
       onRename: (id, title) => {
-        setRenamingId(null);
+        selection.setRenamingId(null);
         actions.rename(id, title);
         focusTree();
       },
       onCancelEdit: () => {
-        setRenamingId(null);
-        setEditingNoteId(null);
+        selection.stopEditing();
         focusTree();
       },
-      onDragStart: (id, e) => {
-        e.dataTransfer.setData("text/plain", id);
-        e.dataTransfer.effectAllowed = "move";
-        setDrag({ id, over: null, overRoot: false });
-        setFocusedId(id);
-      },
-      onDragOver: (id, e) => {
-        const draggedId = drag?.id ?? e.dataTransfer.getData("text/plain");
-        const target = tree.get(id);
-        if (!draggedId || !target) return;
-        const pos = positionFor(e, target);
-        if (!dropTarget(draggedId, id, pos)) {
-          setDrag((d) => (d && d.over ? { ...d, over: null } : d));
-          return;
-        }
-        e.preventDefault();
-        e.dataTransfer.dropEffect = "move";
-        setDrag((d) =>
-          d && d.over?.id === id && d.over.pos === pos
-            ? d
-            : { id: draggedId, over: { id, pos }, overRoot: false },
-        );
-      },
-      onDragLeave: (id) => {
-        setDrag((d) => (d && d.over?.id === id ? { ...d, over: null } : d));
-      },
-      onDrop: (id, e) => {
-        e.preventDefault();
-        const draggedId = drag?.id ?? e.dataTransfer.getData("text/plain");
-        const target = tree.get(id);
-        setDrag(null);
-        if (!draggedId || !target) return;
-        const pos = positionFor(e, target);
-        const dest = dropTarget(draggedId, id, pos);
-        if (dest) actions.move(draggedId, dest.parentId, dest.index);
-      },
     }),
-    [actions, tree, drag?.id, dropTarget],
+    [actions, tree, selection, openMenu],
   );
+}
 
-  // -- container actions (one definition for every container, open or closed) ------------------
-
-  const containerHandlers = useMemo<ContainerActionHandlers>(
+/** One definition of the container actions drives row buttons, keyboard and context menu alike. */
+function useContainerActions(
+  tree: Tree,
+  childIndex: ChildIndex,
+  cb: RowCallbacks,
+  actions: TreeActions,
+): (node: TreeNode) => ContainerAction[] | null {
+  const handlers = useMemo<ContainerActionHandlers>(
     () => ({
       reopenAll: cb.onReopenAll,
       closeAndSave: cb.onCloseAndSave,
@@ -276,212 +135,107 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
     }),
     [cb, actions],
   );
+  return useCallback(
+    (node: TreeNode) =>
+      isContainer(node) ? containerActions(tree, node, handlers, childIndex) : null,
+    [tree, childIndex, handlers],
+  );
+}
 
-  const actionsFor = useCallback(
-    (node: TreeNode): ContainerAction[] | null =>
-      isContainer(node) ? containerActions(tree, node, containerHandlers, childIndex) : null,
-    [tree, childIndex, containerHandlers],
+interface ContextMenuDeps {
+  menu: MenuAnchor | null;
+  tree: Tree;
+  childIndex: ChildIndex;
+  actions: TreeActions;
+  actionsFor(node: TreeNode): ContainerAction[] | null;
+  selection: SelectionApi;
+}
+
+function useContextMenuItems(deps: ContextMenuDeps): MenuEntry[] {
+  const { menu, tree, childIndex, actions, actionsFor, selection } = deps;
+  return useMemo<MenuEntry[]>(() => {
+    const node = menu ? tree.get(menu.id) : undefined;
+    if (!node) return [];
+    return buildContextMenu({
+      node,
+      childIndex,
+      containerActions: actionsFor(node),
+      handlers: {
+        primary: actions.primary,
+        closeAndSave: actions.closeAndSave,
+        restore: actions.restore,
+        deleteNode: actions.deleteNode,
+        toggleCollapse: actions.toggleCollapse,
+        editNote: selection.setEditingNoteId,
+        startRename: selection.setRenamingId,
+        addGroup: actions.addGroup,
+        addNote: actions.addNote,
+      },
+    });
+  }, [menu, tree, childIndex, actions, actionsFor, selection]);
+}
+
+export function TreeView({ tree, live, query, actions, faviconFallback }: TreeViewProps) {
+  const { ids, api: selection } = useTreeSelection(tree);
+  const { focusedId, editingNoteId, renamingId } = ids;
+  const [menu, setMenu] = useState<MenuAnchor | null>(null);
+
+  const filter = useMemo(() => searchMatcher(query), [query]);
+  const rows = useMemo(() => flattenTree(tree, filter), [tree, filter]);
+  const childIndex = useMemo(() => buildChildIndex(tree), [tree]);
+  const activeTabs = useMemo(() => new Set(live.activeTabIds), [live.activeTabIds]);
+
+  const { containerRef, layout, visibleIndices, viewport, onScroll, scrollRowIntoView } =
+    useVirtualRows(rows, editingNoteId);
+  const focusRow = useCallback(
+    (i: number) => {
+      const row = rows[Math.max(0, Math.min(i, rows.length - 1))];
+      if (!row) return;
+      selection.setFocusedId(row.node.id);
+      scrollRowIntoView(rows.indexOf(row));
+    },
+    [rows, selection, scrollRowIntoView],
   );
 
-  // -- keyboard -------------------------------------------------------------------------------
+  const drag = useTreeDrag({
+    tree,
+    childIndex,
+    move: actions.move,
+    select: selection.setFocusedId,
+  });
+  const edits = useRowCallbacks(tree, actions, selection, setMenu);
+  const cb = useMemo<RowCallbacks>(() => ({ ...edits, ...drag.row }), [edits, drag.row]);
+  const actionsFor = useContainerActions(tree, childIndex, cb, actions);
 
-  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA") return;
-    if (!rows.length) return;
-    const i = focusedId ? indexOfRow(focusedId) : -1;
-    const row = i >= 0 ? rows[i] : undefined;
-    const node = row?.node;
+  const onKeyDown = useTreeKeyboard({
+    rows,
+    focusedId,
+    searching: filter !== undefined,
+    viewport,
+    focusRow,
+    clearFocus: () => selection.setFocusedId(null),
+    startRenaming: selection.setRenamingId,
+    startEditingNote: selection.setEditingNoteId,
+    toggleCollapse: actions.toggleCollapse,
+    primary: actions.primary,
+    closeAndSave: actions.closeAndSave,
+    deleteNode: actions.deleteNode,
+    actionsFor,
+  });
 
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        focusRow(i < 0 ? 0 : i + 1);
-        return;
-      case "ArrowUp":
-        e.preventDefault();
-        focusRow(i < 0 ? rows.length - 1 : i - 1);
-        return;
-      case "Home":
-        e.preventDefault();
-        focusRow(0);
-        return;
-      case "End":
-        e.preventDefault();
-        focusRow(rows.length - 1);
-        return;
-      case "PageDown":
-      case "PageUp": {
-        e.preventDefault();
-        const step = Math.max(1, Math.floor(viewport / ROW) - 1);
-        focusRow(e.key === "PageDown" ? (i < 0 ? 0 : i + step) : Math.max(0, i - step));
-        return;
-      }
-    }
-    if (!node || !row) {
-      if (e.key === "Enter" || e.key === " ") focusRow(0);
-      return;
-    }
-    switch (e.key) {
-      case "ArrowRight":
-        e.preventDefault();
-        if (row.hasChildren && node.collapsed) actions.toggleCollapse(node.id, false);
-        else if (row.hasChildren) focusRow(i + 1);
-        return;
-      case "ArrowLeft": {
-        e.preventDefault();
-        if (row.hasChildren && !node.collapsed && !filter) {
-          actions.toggleCollapse(node.id, true);
-        } else if (node.parentId) {
-          const p = indexOfRow(node.parentId);
-          if (p >= 0) focusRow(p);
-        }
-        return;
-      }
-      case " ":
-        e.preventDefault();
-        if (row.hasChildren) actions.toggleCollapse(node.id, !node.collapsed);
-        return;
-      case "Enter":
-        e.preventDefault();
-        if (e.shiftKey && node.kind !== "tab") setRenamingId(node.id);
-        else actions.primary(node.id);
-        return;
-      case "Delete":
-      case "Backspace": {
-        e.preventDefault();
-        const container = actionsFor(node);
-        if (container) {
-          deleteKeyAction(container)?.run();
-        } else if (node.kind === "tab" && node.liveTabId !== undefined) {
-          actions.closeAndSave(node.id);
-        } else {
-          actions.deleteNode(node.id);
-        }
-        return;
-      }
-      case "F2":
-        e.preventDefault();
-        if (node.kind !== "tab") setRenamingId(node.id);
-        return;
-      case "n":
-      case "N":
-        if (e.ctrlKey || e.metaKey || e.altKey) return;
-        e.preventDefault();
-        setEditingNoteId(node.id);
-        return;
-      case "Escape":
-        setFocusedId(null);
-        return;
-    }
-  };
-
-  // -- context menu ----------------------------------------------------------------------------
-
-  const menuItems = useMemo<MenuEntry[]>(() => {
-    if (!menu) return [];
-    const n = tree.get(menu.id);
-    if (!n) return [];
-    const siblings = childIndex.get(n.parentId) ?? [];
-    const myIndex = siblings.findIndex((s) => s.id === n.id);
-    const newItems: MenuEntry[] = [
-      { label: "New group inside", onSelect: () => actions.addGroup(n.id, 0) },
-      { label: "New note inside", onSelect: () => actions.addNote(n.id, 0) },
-      { label: "New group after", onSelect: () => actions.addGroup(n.parentId, myIndex + 1) },
-    ];
-
-    const container = actionsFor(n);
-    if (container) {
-      // Containers: the shared definition, section by section, plus the "New ..." entries and
-      // "Focus" while the container's window is open.
-      const entry = (a: ContainerAction): MenuEntry => ({
-        label: a.label,
-        shortcut: a.shortcut,
-        danger: a.danger,
-        disabled: a.disabled,
-        onSelect: a.run,
-      });
-      const items: MenuEntry[] = [];
-      if (isBound(n)) {
-        items.push({ label: "Focus", shortcut: "Enter", onSelect: () => actions.primary(n.id) });
-      }
-      items.push(...container.filter((a) => a.section === "open").map(entry));
-      items.push("separator");
-      const edit = container.filter((a) => a.section === "edit").map(entry);
-      items.push(...edit.slice(0, 2), ...newItems, ...edit.slice(2));
-      items.push("separator");
-      items.push(...container.filter((a) => a.section === "danger").map(entry));
-      return items;
-    }
-
-    // Tabs and notes.
-    const liveTab = n.kind === "tab" && n.liveTabId !== undefined;
-    const items: MenuEntry[] = [];
-    if (liveTab) {
-      items.push({ label: "Focus", shortcut: "Enter", onSelect: () => actions.primary(n.id) });
-      items.push({
-        label: "Close and save",
-        shortcut: "Del",
-        onSelect: () => actions.closeAndSave(n.id),
-      });
-    } else if (n.kind === "tab") {
-      items.push({
-        label: "Restore tab",
-        shortcut: "Enter",
-        disabled: !n.url,
-        onSelect: () => actions.restore(n.id),
-      });
-    }
-    items.push("separator");
-    items.push({
-      label: n.note ? "Edit note" : "Add note",
-      shortcut: "N",
-      onSelect: () => setEditingNoteId(n.id),
-    });
-    if (n.kind === "note") {
-      items.push({ label: "Rename", shortcut: "F2", onSelect: () => setRenamingId(n.id) });
-      items.push(newItems[2] as MenuEntry);
-    } else {
-      items.push(...newItems);
-    }
-    if (childIndex.get(n.id)?.length) {
-      items.push({
-        label: n.collapsed ? "Expand" : "Collapse",
-        shortcut: "Space",
-        onSelect: () => actions.toggleCollapse(n.id, !n.collapsed),
-      });
-    }
-    items.push("separator");
-    items.push({
-      label: liveTab ? "Delete (closes without saving)" : "Delete",
-      danger: true,
-      onSelect: () => actions.deleteNode(n.id),
-    });
-    return items;
-  }, [menu, tree, childIndex, actions, actionsFor]);
-
-  // -- render ---------------------------------------------------------------------------------
+  const menuItems = useContextMenuItems({
+    menu,
+    tree,
+    childIndex,
+    actions,
+    actionsFor,
+    selection,
+  });
 
   const { offsets, heights, total } = layout;
-  let start = 0;
-  {
-    let lo = 0;
-    let hi = rows.length - 1;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if ((offsets[mid] ?? 0) <= scrollTop) lo = mid;
-      else hi = mid - 1;
-    }
-    start = Math.max(0, lo - OVERSCAN);
-  }
-  const visible: FlatRow[] = [];
-  const visibleIdx: number[] = [];
-  for (let i = start; i < rows.length; i++) {
-    const top = offsets[i] ?? 0;
-    if (top > scrollTop + viewport + OVERSCAN * ROW) break;
-    visible.push(rows[i] as FlatRow);
-    visibleIdx.push(i);
-  }
+  const rootDropClass = drag.drag?.overRoot
+    ? "tree__root-drop tree__root-drop--over"
+    : "tree__root-drop";
 
   return (
     <>
@@ -492,26 +246,12 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
         tabIndex={0}
         aria-label="Windows and tabs"
         aria-activedescendant={focusedId ? `row-${focusedId}` : undefined}
-        onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
+        onScroll={onScroll}
         onKeyDown={onKeyDown}
-        onClick={() => setFocusedId(null)}
-        onDragEnd={() => setDrag(null)}
-        onDragOver={(e) => {
-          // Empty space below the rows: drop at the root.
-          if (!drag) return;
-          if ((e.target as HTMLElement).closest(".row")) return;
-          if (rootDrop(drag.id)) {
-            e.preventDefault();
-            setDrag((d) => (d && !d.overRoot ? { ...d, over: null, overRoot: true } : d));
-          }
-        }}
-        onDrop={(e) => {
-          if (!drag || (e.target as HTMLElement).closest(".row")) return;
-          e.preventDefault();
-          const dest = rootDrop(drag.id);
-          setDrag(null);
-          if (dest) actions.move(drag.id, dest.parentId, dest.index);
-        }}
+        onClick={() => selection.setFocusedId(null)}
+        onDragEnd={drag.container.onDragEnd}
+        onDragOver={drag.container.onDragOver}
+        onDrop={drag.container.onDrop}
       >
         {rows.length === 0 ? (
           <div className="tree__empty">
@@ -519,21 +259,22 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
           </div>
         ) : (
           <div className="tree__spacer" style={{ height: total + 40 }}>
-            {visible.map((row, k) => {
-              const i = visibleIdx[k] ?? 0;
+            {visibleIndices.map((i) => {
+              const row = rows[i];
+              if (!row) return null;
               const id = row.node.id;
               return (
                 <TreeRow
                   key={id}
                   row={row}
                   top={offsets[i] ?? 0}
-                  height={heights[i] ?? ROW}
+                  height={heights[i] ?? ROW_HEIGHT}
                   focused={focusedId === id}
                   active={row.node.liveTabId !== undefined && activeTabs.has(row.node.liveTabId)}
                   editingNote={editingNoteId === id}
                   renaming={renamingId === id}
-                  dragging={drag?.id === id}
-                  dropPosition={drag?.over?.id === id ? drag.over.pos : null}
+                  dragging={drag.drag?.id === id}
+                  dropPosition={drag.drag?.over?.id === id ? drag.drag.over.pos : null}
                   childCount={childIndex.get(id)?.length ?? 0}
                   containerActions={actionsFor(row.node)}
                   faviconFallback={faviconFallback}
@@ -541,12 +282,7 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
                 />
               );
             })}
-            <div
-              className={
-                drag?.overRoot ? "tree__root-drop tree__root-drop--over" : "tree__root-drop"
-              }
-              style={{ top: total }}
-            />
+            <div className={rootDropClass} style={{ top: total }} />
           </div>
         )}
       </div>

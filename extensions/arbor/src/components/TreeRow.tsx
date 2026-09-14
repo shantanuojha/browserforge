@@ -1,24 +1,20 @@
-import {
-  memo,
-  useEffect,
-  useRef,
-  useState,
-  type CSSProperties,
-  type DragEvent,
-  type KeyboardEvent,
-  type MouseEvent,
-} from "react";
+import { memo, type CSSProperties, type DragEvent, type MouseEvent } from "react";
 import { pinnedContainerAction, type ContainerAction } from "@/lib/container-actions";
 import {
   DEFAULT_WINDOW_TITLE,
   displayTitle,
   isBound,
+  isLiveTab,
   type DropPosition,
   type FlatRow,
   type NodeId,
   type TreeNode,
 } from "@/lib/model";
-import { ContainerIcon, Icon } from "./Icon";
+import { Icon } from "./Icon";
+import { TitleEditor } from "./tree-row/InlineEditors";
+import { PinnedAction, RowActions } from "./tree-row/RowActions";
+import { RowIcon, type FaviconFallback } from "./tree-row/RowIcon";
+import { RowNote } from "./tree-row/RowNote";
 
 export type { DropPosition };
 
@@ -55,168 +51,131 @@ export interface TreeRowProps {
   childCount: number;
   /** Shared container actions (see `containerActions`); `null` for tab and note rows. */
   containerActions: ContainerAction[] | null;
-  faviconFallback: ((url: string) => string) | null;
+  faviconFallback: FaviconFallback;
   cb: RowCallbacks;
 }
 
-const isLiveTab = (n: TreeNode) => n.kind === "tab" && n.liveTabId !== undefined;
+const INDENT_PER_LEVEL = 14;
 
-function Favicon({
-  node,
-  fallback,
-}: {
-  node: TreeNode;
-  fallback: ((url: string) => string) | null;
-}) {
-  // Remember which source failed so a changed favicon/url gets a fresh attempt without an effect.
-  const [failedSrc, setFailedSrc] = useState<string | null>(null);
-  const candidate = node.favIconUrl || (node.url && fallback ? fallback(node.url) : undefined);
-  const src = candidate && candidate !== failedSrc ? candidate : undefined;
-  if (src && /^(https?:|data:|chrome-extension:|moz-extension:)/.test(src)) {
-    return <img className="row__favicon" src={src} alt="" onError={() => setFailedSrc(src)} />;
-  }
-  return (
-    <span className="row__icon">
-      <Icon name="globe" size={10} />
-    </span>
-  );
+interface RowFlags {
+  container: boolean;
+  /** Mirrors an open tab or window. */
+  live: boolean;
+  /** A tab or container that is closed. */
+  saved: boolean;
 }
 
-/**
- * An inline editor finishes exactly once. Its `onCommit` / `onCancel` handlers move focus back
- * to the tree while the editor is still mounted, which blurs it and would otherwise run the blur
- * commit a second time: Enter committed twice (two history entries) and Escape committed the
- * text it was meant to discard.
- */
-function useFinishOnce(): (fn: () => void) => void {
-  const done = useRef(false);
-  return (fn) => {
-    if (done.current) return;
-    done.current = true;
-    fn();
-  };
-}
-
-function TitleEditor({
-  value,
-  placeholder,
-  onCommit,
-  onCancel,
-}: {
-  value: string;
-  placeholder?: string | undefined;
-  onCommit: (v: string) => void;
-  onCancel: () => void;
-}) {
-  const [text, setText] = useState(value);
-  const ref = useRef<HTMLInputElement>(null);
-  const finish = useFinishOnce();
-  useEffect(() => {
-    ref.current?.focus();
-    ref.current?.select();
-  }, []);
-  const commit = () =>
-    finish(() => {
-      const t = text.trim();
-      if (t && t !== value) onCommit(t);
-      else onCancel();
-    });
-  const cancel = () => finish(onCancel);
-  return (
-    <input
-      ref={ref}
-      className="row__title-input"
-      value={text}
-      placeholder={placeholder}
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Enter") commit();
-        if (e.key === "Escape") cancel();
-      }}
-      aria-label="Rename"
-    />
-  );
-}
-
-function NoteEditor({
-  value,
-  onCommit,
-  onCancel,
-}: {
-  value: string;
-  onCommit: (v: string) => void;
-  onCancel: () => void;
-}) {
-  const [text, setText] = useState(value);
-  const ref = useRef<HTMLTextAreaElement>(null);
-  const finish = useFinishOnce();
-  useEffect(() => {
-    ref.current?.focus();
-    const len = ref.current?.value.length ?? 0;
-    ref.current?.setSelectionRange(len, len);
-  }, []);
-  const commit = () => finish(() => onCommit(text));
-  const cancel = () => finish(onCancel);
-  return (
-    <textarea
-      ref={ref}
-      className="row__note-editor"
-      rows={3}
-      value={text}
-      placeholder="Add a note. Escape cancels; Ctrl+Enter or clicking away saves."
-      onChange={(e) => setText(e.target.value)}
-      onBlur={commit}
-      onKeyDown={(e) => {
-        e.stopPropagation();
-        if (e.key === "Escape") {
-          e.preventDefault();
-          cancel();
-        }
-        if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-          e.preventDefault();
-          commit();
-        }
-      }}
-      aria-label="Note"
-    />
-  );
-}
-
-export const TreeRow = memo(function TreeRow({
-  row,
-  top,
-  height,
-  focused,
-  active,
-  editingNote,
-  renaming,
-  dragging,
-  dropPosition,
-  childCount,
-  containerActions,
-  faviconFallback,
-  cb,
-}: TreeRowProps) {
-  const { node, depth, hasChildren } = row;
+function rowFlags(node: TreeNode): RowFlags {
   const container = node.kind === "window";
   const live = isLiveTab(node) || isBound(node);
-  const saved = (node.kind === "tab" || container) && !live;
-  const indent = depth * 14;
+  return { container, live, saved: (node.kind === "tab" || container) && !live };
+}
 
-  const classes = [
+function rowClasses(props: TreeRowProps, flags: RowFlags): string {
+  const { row, focused, active, dragging, dropPosition } = props;
+  return [
     "row",
-    `row--${node.kind}`,
+    `row--${row.node.kind}`,
     focused && "row--focused",
     active && "row--active",
-    saved && "row--saved",
+    flags.saved && "row--saved",
     dragging && "row--dragging",
     dropPosition && `row--drop-${dropPosition}`,
     row.matched && "row--matched",
   ]
     .filter(Boolean)
     .join(" ");
+}
+
+/** Double-click opens tabs and open windows; anything else starts a rename. */
+function primaryOrRename(node: TreeNode, flags: RowFlags, cb: RowCallbacks): void {
+  if (node.kind === "tab" || (flags.container && flags.live)) cb.onPrimary(node.id);
+  else cb.onStartRename(node.id);
+}
+
+interface RowTitleProps {
+  node: TreeNode;
+  container: boolean;
+  renaming: boolean;
+  cb: RowCallbacks;
+}
+
+function RowTitle({ node, container, renaming, cb }: RowTitleProps) {
+  if (renaming) {
+    return (
+      <TitleEditor
+        value={node.title}
+        placeholder={container ? DEFAULT_WINDOW_TITLE : undefined}
+        onCommit={(t) => cb.onRename(node.id, t)}
+        onCancel={cb.onCancelEdit}
+      />
+    );
+  }
+  const title = displayTitle(node);
+  return (
+    <span className="row__title" title={node.url ?? title}>
+      {title}
+    </span>
+  );
+}
+
+interface RowBadgesProps {
+  node: TreeNode;
+  flags: RowFlags;
+  editingNote: boolean;
+  childCount: number;
+}
+
+/** The small marks after the title: note flag, child count, open-tab dot. */
+function RowBadges({ node, flags, editingNote, childCount }: RowBadgesProps) {
+  return (
+    <>
+      {node.note && !editingNote ? (
+        <span className="row__note-flag" title="Has a note">
+          <Icon name="note" size={11} />
+        </span>
+      ) : null}
+      {flags.container ? <span className="row__meta">{childCount}</span> : null}
+      {flags.live && node.kind === "tab" ? <span className="row__live" title="Open tab" /> : null}
+    </>
+  );
+}
+
+function Twisty({
+  collapsed,
+  visible,
+  onToggle,
+}: {
+  collapsed: boolean;
+  visible: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className={visible ? "row__twisty" : "row__twisty row__twisty--hidden"}
+      tabIndex={-1}
+      aria-label={collapsed ? "Expand" : "Collapse"}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+      onDoubleClick={(e) => e.stopPropagation()}
+    >
+      <span style={{ display: "inline-flex", transform: collapsed ? undefined : "rotate(90deg)" }}>
+        <Icon name="chevron" size={10} />
+      </span>
+    </button>
+  );
+}
+
+export const TreeRow = memo(function TreeRow(props: TreeRowProps) {
+  const { row, top, height, focused, editingNote, renaming, containerActions, cb } = props;
+  const { node, depth, hasChildren } = row;
+  const flags = rowFlags(node);
+  const indent = depth * INDENT_PER_LEVEL;
+  // A closed container keeps its Reopen button visible; the rest appear on hover/selection.
+  const pinned = containerActions ? pinnedContainerAction(containerActions) : undefined;
 
   const onMainClick = (e: MouseEvent) => {
     e.stopPropagation();
@@ -224,21 +183,12 @@ export const TreeRow = memo(function TreeRow({
   };
   const onDoubleClick = (e: MouseEvent) => {
     e.stopPropagation();
-    if (node.kind === "tab") cb.onPrimary(node.id);
-    else if (container && live) cb.onPrimary(node.id);
-    else cb.onStartRename(node.id);
+    primaryOrRename(node, flags, cb);
   };
-  const onKeyDownInEditor = (e: KeyboardEvent) => e.stopPropagation();
-
-  // Tab rows only; container rows get their buttons from `containerActions`.
-  const canRestore = saved && !!node.url;
-  // A closed container keeps its Reopen button visible; the rest appear on hover/selection.
-  const pinned = containerActions ? pinnedContainerAction(containerActions) : undefined;
-  const title = displayTitle(node);
 
   return (
     <div
-      className={classes}
+      className={rowClasses(props, flags)}
       style={{ top, height, "--row-indent": `${indent}px` } as CSSProperties}
       role="treeitem"
       aria-level={depth + 1}
@@ -262,181 +212,38 @@ export const TreeRow = memo(function TreeRow({
         onClick={onMainClick}
         onDoubleClick={onDoubleClick}
       >
-        <button
-          type="button"
-          className={hasChildren ? "row__twisty" : "row__twisty row__twisty--hidden"}
-          tabIndex={-1}
-          aria-label={node.collapsed ? "Expand" : "Collapse"}
-          onClick={(e) => {
-            e.stopPropagation();
-            cb.onToggle(node.id);
-          }}
-          onDoubleClick={(e) => e.stopPropagation()}
-        >
-          <span
-            style={{
-              display: "inline-flex",
-              transform: node.collapsed ? undefined : "rotate(90deg)",
-            }}
-          >
-            <Icon name="chevron" size={10} />
-          </span>
-        </button>
-
-        {node.kind === "tab" ? (
-          <Favicon node={node} fallback={faviconFallback} />
-        ) : container ? (
-          // Windows and groups are one thing: the same frame, filled while its window is open.
-          <span className={live ? "row__icon row__icon--open" : "row__icon row__icon--closed"}>
-            <ContainerIcon
-              open={live}
-              size={10}
-              title={live ? "Open window" : "Closed window (group)"}
-            />
-          </span>
-        ) : (
-          <span className="row__icon">
-            <Icon name="note" size={10} />
-          </span>
-        )}
-
-        {renaming ? (
-          <TitleEditor
-            value={node.title}
-            placeholder={container ? DEFAULT_WINDOW_TITLE : undefined}
-            onCommit={(t) => cb.onRename(node.id, t)}
-            onCancel={cb.onCancelEdit}
-          />
-        ) : (
-          <span className="row__title" title={node.url ?? title}>
-            {title}
-          </span>
-        )}
-
-        {node.note && !editingNote ? (
-          <span className="row__note-flag" title="Has a note">
-            <Icon name="note" size={11} />
-          </span>
-        ) : null}
-        {container ? <span className="row__meta">{childCount}</span> : null}
-        {live && node.kind === "tab" ? <span className="row__live" title="Open tab" /> : null}
-
-        {pinned ? (
-          <button
-            type="button"
-            className="icon-btn icon-btn--pinned"
-            tabIndex={-1}
-            title={pinned.label}
-            aria-label={pinned.label}
-            onClick={(e) => {
-              e.stopPropagation();
-              pinned.run();
-            }}
-            onDoubleClick={(e) => e.stopPropagation()}
-          >
-            <Icon name={pinned.icon} />
-          </button>
-        ) : null}
-        <span className="row__actions" onDoubleClick={(e) => e.stopPropagation()}>
-          {containerActions ? (
-            // Window and group rows: one definition drives buttons and context menu alike.
-            containerActions
-              .filter((a) => a.inRow && !a.disabled && a !== pinned)
-              .map((a) => (
-                <button
-                  key={a.id}
-                  type="button"
-                  className={a.danger ? "icon-btn icon-btn--danger" : "icon-btn"}
-                  tabIndex={-1}
-                  title={a.label}
-                  aria-label={a.label}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    a.run();
-                  }}
-                >
-                  <Icon name={a.icon} />
-                </button>
-              ))
-          ) : (
-            <>
-              <button
-                type="button"
-                className="icon-btn"
-                tabIndex={-1}
-                title="Note"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  cb.onEditNote(node.id);
-                }}
-              >
-                <Icon name="note" />
-              </button>
-              {live ? (
-                <button
-                  type="button"
-                  className="icon-btn"
-                  tabIndex={-1}
-                  title="Close and save"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    cb.onCloseAndSave(node.id);
-                  }}
-                >
-                  <Icon name="close" />
-                </button>
-              ) : canRestore ? (
-                <button
-                  type="button"
-                  className="icon-btn"
-                  tabIndex={-1}
-                  title="Restore"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    cb.onRestore(node.id);
-                  }}
-                >
-                  <Icon name="restore" />
-                </button>
-              ) : null}
-              <button
-                type="button"
-                className="icon-btn icon-btn--danger"
-                tabIndex={-1}
-                title="Delete"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  cb.onDelete(node.id);
-                }}
-              >
-                <Icon name="trash" />
-              </button>
-            </>
-          )}
-        </span>
+        <Twisty
+          collapsed={!!node.collapsed}
+          visible={hasChildren}
+          onToggle={() => cb.onToggle(node.id)}
+        />
+        <RowIcon node={node} live={flags.live} faviconFallback={props.faviconFallback} />
+        <RowTitle node={node} container={flags.container} renaming={renaming} cb={cb} />
+        <RowBadges
+          node={node}
+          flags={flags}
+          editingNote={editingNote}
+          childCount={props.childCount}
+        />
+        {pinned ? <PinnedAction action={pinned} /> : null}
+        <RowActions
+          id={node.id}
+          live={flags.live}
+          canRestore={flags.saved && !!node.url}
+          containerActions={containerActions}
+          pinned={pinned}
+          cb={cb}
+        />
       </div>
-
-      {editingNote ? (
-        <div style={{ paddingLeft: indent + 26 }} onKeyDown={onKeyDownInEditor}>
-          <NoteEditor
-            value={node.note ?? ""}
-            onCommit={(t) => cb.onSaveNote(node.id, t)}
-            onCancel={cb.onCancelEdit}
-          />
-        </div>
-      ) : node.note ? (
-        <div
-          className="row__note"
-          style={{ marginLeft: indent + 26 }}
-          title={node.note}
-          onClick={(e) => {
-            e.stopPropagation();
-            cb.onEditNote(node.id);
-          }}
-        >
-          {node.note}
-        </div>
-      ) : null}
+      <RowNote
+        id={node.id}
+        note={node.note}
+        editing={editingNote}
+        indent={indent}
+        onSave={cb.onSaveNote}
+        onCancel={cb.onCancelEdit}
+        onEdit={cb.onEditNote}
+      />
     </div>
   );
 });

@@ -1,3 +1,7 @@
+/**
+ * The catalog of messages between the pages and the background: names and request/response
+ * types only. `adapters/messaging.ts` binds it to the runtime as `msg`.
+ */
 import type { BackupMeta } from "./backups";
 import type { HistoryStep } from "./history";
 import type { ArborExport } from "./io/arbor-json";
@@ -23,7 +27,16 @@ export const TREE_PORT = "arbor-tree";
 
 export type TreePortMessage = { type: "tree"; state: TreeState };
 
-export const msg = {
+export function isTreePortMessage(value: unknown): value is TreePortMessage {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    (value as { type?: unknown }).type === "tree" &&
+    typeof (value as { state?: unknown }).state === "object"
+  );
+}
+
+export const messages = {
   getState: defineMessage<void, TreeState>("getState"),
   getStartupInfo: defineMessage<void, StartupInfo>("getStartupInfo"),
   /** Generic edits from the UI: notes, titles, collapse, delete. */
@@ -69,3 +82,5 @@ export const msg = {
 
   openSidePanel: defineMessage<{ windowId?: number | undefined }, boolean>("openSidePanel"),
 };
+
+export type Messages = typeof messages;

@@ -43,6 +43,21 @@ export interface TabsPort {
   currentWindowId(): Promise<number | undefined>;
 }
 
+/** The browser events the tracker mirrors; `adapters/tracker-events.ts` feeds them in. */
+export interface TrackerEventSink {
+  handleTabCreated(tab: LiveTab): void;
+  handleTabUpdated(tabId: number, tab: LiveTab): void;
+  handleTabMoved(tabId: number, info: { windowId: number; toIndex: number }): void;
+  handleTabAttached(tabId: number, info: { newWindowId: number; newPosition: number }): void;
+  handleTabDetached(tabId: number, info: { oldWindowId: number }): void;
+  handleTabRemoved(tabId: number): void;
+  handleTabReplaced(addedTabId: number, removedTabId: number): void;
+  handleTabActivated(info: { tabId: number; windowId: number }): void;
+  handleWindowCreated(win: LiveWindow): void;
+  handleWindowRemoved(windowId: number): void;
+  handleWindowFocusChanged(windowId: number | undefined): void;
+}
+
 export interface RebuildReport {
   windowsMatched: number;
   windowsCreated: number;

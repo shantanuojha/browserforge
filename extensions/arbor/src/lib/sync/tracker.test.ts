@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { childrenOf, findByLiveTabId, findWindowByLiveId, makeNode, ops } from "../model";
 import { MemoryTreeStore } from "../store/memory";
 import {
@@ -6,14 +6,19 @@ import {
   addRootGroup,
   addSavedTab,
   boundNodeIds,
+  boundWindowOf,
   drop,
   dropInside,
   FakeBrowser,
+  idOf,
+  liveTabIdOf,
   newId,
+  nodeAt,
   nodeOf,
   restartWorker,
   setup,
   titlesUnder,
+  winIdOf,
   winNodeOf,
   type Ctx,
 } from "./testing/fake-browser";
@@ -325,7 +330,7 @@ describe("TabTracker.rebuild", () => {
     const live = fb.tabs.find((t) => t.id === a.id);
     if (live) live.url = "https://a.test/other";
 
-    const fresh = new TabTracker(store, fb, { newId, now: () => 1 });
+    const fresh = new TabTracker(store, fb, { newId, clock: () => 1 });
     const report = await fresh.rebuild();
     expect(report).toMatchObject({ windowsMatched: 1, tabsMatched: 2, tabsCreated: 0 });
     expect(store.getTree().get(aNode?.id ?? "")).toMatchObject({
@@ -341,7 +346,7 @@ describe("TabTracker.rebuild", () => {
     fb.openTab(w.id, "chrome://newtab/", "New tab");
     const winNode = findWindowByLiveId(store.getTree(), w.id);
 
-    const fresh = new TabTracker(store, fb, { newId, now: () => 1 });
+    const fresh = new TabTracker(store, fb, { newId, clock: () => 1 });
     const report = await fresh.rebuild();
     expect(report).toMatchObject({ windowsMatched: 1, windowsCreated: 0, nodesSaved: 0 });
     const windows = [...store.getTree().values()].filter((n) => n.kind === "window");
@@ -362,7 +367,7 @@ describe("TabTracker.rebuild", () => {
     fb.addTab(w2.id, "https://b.test/", "B");
     fb.addTab(w2.id, "https://new.test/", "New");
 
-    const fresh = new TabTracker(store, fb, { newId, now: () => 1 });
+    const fresh = new TabTracker(store, fb, { newId, clock: () => 1 });
     const report = await fresh.rebuild();
     expect(report).toMatchObject({
       windowsMatched: 1,
@@ -427,7 +432,7 @@ describe("TabTracker.rebuild", () => {
     fb.tabs = fb.tabs.filter((t) => t.windowId !== w2.id && t.url !== "https://a.test/");
     fb.addTab(w1.id, "https://c.test/", "C");
 
-    const fresh = new TabTracker(store, fb, { newId, now: () => 1 });
+    const fresh = new TabTracker(store, fb, { newId, clock: () => 1 });
     const report = await fresh.rebuild();
     // w1's id cannot be verified (none of its tabs survived) so it is saved too, not reused.
     expect(report.nodesSaved).toBe(4); // windows w1 + w2, tabs A + B
@@ -589,7 +594,7 @@ describe("TabTracker.rebuild", () => {
     const fb = new FakeBrowser();
     fb.addWindow(1);
     fb.addTab(1, "https://unrelated.test/", "U", { id: 7 });
-    const tracker = new TabTracker(store, fb, { newId, now: () => 1 });
+    const tracker = new TabTracker(store, fb, { newId, clock: () => 1 });
     fb.tracker = tracker;
     const report = await tracker.rebuild();
     expect(report.tabsMatched).toBe(0);
@@ -735,17 +740,17 @@ describe("TabTracker with detached tab nodes", () => {
     const { fb, w, a, b, c } = ctx;
     const d = fb.openTab(w.id, "https://d.test/", "D"); // strip: A B C D, window node: B C D
     // Drop D before B: the strip index is B's (detached A stays in front).
-    await drop(ctx, nodeOf(ctx, d)?.id ?? "", nodeOf(ctx, b)?.id ?? "", "before");
-    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["D", "B", "C"]);
+    await drop(ctx, idOf(ctx, d), idOf(ctx, b), "before");
+    expect(titlesUnder(ctx, winIdOf(ctx, w))).toEqual(["D", "B", "C"]);
     expect(fb.moved).toEqual([{ tabId: d.id, windowId: w.id, index: 1 }]);
     fb.moveTabInStrip(d.id, 1); // strip: A D B C
     // Drop B after C: right after C in the strip (final index 3).
-    await drop(ctx, nodeOf(ctx, b)?.id ?? "", nodeOf(ctx, c)?.id ?? "", "after");
-    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["D", "C", "B"]);
+    await drop(ctx, idOf(ctx, b), idOf(ctx, c), "after");
+    expect(titlesUnder(ctx, winIdOf(ctx, w))).toEqual(["D", "C", "B"]);
     expect(fb.moved.at(-1)).toEqual({ tabId: b.id, windowId: w.id, index: 3 });
     fb.moveTabInStrip(b.id, 3); // strip: A D C B
     expect(fb.stripOrder(w.id)).toEqual([a.id, d.id, c.id, b.id]);
-    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["D", "C", "B"]);
+    expect(titlesUnder(ctx, winIdOf(ctx, w))).toEqual(["D", "C", "B"]);
     expect(nodeOf(ctx, a)?.parentId).toBe("g");
   });
 
@@ -867,7 +872,7 @@ describe("TabTracker.restore in place", () => {
     const { store, fb, tracker, w, a, b, size } = ctx;
     // Mixed group: T is already open (restored on its own into W), S and C are saved.
     await tracker.restore("t");
-    const tTab = store.getTree().get("t")?.liveTabId ?? -1;
+    const tTab = liveTabIdOf(ctx, "t") ?? -1;
     expect(fb.stripOrder(w.id)).toEqual([a.id, b.id, tTab]);
     const before = [...store.getTree().values()].map((n) => [n.id, n.parentId, n.order]);
 
@@ -888,11 +893,9 @@ describe("TabTracker.restore in place", () => {
     expect(fb.moved).toEqual([{ tabId: tTab, windowId: gWin, index: 2 }]);
     fb.moveTabToWindow(tTab, gWin, 2); // the browser answers with detach/attach
     expect(store.getTree().get("t")).toMatchObject({ parentId: "g", liveWindowId: gWin });
-    expect(fb.stripOrder(gWin)).toEqual(
-      ["s", "c", "t"].map((id) => store.getTree().get(id)?.liveTabId),
-    );
+    expect(fb.stripOrder(gWin)).toEqual(["s", "c", "t"].map((id) => liveTabIdOf(ctx, id)));
     expect(fb.stripOrder(w.id)).toEqual([a.id, b.id]);
-    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "B"]);
+    expect(titlesUnder(ctx, winIdOf(ctx, w))).toEqual(["A", "B"]);
     // A second run has nothing left to do.
     expect(await tracker.reopenAll("g")).toBe(0);
     expect(fb.windows.length).toBe(2);
@@ -913,7 +916,7 @@ describe("TabTracker.restore in place", () => {
     }
     expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
     expect(titlesUnder(ctx, "s")).toEqual(["C"]);
-    expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A", "B"]);
+    expect(titlesUnder(ctx, winIdOf(ctx, w))).toEqual(["A", "B"]);
   });
 
   it("reopenAll on a live window reopens its closed tabs at their strip positions", async () => {
@@ -987,46 +990,41 @@ describe("TabTracker.restore in place", () => {
     const s = fb.openTab(w.id, "https://s.test/", "S");
     const t = fb.openTab(w.id, "https://t.test/", "T");
     const b = fb.openTab(w.id, "https://b.test/", "B");
-    const winNode = winNodeOf(ctx, w);
+    const winId = winIdOf(ctx, w);
     // W: A, G[ S, T ], B  -- the user files S and T under a group inside the open window. The
     // group is a container without a window, so this is a tree-only move: the tabs stay put.
-    addGroup(ctx, "g", winNode?.id ?? "", "G");
-    await tracker.moveNode("g", winNode?.id ?? "", 1);
-    await drop(ctx, nodeOf(ctx, s)?.id ?? "", "g", "inside");
-    await drop(ctx, nodeOf(ctx, t)?.id ?? "", "g", "inside");
+    addGroup(ctx, "g", winId, "G");
+    await tracker.moveNode("g", winId, 1);
+    await drop(ctx, idOf(ctx, s), "g", "inside");
+    await drop(ctx, idOf(ctx, t), "g", "inside");
     expect(fb.moved).toEqual([]);
     expect(fb.stripOrder(w.id)).toEqual([a.id, s.id, t.id, b.id]);
-    const sNode = nodeOf(ctx, s);
-    const tNode = nodeOf(ctx, t);
-    expect(titlesUnder(ctx, winNode?.id)).toEqual(["A", "G", "B"]);
+    const sId = idOf(ctx, s);
+    const tId = idOf(ctx, t);
+    expect(titlesUnder(ctx, winId)).toEqual(["A", "G", "B"]);
     expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
     // Close & save the group, then reopen one tab from inside it: it comes back in place in the
     // tree; the browser tab opens in the focused window (the group has none of its own).
     expect(await tracker.closeAndSave("g")).toBe(2);
-    expect(store.getTree().get(sNode?.id ?? "")?.liveTabId).toBeUndefined();
+    expect(liveTabIdOf(ctx, sId)).toBeUndefined();
     const size = store.getTree().size;
-    await tracker.restore(sNode?.id ?? "");
-    const tree = store.getTree();
-    expect(tree.size).toBe(size);
-    expect(tree.get(sNode?.id ?? "")).toMatchObject({ parentId: "g", liveWindowId: w.id });
-    expect(tree.get(sNode?.id ?? "")?.liveTabId).toBeDefined();
-    expect(tree.get(tNode?.id ?? "")?.liveTabId).toBeUndefined();
+    await tracker.restore(sId);
+    expect(store.getTree().size).toBe(size);
+    expect(nodeAt(ctx, sId)).toMatchObject({ parentId: "g", liveWindowId: w.id });
+    const sTab = liveTabIdOf(ctx, sId);
+    expect(sTab).toBeDefined();
+    expect(liveTabIdOf(ctx, tId)).toBeUndefined();
     expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
-    expect(titlesUnder(ctx, winNode?.id)).toEqual(["A", "G", "B"]);
-    expect(fb.stripOrder(w.id)).toEqual([a.id, b.id, tree.get(sNode?.id ?? "")?.liveTabId]);
+    expect(titlesUnder(ctx, winId)).toEqual(["A", "G", "B"]);
+    expect(fb.stripOrder(w.id)).toEqual([a.id, b.id, sTab]);
     // Reopen all on the group: T opens in a new window bound to the group and S is moved in.
     expect(await tracker.reopenAll("g")).toBe(2);
-    const gWin = store.getTree().get("g")?.liveWindowId as number;
+    const gWin = boundWindowOf(ctx, "g");
     expect(fb.windows.map((x) => x.id)).toEqual([w.id, gWin]);
-    expect(store.getTree().get(tNode?.id ?? "")).toMatchObject({
-      parentId: "g",
-      liveWindowId: gWin,
-    });
-    expect(fb.moved).toEqual([
-      { tabId: tree.get(sNode?.id ?? "")?.liveTabId, windowId: gWin, index: 0 },
-    ]);
+    expect(nodeAt(ctx, tId)).toMatchObject({ parentId: "g", liveWindowId: gWin });
+    expect(fb.moved).toEqual([{ tabId: sTab, windowId: gWin, index: 0 }]);
     expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
-    expect(titlesUnder(ctx, winNode?.id)).toEqual(["A", "G", "B"]);
+    expect(titlesUnder(ctx, winId)).toEqual(["A", "G", "B"]);
   });
 
   it("opens a saved child of a live tab right after its parent in the strip", async () => {
@@ -1055,33 +1053,31 @@ describe("TabTracker.restore in place", () => {
     const w = fb.openWindow();
     fb.openTab(w.id, "https://a.test/", "A");
     fb.openTab(w.id, "https://b.test/", "B");
-    const winNode = winNodeOf(ctx, w);
+    const winId = winIdOf(ctx, w);
     addRootGroup(ctx, "g");
-    await dropInside(ctx, winNode?.id ?? "", "g");
+    await dropInside(ctx, winId, "g");
     fb.closeWindow(w.id);
-    expect(store.getTree().get(winNode?.id ?? "")).toMatchObject({ parentId: "g" });
-    expect(store.getTree().get(winNode?.id ?? "")?.liveWindowId).toBeUndefined();
+    expect(nodeAt(ctx, winId)).toMatchObject({ parentId: "g" });
+    expect(nodeAt(ctx, winId).liveWindowId).toBeUndefined();
     const size = store.getTree().size;
     // Another window is focused meanwhile.
     const other = fb.openWindow();
     fb.openTab(other.id, "https://x.test/", "X");
 
-    await tracker.restore(winNode?.id ?? "");
-    const tree = store.getTree();
-    expect(tree.size).toBe(size + 2);
-    const win = tree.get(winNode?.id ?? "");
-    expect(win?.parentId).toBe("g");
-    expect(win?.liveWindowId).toBeDefined();
-    expect(win?.liveWindowId).not.toBe(other.id);
-    const kids = childrenOf(tree, winNode?.id ?? "");
+    await tracker.restore(winId);
+    expect(store.getTree().size).toBe(size + 2);
+    expect(nodeAt(ctx, winId).parentId).toBe("g");
+    const reopenedIn = boundWindowOf(ctx, winId);
+    expect(reopenedIn).not.toBe(other.id);
+    const kids = childrenOf(store.getTree(), winId);
     expect(kids.map((k) => k.title)).toEqual(["A", "B"]);
-    expect(kids.map((k) => k.liveTabId)).toEqual(fb.stripOrder(win?.liveWindowId ?? -1));
-    expect(kids.every((k) => k.liveWindowId === win?.liveWindowId)).toBe(true);
-    expect(titlesUnder(ctx, winNodeOf(ctx, other)?.id)).toEqual(["X"]);
+    expect(kids.map((k) => k.liveTabId)).toEqual(fb.stripOrder(reopenedIn));
+    expect(kids.every((k) => k.liveWindowId === reopenedIn)).toBe(true);
+    expect(titlesUnder(ctx, winIdOf(ctx, other))).toEqual(["X"]);
     // The reopened window keeps mirroring its strip.
-    fb.moveTabInStrip(kids[1]?.liveTabId ?? -1, 0);
-    expect(titlesUnder(ctx, winNode?.id)).toEqual(["B", "A"]);
-    expect(store.getTree().get(winNode?.id ?? "")?.parentId).toBe("g");
+    fb.moveTabInStrip(fb.stripOrder(reopenedIn)[1] as number, 0);
+    expect(titlesUnder(ctx, winId)).toEqual(["B", "A"]);
+    expect(nodeAt(ctx, winId).parentId).toBe("g");
   });
 
   it("folds a window node conjured by early tab events into the reopened window", async () => {
@@ -1090,21 +1086,19 @@ describe("TabTracker.restore in place", () => {
     const w = fb.openWindow();
     fb.openTab(w.id, "https://a.test/", "A");
     fb.openTab(w.id, "https://b.test/", "B");
-    const winNode = winNodeOf(ctx, w);
+    const winId = winIdOf(ctx, w);
     addRootGroup(ctx, "g");
-    await dropInside(ctx, winNode?.id ?? "", "g");
+    await dropInside(ctx, winId, "g");
     fb.closeWindow(w.id);
     const size = store.getTree().size;
     fb.tabsBeforeWindow = true;
-    await tracker.restore(winNode?.id ?? "");
-    const tree = store.getTree();
-    expect(tree.size).toBe(size);
-    expect(boundNodeIds(ctx)).toEqual([winNode?.id]);
-    const win = tree.get(winNode?.id ?? "");
-    expect(win?.parentId).toBe("g");
-    const kids = childrenOf(tree, winNode?.id ?? "");
+    await tracker.restore(winId);
+    expect(store.getTree().size).toBe(size);
+    expect(boundNodeIds(ctx)).toEqual([winId]);
+    expect(nodeAt(ctx, winId).parentId).toBe("g");
+    const kids = childrenOf(store.getTree(), winId);
     expect(kids.map((k) => k.title)).toEqual(["A", "B"]);
-    expect(kids.map((k) => k.liveTabId)).toEqual(fb.stripOrder(win?.liveWindowId ?? -1));
+    expect(kids.map((k) => k.liveTabId)).toEqual(fb.stripOrder(boundWindowOf(ctx, winId)));
   });
 
   it("keeps the reopened node in its group across a worker restart", async () => {
@@ -1171,7 +1165,7 @@ describe("TabTracker.restore in place", () => {
     await store.open();
     const fb = new FakeBrowser();
     let clock = 1;
-    const tracker = new TabTracker(store, fb, { newId, now: () => clock });
+    const tracker = new TabTracker(store, fb, { newId, clock: () => clock });
     fb.tracker = tracker;
     const ctx: Ctx = { store, fb, tracker };
     const w = fb.openWindow();
@@ -1399,25 +1393,22 @@ describe("containers: windows and groups are the same structure", () => {
     const w = fb.openWindow();
     fb.openTab(w.id, "https://a.test/", "A");
     fb.openTab(w.id, "https://b.test/", "B");
-    const wNode = winNodeOf(ctx, w);
-    expect(wNode).toMatchObject({ title: "" }); // a browser window: untitled, shown as "Window"
-    store.append([ops.update(wNode?.id ?? "", { title: "Work" })]); // rename works while open
+    const wId = winIdOf(ctx, w);
+    expect(nodeAt(ctx, wId)).toMatchObject({ title: "" }); // a browser window: untitled, "Window"
+    store.append([ops.update(wId, { title: "Work" })]); // rename works while open
     const before = [...store.getTree().values()].map((n) => [n.id, n.parentId, n.order]);
 
-    expect(await tracker.closeAndSave(wNode?.id ?? "")).toBe(2);
+    expect(await tracker.closeAndSave(wId)).toBe(2);
     expect(fb.windows).toEqual([]);
     const after = store.getTree();
     expect([...after.values()].map((n) => [n.id, n.parentId, n.order])).toEqual(before);
-    expect(after.get(wNode?.id ?? "")).toMatchObject({ kind: "window", title: "Work" });
-    expect(after.get(wNode?.id ?? "")?.liveWindowId).toBeUndefined();
-    expect(childrenOf(after, wNode?.id ?? "").every((k) => k.liveTabId === undefined)).toBe(true);
+    expect(nodeAt(ctx, wId)).toMatchObject({ kind: "window", title: "Work" });
+    expect(nodeAt(ctx, wId).liveWindowId).toBeUndefined();
+    expect(childrenOf(after, wId).every((k) => k.liveTabId === undefined)).toBe(true);
 
     // Reopening it later brings the same nodes back as one window, still named.
-    expect(await tracker.reopenAll(wNode?.id ?? "")).toBe(2);
-    expect(store.getTree().get(wNode?.id ?? "")).toMatchObject({
-      title: "Work",
-      liveWindowId: fb.windows[0]?.id,
-    });
+    expect(await tracker.reopenAll(wId)).toBe(2);
+    expect(nodeAt(ctx, wId)).toMatchObject({ title: "Work", liveWindowId: fb.windows[0]?.id });
   });
 
   it("an untitled browser window closed by the browser stays as a closed container while it holds tabs", async () => {

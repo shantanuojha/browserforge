@@ -1,11 +1,23 @@
 import { describe, expect, it } from "vitest";
-import { applyOps, childrenOf, createTree, makeNode, ops, validateTree } from "../model";
-import { createExport, exportFileName, parseArborExport } from "./arbor-json";
+import {
+  applyOps as applyOpsAt,
+  childrenOf,
+  createTree,
+  makeNode,
+  ops,
+  validateTree,
+  type OpBody,
+  type Tree,
+} from "../model";
+import { createExport, exportFileName, parseArborExport as parseArborExportAt } from "./arbor-json";
 import { materialize } from "./imported";
 import { decodeInput, parseTabsOutliner } from "./tabs-outliner";
 
 let n = 0;
 const newId = () => `id${++n}`;
+const T0 = 5;
+const applyOps = (tree: Tree, ops: readonly OpBody[]) => applyOpsAt(tree, ops, T0);
+const parseArborExport = (input: string | unknown) => parseArborExportAt(input, T0);
 
 /**
  * Synthetic fixture in the shape we expect from Tabs Outliner: a session root holding
@@ -199,7 +211,11 @@ describe("materialize", () => {
   });
 
   it("can import at the root", () => {
-    const nodes = materialize([{ kind: "window", title: "G", children: [] }], { wrapTitle: null });
+    const nodes = materialize([{ kind: "window", title: "G", children: [] }], {
+      newId,
+      now: () => 5,
+      wrapTitle: null,
+    });
     expect(nodes.length).toBe(1);
     expect(nodes[0]?.parentId).toBeNull();
   });
@@ -227,7 +243,14 @@ describe("Arbor JSON export/import", () => {
       ts: 1,
     });
     const g = makeNode({ id: "g", parentId: null, kind: "window", title: "Reading", ts: 1 });
-    const s = makeNode({ id: "s", parentId: "g", kind: "tab", title: "S", url: "https://s.test/" });
+    const s = makeNode({
+      id: "s",
+      parentId: "g",
+      kind: "tab",
+      title: "S",
+      url: "https://s.test/",
+      ts: 1,
+    });
     const tree = applyOps(createTree(), [ops.add(w), ops.add(t), ops.add(g), ops.add(s)]);
     const exported = createExport(tree, 123);
     expect(exported).toMatchObject({
