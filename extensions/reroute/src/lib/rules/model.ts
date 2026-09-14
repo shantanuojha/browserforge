@@ -234,6 +234,22 @@ export function parseRules(input: unknown): ParsedRules {
   return { rules, errors };
 }
 
+/**
+ * Appends imported rules to the existing list. An incoming rule whose id is
+ * already present (re-importing one's own export) gets a fresh id, so the list
+ * never holds two rules with the same id.
+ */
+export function appendRules(existing: readonly Rule[], incoming: readonly Rule[]): Rule[] {
+  const seen = new Set(existing.map((r) => r.id));
+  const out = [...existing];
+  for (const rule of incoming) {
+    const next = seen.has(rule.id) ? { ...rule, id: generateRuleId() } : rule;
+    seen.add(next.id);
+    out.push(next);
+  }
+  return out;
+}
+
 export function parseRulesJson(text: string): ParsedRules {
   let json: unknown;
   try {

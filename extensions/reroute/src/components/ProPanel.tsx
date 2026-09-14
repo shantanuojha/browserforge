@@ -94,7 +94,8 @@ export function ProPanel({ pro, syncEnabled, onSyncToggle, onInstallPack }: ProP
         <Toggle
           checked={syncEnabled}
           onChange={onSyncToggle}
-          disabled={!isPro}
+          // Turning sync on needs Pro; turning it off must always be possible (licence lapsed).
+          disabled={!isPro && !syncEnabled}
           label={syncEnabled ? "Sync is on" : "Sync is off"}
         />
       </section>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  appendRules,
   createRule,
   describeRule,
   generateRuleId,
@@ -102,6 +103,22 @@ describe("model", () => {
     expect(parsed.errors).toEqual([]);
     expect(parsed.rules).toEqual(rules);
     expect(toRuleSetDocument(rules).app).toBe("reroute");
+  });
+
+  it("appendRules re-ids imported rules that collide with existing ones (re-importing a backup)", () => {
+    const existing = [
+      createRule({ id: "a", include: "https://a/*", redirectTo: "https://b/$1" }),
+      createRule({ id: "b", include: "https://b/*", redirectTo: "https://c/$1" }),
+    ];
+    const backup = parseRulesJson(serializeRules(existing)).rules;
+    const fresh = createRule({ id: "z", include: "https://z/*", redirectTo: "https://y/$1" });
+    const merged = appendRules(existing, [...backup, fresh]);
+    expect(merged).toHaveLength(5);
+    expect(new Set(merged.map((r) => r.id)).size).toBe(5);
+    expect(merged.slice(0, 2)).toEqual(existing);
+    expect(merged[4]).toBe(fresh);
+    expect(merged[2]).toMatchObject({ include: "https://a/*", redirectTo: "https://b/$1" });
+    expect(merged[2]!.id).not.toBe("a");
   });
 
   it("describeRule prefers the name", () => {

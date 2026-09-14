@@ -7,7 +7,8 @@
  *     "description", "exampleUrl", "exampleResult", "error",
  *     "includePattern", "excludePattern", "patternDesc", "redirectUrl",
  *     "patternType": "W" | "R",
- *     "processMatches": "noProcessing" | "urlDecode" | "urlEncode" | "base64decode" | "base64encode",
+ *     "processMatches": "noProcessing" | "urlDecode" | "doubleUrlDecode" | "urlEncode" | "base64decode",
+ *     "unescapeMatches"?: boolean, "escapeMatches"?: boolean,   // pre-3.0 exports, when processMatches is absent
  *     "disabled": boolean, "grouped": boolean,
  *     "appliesTo": ["main_frame", "sub_frame", "stylesheet", "script", "image", "imageset",
  *                   "object", "xmlhttprequest", "history", "other"]
@@ -39,11 +40,18 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
+/**
+ * Redirector's `_includeMatch` processing. `base64decode` first unescapes a
+ * capture that contains `%` (padding usually arrives as `%3D`), then atob;
+ * `decodeURIComponent` is the identity on captures without `%`, so it is applied
+ * unconditionally. `base64encode` is not a Redirector value but is accepted.
+ */
 const PROCESS_MATCHES: Record<string, Transform[]> = {
   noProcessing: [],
   urlDecode: ["decodeURIComponent"],
+  doubleUrlDecode: ["decodeURIComponent", "decodeURIComponent"],
   urlEncode: ["encodeURIComponent"],
-  base64decode: ["atob"],
+  base64decode: ["decodeURIComponent", "atob"],
   base64encode: ["btoa"],
 };
 
@@ -104,6 +112,10 @@ export function convertRedirectorRedirect(
     } else {
       transforms = t;
     }
+  } else if (input.unescapeMatches === true) {
+    transforms = PROCESS_MATCHES.urlDecode!;
+  } else if (input.escapeMatches === true) {
+    transforms = PROCESS_MATCHES.urlEncode!;
   }
 
   let applyTo: Rule["applyTo"] = "navigation";

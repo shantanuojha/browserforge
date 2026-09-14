@@ -35,6 +35,12 @@ function createStorageArea(name: StorageAreaName): StorageArea {
     },
 
     async set<T>(key: string, value: T): Promise<void> {
+      // `chrome.storage` drops `undefined` properties when serialising the request, so writing
+      // `{ [key]: undefined }` would silently keep the previous value. Clear the key instead.
+      if (value === undefined) {
+        await area(name).remove(key);
+        return;
+      }
       await area(name).set({ [key]: value });
     },
 

@@ -88,7 +88,7 @@ describe("Redirector importer", () => {
     expect(c!.rule).toMatchObject({
       enabled: false,
       exclude: ["https://img.example/keep/*"],
-      transforms: ["atob"],
+      transforms: ["decodeURIComponent", "atob"],
       applyTo: "all",
       resourceTypes: ["image", "sub_frame"],
     });
@@ -129,10 +129,43 @@ describe("Redirector importer", () => {
     expect(t("noProcessing")).toEqual([]);
     expect(t("urlDecode")).toEqual(["decodeURIComponent"]);
     expect(t("urlEncode")).toEqual(["encodeURIComponent"]);
-    expect(t("base64decode")).toEqual(["atob"]);
+    expect(t("doubleUrlDecode")).toEqual(["decodeURIComponent", "decodeURIComponent"]);
+    // Redirector unescapes a %-encoded capture before atob (padding arrives as %3D).
+    expect(t("base64decode")).toEqual(["decodeURIComponent", "atob"]);
     expect(t("base64encode")).toEqual(["btoa"]);
     const unknown = convertRedirectorRedirect({ ...base, processMatches: "rot13" }, 0);
     expect(typeof unknown === "string" ? [] : unknown.warnings).toHaveLength(1);
+  });
+
+  it("base64decode works on captures whose padding is URL-encoded, as in Redirector", () => {
+    const r = convertRedirectorRedirect(
+      {
+        includePattern: "^https://go\\.example/\\?t=([^&]+)",
+        redirectUrl: "$1",
+        patternType: "R",
+        processMatches: "base64decode",
+      },
+      0,
+    );
+    if (typeof r === "string") throw new Error(r);
+    expect(matchRule("https://go.example/?t=aHR0cHM6Ly9leGFtcGxlLmNvbQ%3D%3D", r.rule)).toBe(
+      "https://example.com",
+    );
+    expect(matchRule("https://go.example/?t=aHR0cHM6Ly9leGFtcGxlLmNvbQ==", r.rule)).toBe(
+      "https://example.com",
+    );
+  });
+
+  it("honours the pre-3.0 unescapeMatches / escapeMatches flags", () => {
+    const base = { includePattern: "a*", redirectUrl: "https://b/$1" };
+    const legacy = (extra: Record<string, unknown>) => {
+      const r = convertRedirectorRedirect({ ...base, ...extra }, 0);
+      return typeof r === "string" ? r : r.rule.transforms;
+    };
+    expect(legacy({ unescapeMatches: true })).toEqual(["decodeURIComponent"]);
+    expect(legacy({ escapeMatches: true })).toEqual(["encodeURIComponent"]);
+    // An explicit processMatches wins over the legacy flags.
+    expect(legacy({ unescapeMatches: true, processMatches: "noProcessing" })).toEqual([]);
   });
 
   it("drops invalid regex excludes with a warning", () => {
