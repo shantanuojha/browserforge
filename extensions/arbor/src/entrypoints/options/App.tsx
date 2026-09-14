@@ -33,6 +33,57 @@ function Field({
   );
 }
 
+/**
+ * A number input whose stored value is clamped. While it has focus it shows what the user typed
+ * and only commits values inside the range; the clamped value is committed on blur. Committing
+ * every keystroke straight into the clamped setting snapped the field mid-edit (clearing the
+ * snapshot interval showed "1", typing "10" then produced "110").
+ */
+function NumberField({
+  id,
+  min,
+  max,
+  value,
+  disabled,
+  onCommit,
+}: {
+  id: string;
+  min: number;
+  max: number;
+  value: number;
+  disabled?: boolean | undefined;
+  onCommit: (value: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const clamp = (n: number) => Math.min(max, Math.max(min, Math.round(n)));
+  const parse = (text: string): number | null => {
+    if (text.trim() === "") return null;
+    const n = Number(text);
+    return Number.isFinite(n) ? n : null;
+  };
+  return (
+    <input
+      id={id}
+      type="number"
+      min={min}
+      max={max}
+      disabled={disabled}
+      value={draft ?? String(value)}
+      onFocus={() => setDraft(String(value))}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        const n = parse(e.target.value);
+        if (n !== null && n >= min && n <= max && Number.isInteger(n)) onCommit(n);
+      }}
+      onBlur={() => {
+        const n = draft === null ? null : parse(draft);
+        setDraft(null);
+        if (n !== null && clamp(n) !== value) onCommit(clamp(n));
+      }}
+    />
+  );
+}
+
 export function App() {
   const [settings, update, loaded] = useSettings();
   const pro = usePro();
@@ -136,13 +187,12 @@ export function App() {
             hint="Minutes between compacted snapshots of the change log (a snapshot is also taken every 200 changes)."
             htmlFor="compaction"
           >
-            <input
+            <NumberField
               id="compaction"
-              type="number"
               min={1}
               max={120}
               value={settings.compactionIntervalMinutes}
-              onChange={(e) => set("compactionIntervalMinutes", Number(e.target.value))}
+              onCommit={(v) => set("compactionIntervalMinutes", v)}
             />
           </Field>
           <Field label="Confirm before Close all and save" htmlFor="confirm-close">
@@ -208,25 +258,23 @@ export function App() {
             />
           </Field>
           <Field label="Every N minutes" htmlFor="backups-interval">
-            <input
+            <NumberField
               id="backups-interval"
-              type="number"
               min={5}
               max={1440}
               disabled={gated}
               value={settings.backups.intervalMinutes}
-              onChange={(e) => setBackup("intervalMinutes", Number(e.target.value))}
+              onCommit={(v) => setBackup("intervalMinutes", v)}
             />
           </Field>
           <Field label="Keep the newest N backups" htmlFor="backups-retention">
-            <input
+            <NumberField
               id="backups-retention"
-              type="number"
               min={1}
               max={100}
               disabled={gated}
               value={settings.backups.retention}
-              onChange={(e) => setBackup("retention", Number(e.target.value))}
+              onCommit={(v) => setBackup("retention", v)}
             />
           </Field>
           {backups.length ? (
