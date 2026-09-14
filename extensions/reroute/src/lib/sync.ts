@@ -75,6 +75,16 @@ export function newOrigin(): string {
   return Math.random().toString(36).slice(2, 10);
 }
 
+/**
+ * Rule set a device adopts when it joins sync: the remote set in its order,
+ * followed by local rules whose id the remote does not have. Nothing on either
+ * side is dropped, so enabling sync on a fresh device cannot wipe the others.
+ */
+export function mergeRulesOnJoin(remote: readonly Rule[], local: readonly Rule[]): Rule[] {
+  const seen = new Set(remote.map((r) => r.id));
+  return [...remote, ...local.filter((r) => !seen.has(r.id))];
+}
+
 export async function writeRulesToSync(rules: readonly Rule[], origin: string): Promise<SyncMeta> {
   const text = JSON.stringify(rules);
   const { data, compressed } = await encodePayload(text);
