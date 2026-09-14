@@ -266,6 +266,38 @@ describe("LogTreeStore (memory backend)", () => {
     await b.open();
     expect(childrenOf(b.getTree(), "w").map((n) => n.id)).toEqual(["w-t2", "w-t0", "w-t1"]);
   });
+
+  it("keeps counting ops appended while a snapshot is being written", async () => {
+    // A tab event can land between "serialise the tree" and "snapshot written" (IndexedDB is
+    // async). That op is not in the snapshot, so it must still count as pending: otherwise the
+    // next replaceTree/restoreSnapshot skips its "pin the outgoing tree" compaction and deletes
+    // the op from the log, and the Recovery history loses that change.
+    const mem = new MemoryLogBackend();
+    let release: () => void = () => undefined;
+    const gate = new Promise<void>((r) => (release = r));
+    const put = mem.putSnapshot.bind(mem);
+    mem.putSnapshot = async (snapshot) => {
+      await gate;
+      await put(snapshot);
+    };
+    const store = new MemoryTreeStore(mem);
+    await store.open();
+    store.append([ops.add(node("w", null, "window"))]);
+    const compaction = store.compact();
+    // Let the flush and the start of the compaction task run up to the gated putSnapshot.
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    store.append([ops.add(node("late", "w"))]);
+    release();
+    const snap = await compaction;
+    expect(snap?.seq).toBe(1);
+    expect(snap?.nodes.map((n) => n.id)).toEqual(["w"]);
+
+    // The late op is still pending compaction and must be pinned before the tree is replaced.
+    expect(await store.compactIfDue(Number.MAX_SAFE_INTEGER)).toBe(true);
+    await store.replaceTree([]);
+    const pinned = [...mem.snapshots.values()].map((s) => s as { nodes: TreeNode[] });
+    expect(pinned.some((s) => s.nodes.some((n) => n.id === "late"))).toBe(true);
+  });
 });
 
 describe("IndexedDbLogBackend (fake IndexedDB)", () => {

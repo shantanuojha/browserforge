@@ -221,6 +221,9 @@ export function App() {
   const redoTitle = hist.redoLabel ? `Redo: ${hist.redoLabel}` : "Nothing to redo";
 
   const live = state?.live ?? { activeTabIds: [], focusedWindowId: undefined };
+  // Until the background has sent the tree once, the panel has nothing to show; painting the
+  // empty tree ("0 nodes, 0 open", "No windows or tabs yet.") for that moment reads as data loss.
+  const loading = state === null && !error;
 
   return (
     <div className="app">
@@ -229,7 +232,7 @@ export function App() {
           <h1 className="app__title">
             Arbor {pro ? <ProBadge /> : null}
             <span className="app__count">
-              {tree.size} nodes, {liveTabCount} open
+              {loading ? "Loading..." : `${tree.size} nodes, ${liveTabCount} open`}
             </span>
           </h1>
           <div className="view-tabs" role="tablist">
@@ -320,6 +323,8 @@ export function App() {
         {view === "tree" ? (
           error && !state ? (
             <div className="tree__empty">Could not reach the background service: {error}</div>
+          ) : loading ? (
+            <div className="tree__empty">Loading...</div>
           ) : (
             <TreeView
               tree={tree}

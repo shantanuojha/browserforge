@@ -231,13 +231,16 @@ export class LogTreeStore implements TreeStore {
     return this.enqueue(async () => {
       if (!force && this.opsSinceSnapshot === 0) return null;
       const seq = this.nextSeq - 1;
+      const covered = this.opsSinceSnapshot;
       const nodes = serializeNodes(this.tree);
       const snapshot: Snapshot = { seq, ts: this.opts.now(), nodes, nodeCount: nodes.length };
       await this.backend.putSnapshot(snapshot);
       await this.backend.deleteOpsThrough(seq);
       this.lastSnapshotSeq = seq;
       this.lastSnapshotTs = snapshot.ts;
-      this.opsSinceSnapshot = 0;
+      // Ops appended while the snapshot was being written (append is synchronous) are not in it
+      // and stay pending, so the next compaction or replaceTree still pins them.
+      this.opsSinceSnapshot -= covered;
       await this.pruneSnapshots();
       return snapshot;
     });

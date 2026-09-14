@@ -374,6 +374,48 @@ describe("TabTracker.rebuild", () => {
     expect([...store.getTree().values()].filter((n) => n.kind === "window").length).toBe(1);
   });
 
+  it("re-attaches a window whose tabs are still loading (pendingUrl only) instead of duplicating it", async () => {
+    // Seen in Chromium 153: a window opened with windows.create({ url }) while a resync ran had
+    // url "" / pendingUrl set on every tab; the rebuild could not verify the window, created a
+    // second container for it and left the first one unbound with two saved copies of its tabs.
+    const { store, fb, tracker } = await setup();
+    const w1 = fb.openWindow();
+    fb.openTab(w1.id, "https://a.test/", "A");
+    const w2 = fb.openWindow();
+    const x = fb.addTab(w2.id, "https://x.test/", "");
+    const y = fb.addTab(w2.id, "https://y.test/", "");
+    for (const t of [x, y]) {
+      t.pendingUrl = t.url;
+      t.url = "";
+      tracker.handleTabCreated({ ...t, title: undefined });
+    }
+    const before = store.getTree();
+    const w2Node = findWindowByLiveId(before, w2.id);
+    expect(childrenOf(before, w2Node?.id ?? "").map((n) => n.url)).toEqual([
+      "https://x.test/",
+      "https://y.test/",
+    ]);
+
+    // Resync while x and y are still committing.
+    const report = tracker.rebuildFrom(
+      fb.tabs.map((t) => ({ ...t })),
+      fb.windows.map((w) => ({ ...w })),
+    );
+    expect(report).toMatchObject({
+      windowsMatched: 2,
+      windowsCreated: 0,
+      tabsMatched: 3,
+      tabsCreated: 0,
+      nodesSaved: 0,
+    });
+    const tree = store.getTree();
+    expect([...tree.values()].filter((n) => n.kind === "window").length).toBe(2);
+    expect(tree.get(w2Node?.id ?? "")?.liveWindowId).toBe(w2.id);
+    expect(nodeOf({ store, fb, tracker }, x)?.parentId).toBe(w2Node?.id);
+    expect(nodeOf({ store, fb, tracker }, y)?.parentId).toBe(w2Node?.id);
+    expect([...tree.values()].filter((n) => n.url === "https://x.test/").length).toBe(1);
+  });
+
   it("marks vanished tabs and windows as saved", async () => {
     const { store, fb } = await setup();
     const w1 = fb.openWindow();

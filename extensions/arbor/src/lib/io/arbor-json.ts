@@ -74,22 +74,54 @@ export function parseArborExport(input: string | unknown): ImportPreview {
     // Version 1 titled browser-made windows "Window"; that is the empty title now.
     nodes.push(n.kind === "window" && n.title === DEFAULT_WINDOW_TITLE ? { ...n, title: "" } : n);
   }
-  const ids = new Set(nodes.map((n) => n.id));
+  // A second node with an id already seen would silently replace the first in the tree map.
+  const ids = new Set<string>();
+  let duplicates = 0;
+  const unique: TreeNode[] = [];
+  for (const n of nodes) {
+    if (ids.has(n.id)) {
+      duplicates++;
+      continue;
+    }
+    ids.add(n.id);
+    unique.push(n);
+  }
   let lifted = 0;
-  const fixed = nodes.map((n) => {
+  const fixed = unique.map((n) => {
     if (n.parentId !== null && !ids.has(n.parentId)) {
       lifted++;
       return { ...n, parentId: null };
     }
     return n;
   });
+  // Nodes whose parent chain loops never hang off the root and would be dropped by the walk
+  // below. Lift one node of each such cycle to the top level; the rest follow under it.
+  const index = buildChildIndex(createTree(fixed));
+  const reachable = new Set<string>();
+  const reach = (from: readonly TreeNode[]): void => {
+    const stack = [...from];
+    while (stack.length) {
+      const n = stack.pop() as TreeNode;
+      if (reachable.has(n.id)) continue;
+      reachable.add(n.id);
+      stack.push(...(index.get(n.id) ?? []));
+    }
+  };
+  reach(index.get(null) ?? []);
+  for (const n of fixed) {
+    if (reachable.has(n.id)) continue;
+    lifted++;
+    const root = { ...n, parentId: null };
+    const roots = index.get(null);
+    if (roots) roots.push(root);
+    else index.set(null, [root]);
+    reach([n]);
+  }
   const warnings: string[] = [];
   if (skipped) warnings.push(`${skipped} unreadable node(s) were skipped`);
+  if (duplicates) warnings.push(`${duplicates} node(s) with a duplicate id were skipped`);
   if (lifted)
     warnings.push(`${lifted} node(s) had a missing parent and were moved to the top level`);
-
-  const tree = createTree(fixed);
-  const index = buildChildIndex(tree);
   const seen = new Set<string>();
   const toImported = (n: TreeNode): ImportedNode => {
     seen.add(n.id);
