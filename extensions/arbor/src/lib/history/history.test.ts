@@ -7,7 +7,7 @@ import {
   inverseOps,
   readdOps,
   type HistoryEntry,
-} from "./history";
+} from "./index";
 import {
   applyOps as applyOpsAt,
   childrenOf,
@@ -19,7 +19,7 @@ import {
   type OpBody,
   type Tree,
   type TreeNode,
-} from "./model";
+} from "../model";
 
 const T0 = 7;
 const history = createHistory(() => T0);

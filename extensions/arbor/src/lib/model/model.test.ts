@@ -24,7 +24,7 @@ import {
   type NodeKind,
   type OpBody,
   type Tree,
-} from "./model";
+} from "./index";
 
 const T0 = 1_000;
 
@@ -263,61 +263,103 @@ describe("resolveDrop", () => {
 
   it("drops a live window inside an empty group as its only child", () => {
     const t = grouped();
-    expect(resolveDrop(t, "win", "WORK", "inside")).toEqual({ parentId: "WORK", index: 0 });
+    expect(resolveDrop(t, { draggedId: "win", targetId: "WORK", pos: "inside" })).toEqual({
+      parentId: "WORK",
+      index: 0,
+    });
     const moved = applyOp(t, ops.move("win", "WORK", 0));
     expect(ids(childrenOf(moved, "WORK"))).toEqual(["win"]);
   });
 
   it("drops a live tab inside a group, appended last", () => {
     const t = applyOp(grouped(), ops.move("t2", "WORK", 0));
-    expect(resolveDrop(t, "t1", "WORK", "inside")).toEqual({ parentId: "WORK", index: 1 });
+    expect(resolveDrop(t, { draggedId: "t1", targetId: "WORK", pos: "inside" })).toEqual({
+      parentId: "WORK",
+      index: 1,
+    });
   });
 
   it("drops a group inside another group", () => {
-    expect(resolveDrop(grouped(), "other", "WORK", "inside")).toEqual({
-      parentId: "WORK",
-      index: 0,
-    });
+    expect(resolveDrop(grouped(), { draggedId: "other", targetId: "WORK", pos: "inside" })).toEqual(
+      {
+        parentId: "WORK",
+        index: 0,
+      },
+    );
   });
 
   it("drops before/after a sibling, indexes ignoring the dragged node", () => {
     const t = grouped();
-    expect(resolveDrop(t, "other", "WORK", "before")).toEqual({ parentId: null, index: 0 });
-    expect(resolveDrop(t, "other", "WORK", "after")).toEqual({ parentId: null, index: 1 });
+    expect(resolveDrop(t, { draggedId: "other", targetId: "WORK", pos: "before" })).toEqual({
+      parentId: null,
+      index: 0,
+    });
+    expect(resolveDrop(t, { draggedId: "other", targetId: "WORK", pos: "after" })).toEqual({
+      parentId: null,
+      index: 1,
+    });
     // WORK is at index 0; dragging it after win (index 1) must not count WORK itself.
-    expect(resolveDrop(t, "WORK", "win", "after")).toEqual({ parentId: null, index: 1 });
-    expect(resolveDrop(t, "WORK", "other", "after")).toEqual({ parentId: null, index: 2 });
+    expect(resolveDrop(t, { draggedId: "WORK", targetId: "win", pos: "after" })).toEqual({
+      parentId: null,
+      index: 1,
+    });
+    expect(resolveDrop(t, { draggedId: "WORK", targetId: "other", pos: "after" })).toEqual({
+      parentId: null,
+      index: 2,
+    });
     // A live tab can sit between root siblings, and a group between live tabs.
-    expect(resolveDrop(t, "t1", "WORK", "after")).toEqual({ parentId: null, index: 1 });
-    expect(resolveDrop(t, "other", "t1", "before")).toEqual({ parentId: "win", index: 0 });
-    expect(resolveDrop(t, "other", "t2", "after")).toEqual({ parentId: "win", index: 2 });
+    expect(resolveDrop(t, { draggedId: "t1", targetId: "WORK", pos: "after" })).toEqual({
+      parentId: null,
+      index: 1,
+    });
+    expect(resolveDrop(t, { draggedId: "other", targetId: "t1", pos: "before" })).toEqual({
+      parentId: "win",
+      index: 0,
+    });
+    expect(resolveDrop(t, { draggedId: "other", targetId: "t2", pos: "after" })).toEqual({
+      parentId: "win",
+      index: 2,
+    });
   });
 
   it("drops a live tab to the root when there is no target", () => {
-    expect(resolveDrop(grouped(), "t1", null, "inside")).toEqual({ parentId: null, index: 3 });
+    expect(resolveDrop(grouped(), { draggedId: "t1", targetId: null, pos: "inside" })).toEqual({
+      parentId: null,
+      index: 3,
+    });
     // Already at the root: excluded from the count.
-    expect(resolveDrop(grouped(), "win", null, "inside")).toEqual({ parentId: null, index: 2 });
+    expect(resolveDrop(grouped(), { draggedId: "win", targetId: null, pos: "inside" })).toEqual({
+      parentId: null,
+      index: 2,
+    });
   });
 
   it("refuses a node onto itself or into its own subtree", () => {
     const t = grouped();
-    expect(resolveDrop(t, "WORK", "WORK", "inside")).toBeNull();
-    expect(resolveDrop(t, "WORK", "WORK", "after")).toBeNull();
-    expect(resolveDrop(t, "other", "inner", "inside")).toBeNull();
-    expect(resolveDrop(t, "other", "inner", "before")).toBeNull();
-    expect(resolveDrop(t, "win", "t1", "inside")).toBeNull();
-    expect(resolveDrop(t, "win", "t1", "after")).toBeNull();
+    expect(resolveDrop(t, { draggedId: "WORK", targetId: "WORK", pos: "inside" })).toBeNull();
+    expect(resolveDrop(t, { draggedId: "WORK", targetId: "WORK", pos: "after" })).toBeNull();
+    expect(resolveDrop(t, { draggedId: "other", targetId: "inner", pos: "inside" })).toBeNull();
+    expect(resolveDrop(t, { draggedId: "other", targetId: "inner", pos: "before" })).toBeNull();
+    expect(resolveDrop(t, { draggedId: "win", targetId: "t1", pos: "inside" })).toBeNull();
+    expect(resolveDrop(t, { draggedId: "win", targetId: "t1", pos: "after" })).toBeNull();
   });
 
   it("refuses nesting under a note but allows dropping next to it", () => {
     const t = grouped();
-    expect(resolveDrop(t, "t1", "memo", "inside")).toBeNull();
-    expect(resolveDrop(t, "t1", "memo", "after")).toEqual({ parentId: "win", index: 2 });
+    expect(resolveDrop(t, { draggedId: "t1", targetId: "memo", pos: "inside" })).toBeNull();
+    expect(resolveDrop(t, { draggedId: "t1", targetId: "memo", pos: "after" })).toEqual({
+      parentId: "win",
+      index: 2,
+    });
   });
 
   it("refuses unknown ids", () => {
-    expect(resolveDrop(grouped(), "ghost", "WORK", "inside")).toBeNull();
-    expect(resolveDrop(grouped(), "t1", "ghost", "inside")).toBeNull();
+    expect(
+      resolveDrop(grouped(), { draggedId: "ghost", targetId: "WORK", pos: "inside" }),
+    ).toBeNull();
+    expect(
+      resolveDrop(grouped(), { draggedId: "t1", targetId: "ghost", pos: "inside" }),
+    ).toBeNull();
   });
 
   it("agrees with the move op for every allowed destination", () => {
@@ -331,7 +373,7 @@ describe("resolveDrop", () => {
       ["t1", null, "inside"],
     ];
     for (const [dragged, target, pos] of cases) {
-      const dest = resolveDrop(t, dragged, target, pos);
+      const dest = resolveDrop(t, { draggedId: dragged, targetId: target, pos });
       if (!dest) throw new Error(`${dragged} -> ${target}/${pos} was refused`);
       const moved = applyOp(t, ops.move(dragged, dest.parentId, dest.index));
       expect(moved.get(dragged)?.parentId).toBe(dest.parentId);

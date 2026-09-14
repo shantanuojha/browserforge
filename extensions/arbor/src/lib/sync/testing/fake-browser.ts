@@ -221,7 +221,7 @@ export async function drop(
   targetId: NodeId,
   pos: "before" | "after" | "inside",
 ): Promise<void> {
-  const dest = resolveDrop(ctx.store.getTree(), draggedId, targetId, pos);
+  const dest = resolveDrop(ctx.store.getTree(), { draggedId, targetId, pos });
   if (!dest) throw new Error("drop refused");
   await ctx.tracker.moveNode(draggedId, dest.parentId, dest.index);
 }

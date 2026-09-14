@@ -159,7 +159,7 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
   // under a note; whether the real browser tab follows is decided by the tracker on `actions.move`.
   const dropTarget = useCallback(
     (draggedId: NodeId, targetId: NodeId, pos: DropPosition): DropDestination | null =>
-      resolveDrop(tree, draggedId, targetId, pos, childIndex),
+      resolveDrop(tree, { draggedId, targetId, pos }, childIndex),
     [tree, childIndex],
   );
 
@@ -173,7 +173,7 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
   };
 
   const rootDrop = (draggedId: NodeId): DropDestination | null =>
-    resolveDrop(tree, draggedId, null, "inside", childIndex);
+    resolveDrop(tree, { draggedId, targetId: null, pos: "inside" }, childIndex);
 
   // -- row callbacks (stable) -----------------------------------------------------------------
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { createHistory, HistoryStack, type HistoryEntry } from "./history";
-import { childrenOf, makeNode, ops, serializeNodes, type Tree, type TreeNode } from "./model";
+import { createHistory, HistoryStack, type HistoryEntry } from "./index";
+import { childrenOf, makeNode, ops, serializeNodes, type Tree, type TreeNode } from "../model";
 import {
   addRootGroup,
   addSavedTab,
@@ -9,7 +9,7 @@ import {
   titlesUnder,
   winNodeOf,
   type Ctx,
-} from "./sync/testing/fake-browser";
+} from "../sync/testing/fake-browser";
 
 const history = createHistory(() => 1);
 
