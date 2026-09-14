@@ -70,6 +70,48 @@ describe("parseTabsOutliner", () => {
     expect(preview.warnings.some((w) => /stray/.test(w))).toBe(true);
   });
 
+  it("rebuilds the hierarchy of Tabs Outliner's flat row format ([flag, node, indexPath])", () => {
+    // What `onViewClose_lastSessionSnapshot`, the IndexedDB `currentSessionSnapshot.data` and
+    // exported .tree files actually contain (see the recovery scripts floating around: rows are
+    // `[flag, { type, data, marks }, idxPath]`, rows in depth-first order, position encoded in
+    // the index path rather than by nesting). Every node must land under its parent.
+    const rows = [
+      { version: 2 }, // header-like junk some dumps carry
+      [1, { type: "win", data: { focused: true }, marks: { customTitle: "Work" } }, [0]],
+      [1, { type: "tab", data: { url: "https://a.test/", title: "A" } }, [0, 0]],
+      [1, { type: "tab", data: { url: "https://b.test/", title: "B" } }, [0, 1]],
+      [1, { type: "tab", data: { url: "https://b.test/child", title: "B child" } }, [0, 1, 0]],
+      [1, { type: "textnote", data: { note: "Remember to review" } }, [0, 2]],
+      [1, { type: "savedwin", data: { crashDetectedDate: 1622000000000 } }, [1]],
+      [1, { type: "savedtab", data: { url: "https://old.test/", title: "" } }, [1, 0]],
+      [1, { type: "group", data: { title: "Reading" } }, [2]],
+      [1, { type: "tab", data: { url: "https://c.test/", title: "C" } }, [2, 0]],
+      // A row whose parent path is missing is hoisted rather than dropped.
+      [1, { type: "tab", data: { url: "https://orphan.test/", title: "Orphan" } }, [7, 3]],
+    ];
+    const preview = parseTabsOutliner(JSON.stringify(rows));
+    expect(preview.counts).toEqual({ windows: 3, tabs: 6, notes: 1, total: 10 });
+    expect(preview.roots.map((r) => [r.kind, r.title])).toEqual([
+      ["window", "Work"],
+      ["window", ""],
+      ["window", "Reading"],
+      ["tab", "Orphan"],
+    ]);
+    const [work, saved, reading] = preview.roots;
+    expect(work?.children.map((c) => c.title)).toEqual(["A", "B", "Remember to review"]);
+    expect(work?.children[1]?.children.map((c) => c.title)).toEqual(["B child"]);
+    expect(saved?.children.map((c) => c.url)).toEqual(["https://old.test/"]);
+    expect(reading?.children.map((c) => c.title)).toEqual(["C"]);
+    // Rows in a session root at path [] wrap the tree; an untitled one is unwrapped as before.
+    const rooted = parseTabsOutliner([
+      [1, { type: "session", data: {} }, []],
+      [1, { type: "win", data: {} }, [0]],
+      [1, { type: "tab", data: { url: "https://x.test/", title: "X" } }, [0, 0]],
+    ]);
+    expect(rooted.counts).toEqual({ windows: 1, tabs: 1, notes: 0, total: 2 });
+    expect(rooted.roots[0]?.children[0]?.title).toBe("X");
+  });
+
   it("accepts the raw localStorage value, double-encoded strings and the key wrapper", () => {
     const once = JSON.stringify(FIXTURE);
     const twice = JSON.stringify(once);

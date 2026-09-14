@@ -48,6 +48,17 @@ function looksLikeNode(v: unknown): v is Obj {
   return CHILD_KEYS.some((k) => Array.isArray(v[k]));
 }
 
+/** `[flag, nodeSpec, indexPath]`: one node of the flat row form, position given by the path. */
+function isPathRow(v: unknown): v is [unknown, Obj, number[]] {
+  return (
+    Array.isArray(v) &&
+    v.length >= 3 &&
+    looksLikeNode(v[1]) &&
+    Array.isArray(v[2]) &&
+    v[2].every((i) => typeof i === "number")
+  );
+}
+
 function hostOf(url: string | undefined): string | undefined {
   if (!url) return undefined;
   try {
@@ -90,6 +101,11 @@ class Parser {
   }
 
   private parseArray(arr: unknown[], depth: number): ImportedNode[] {
+    // Flat row form: `[flag, nodeSpec, indexPath]` per node, in depth-first order, with the
+    // position in the tree encoded in the index path (what the session snapshot, the IndexedDB
+    // dump and exported .tree files hold). Without this the rows would parse as a flat list and
+    // every tab would end up beside its window instead of under it.
+    if (arr.some(isPathRow)) return this.parsePathRows(arr, depth);
     // `[nodeSpec, [children...]]` pair form used by Tabs Outliner's tree files.
     if (
       arr.length >= 1 &&
@@ -104,6 +120,29 @@ class Parser {
     const out: ImportedNode[] = [];
     for (const item of arr) out.push(...this.parseAny(item, depth + 1));
     return out;
+  }
+
+  /**
+   * Attach each `[flag, nodeSpec, indexPath]` row under the row whose path is its prefix. A row
+   * whose parent path was never seen (or a root row at `[]`) becomes a root itself; a row at
+   * `[]` that has children is the session wrapper `parseTabsOutliner` unwraps. Elements that are
+   * not path rows are parsed as usual so nothing recognisable is skipped.
+   */
+  private parsePathRows(arr: unknown[], depth: number): ImportedNode[] {
+    const roots: ImportedNode[] = [];
+    const byPath = new Map<string, ImportedNode>();
+    for (const item of arr) {
+      if (!isPathRow(item)) {
+        roots.push(...this.parseAny(item, depth + 1));
+        continue;
+      }
+      const path = item[2];
+      const node = this.parseNode(item[1], depth);
+      const parent = path.length ? byPath.get(JSON.stringify(path.slice(0, -1))) : undefined;
+      (parent ? parent.children : roots).push(node);
+      byPath.set(JSON.stringify(path), node);
+    }
+    return roots;
   }
 
   private parseNode(o: Obj, depth: number): ImportedNode {
