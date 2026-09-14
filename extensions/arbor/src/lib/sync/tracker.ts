@@ -704,6 +704,10 @@ export class TabTracker {
       idsValid: boolean;
     }
     const windowAssignments = new Map<number, Assignment>();
+    // A tab still committing its first navigation reports url "" and the page in `pendingUrl`
+    // (windows.create / tabs.create while a resync runs); its node was created with that url, so
+    // matching must see the same thing or the window fails verification and gets duplicated.
+    const urlOf = (t: LiveTab): string | undefined => t.url || t.pendingUrl;
     for (const w of trackable) {
       const wTabs = liveTabs.filter((t) => t.windowId === w.id);
       let match: TreeNode | undefined;
@@ -714,10 +718,10 @@ export class TabTracker {
       if (byId) {
         const kids = tabNodesOf(byId);
         const samePage = (t: LiveTab, k: TreeNode) =>
-          sameUrl(t.url, k.url) || (isBlankUrl(t.url) && isBlankUrl(k.url));
+          sameUrl(urlOf(t), k.url) || (isBlankUrl(urlOf(t)) && isBlankUrl(k.url));
         const verified =
           kids.some((k) => wTabs.some((t) => t.id === k.liveTabId && samePage(t, k))) ||
-          (kids.length === 0 && wTabs.every((t) => isBlankUrl(t.url)));
+          (kids.length === 0 && wTabs.every((t) => isBlankUrl(urlOf(t))));
         if (verified) {
           match = byId;
           idsValid = true;
@@ -727,7 +731,7 @@ export class TabTracker {
       //    that was bound when we last looked, then to one whose tabs were live, then to an
       //    untitled (browser-made) one, so a user's group is not claimed by a window that merely
       //    shows the same pages.
-      if (!match && wTabs.some((t) => !isBlankUrl(t.url))) {
+      if (!match && wTabs.some((t) => !isBlankUrl(urlOf(t)))) {
         let best: { node: TreeNode; rank: number[] } | undefined;
         const better = (a: number[], b: number[]) => {
           for (let i = 0; i < a.length; i++) {
@@ -739,7 +743,7 @@ export class TabTracker {
           if (usedWindowNodes.has(n.id)) continue;
           const kids = tabNodesOf(n);
           const urls = kids.map((k) => k.url);
-          const score = wTabs.filter((t) => urls.some((u) => sameUrl(u, t.url))).length;
+          const score = wTabs.filter((t) => urls.some((u) => sameUrl(u, urlOf(t)))).length;
           if (score === 0) continue;
           const rank = [
             score,
@@ -749,7 +753,7 @@ export class TabTracker {
           ];
           if (!best || better(rank, best.rank)) best = { node: n, rank };
         }
-        const meaningful = wTabs.filter((t) => !isBlankUrl(t.url)).length;
+        const meaningful = wTabs.filter((t) => !isBlankUrl(urlOf(t))).length;
         if (best && (best.rank[0] ?? 0) >= Math.max(1, Math.ceil(meaningful / 2))) {
           match = best.node;
         }
@@ -786,12 +790,13 @@ export class TabTracker {
       const tabBatch: OpBody[] = [];
       const deferred: LiveTab[] = [];
       for (const t of assignment.tabs) {
+        const url = urlOf(t);
         const node =
           (assignment.idsValid
             ? candidates.find((k) => free(k) && k.liveTabId === t.id)
             : undefined) ??
-          candidates.find((k) => free(k) && k.liveTabId === undefined && sameUrl(k.url, t.url)) ??
-          candidates.find((k) => free(k) && sameUrl(k.url, t.url));
+          candidates.find((k) => free(k) && k.liveTabId === undefined && sameUrl(k.url, url)) ??
+          candidates.find((k) => free(k) && sameUrl(k.url, url));
         if (node) {
           usedTabNodes.add(node.id);
           report.tabsMatched++;
