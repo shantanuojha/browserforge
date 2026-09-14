@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
-import { hostMatchesAny, hostMatchesPattern, normalizeHost, siteOf } from "./domain.js";
+import {
+  hostMatchesAny,
+  hostMatchesPattern,
+  isSameOrSubdomain,
+  normalizeHost,
+  siteOf,
+} from "./domain.js";
+
+describe("isSameOrSubdomain", () => {
+  it("matches the apex and its subdomains but not look-alikes", () => {
+    expect(isSameOrSubdomain("example.com", "example.com")).toBe(true);
+    expect(isSameOrSubdomain("a.b.example.com", "example.com")).toBe(true);
+    expect(isSameOrSubdomain("notexample.com", "example.com")).toBe(false);
+  });
+});
 
 describe("normalizeHost", () => {
   it("strips scheme, case and stray dots", () => {

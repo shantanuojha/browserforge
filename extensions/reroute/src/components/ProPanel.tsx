@@ -27,6 +27,8 @@ function PackCard({
   );
   const [done, setDone] = useState(false);
   const missing = missingVariables(pack, vars);
+  const installHint = pro ? undefined : "Pro feature";
+  const missingHint = missing.length ? `Fill in: ${missing.join(", ")}` : undefined;
 
   return (
     <div className="rr-pack">
@@ -62,9 +64,7 @@ function PackCard({
         <Button
           size="sm"
           disabled={!pro || missing.length > 0}
-          title={
-            !pro ? "Pro feature" : missing.length ? `Fill in: ${missing.join(", ")}` : undefined
-          }
+          title={installHint ?? missingHint}
           onClick={() => {
             const { rules } = instantiatePack(pack, vars);
             onInstall(rules);

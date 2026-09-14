@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { RULE_PACKS, fillPlaceholders, instantiatePack, missingVariables } from "../packs";
-import { compileToDNR, matchRule } from "./engine";
+import { compileToDNR } from "./dnr-compiler";
+import { matchRule } from "./engine";
 import { createRule } from "./model";
 import {
   convertRedirectorRedirect,

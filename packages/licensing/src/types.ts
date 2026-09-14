@@ -1,4 +1,5 @@
 import type { Result } from "@browserforge/shared";
+import type { LicenseResponse } from "./api-schema.js";
 
 /** Why a stored licence is no longer usable. */
 export type LicenseInvalidReason =
@@ -63,12 +64,42 @@ export interface LicenseStorage {
 
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
+export type LicenseEndpoint = "activate" | "validate" | "deactivate";
+
+export interface ApiCallResult {
+  readonly httpStatus: number;
+  readonly body: LicenseResponse;
+}
+
+export interface ActivateRequest {
+  license_key: string;
+  instance_name: string;
+}
+
+export interface InstanceRequest {
+  license_key: string;
+  instance_id: string;
+}
+
+/**
+ * Port to the Lemon Squeezy licence endpoints. The client depends on this interface only;
+ * `createLicenseApi` is the production adapter over `fetch`, tests hand in a fake.
+ */
+export interface LicenseApi {
+  activate(request: ActivateRequest): Promise<LicenseResult<ApiCallResult>>;
+  validate(request: InstanceRequest): Promise<LicenseResult<ApiCallResult>>;
+  deactivate(request: InstanceRequest): Promise<LicenseResult<ApiCallResult>>;
+}
+
 export interface LicenseClientOptions {
   /** Storage namespace and first half of the Lemon Squeezy `instance_name`. */
   productName: string;
   /** Keys bought for any other variant are rejected with `wrong_product`. Empty = accept all. */
   allowedVariantIds?: readonly number[];
   storage: LicenseStorage;
+  /** Licence endpoints. Defaults to `createLicenseApi(fetch, apiBaseUrl)`; tests inject a fake. */
+  api?: LicenseApi;
+  /** Transport used by the default `api`. Ignored when `api` is given. */
   fetch?: FetchLike;
   now?: () => number;
   /** Offline grace after the last successful validation. Default 14 days. */

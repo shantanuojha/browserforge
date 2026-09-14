@@ -16,10 +16,12 @@
  * }
  */
 
+import { errorMessage, isRecord } from "@browserforge/shared";
 import {
   createRule,
   isResourceType,
   isValidRegexSource,
+  type MatchType,
   type ResourceType,
   type Rule,
   type Transform,
@@ -34,10 +36,6 @@ export interface RedirectorImportResult {
   items: RedirectorImportItem[];
   errors: string[];
   source: string;
-}
-
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 /**
@@ -69,6 +67,77 @@ const REDIRECTOR_TYPES: Record<string, ResourceType | null> = {
   other: "other",
 };
 
+/** Collects non-fatal notes while one redirect is converted. */
+type Warn = (message: string) => void;
+
+function readMatchType(patternType: unknown): MatchType | null {
+  if (patternType === "W" || patternType === undefined) return "wildcard";
+  if (patternType === "R") return "regex";
+  return null;
+}
+
+function readExclude(excludePattern: unknown, matchType: MatchType, warn: Warn): string[] {
+  if (typeof excludePattern !== "string" || excludePattern.length === 0) return [];
+  if (matchType === "regex" && !isValidRegexSource(excludePattern)) {
+    warn("excludePattern is not a valid regex and was dropped");
+    return [];
+  }
+  return [excludePattern];
+}
+
+/** Own-property lookup so `"constructor"` and friends do not resolve to prototype members. */
+function lookup<T>(table: Record<string, T>, key: unknown): T | undefined {
+  return typeof key === "string" && Object.hasOwn(table, key) ? table[key] : undefined;
+}
+
+function readTransforms(input: Record<string, unknown>, warn: Warn): Transform[] {
+  if (input.processMatches !== undefined) {
+    const mapped = lookup(PROCESS_MATCHES, input.processMatches);
+    if (mapped) return mapped;
+    warn(`unknown processMatches ${JSON.stringify(input.processMatches)}; no transform applied`);
+    return [];
+  }
+  if (input.unescapeMatches === true) return PROCESS_MATCHES.urlDecode!;
+  if (input.escapeMatches === true) return PROCESS_MATCHES.urlEncode!;
+  return [];
+}
+
+function mapResourceTypes(types: readonly string[], warn: Warn): ResourceType[] {
+  const seen = new Set<ResourceType>();
+  for (const type of types) {
+    const mapped = lookup(REDIRECTOR_TYPES, type);
+    if (mapped === undefined) {
+      if (isResourceType(type)) seen.add(type);
+      else warn(`unknown appliesTo type "${type}" was dropped`);
+    } else if (mapped !== null) {
+      seen.add(mapped);
+    } else if (type === "history") {
+      seen.add("main_frame");
+    }
+  }
+  return [...seen];
+}
+
+/**
+ * Redirector's `appliesTo`. Only `main_frame`/`history` (or nothing) means a plain navigation
+ * rule; anything else becomes an `all` rule listing the mapped resource types.
+ */
+function readAppliesTo(appliesTo: unknown, warn: Warn): Pick<Rule, "applyTo" | "resourceTypes"> {
+  if (!Array.isArray(appliesTo) || appliesTo.length === 0) {
+    return { applyTo: "navigation", resourceTypes: [] };
+  }
+  const types = appliesTo.filter((x): x is string => typeof x === "string");
+  const nonNavigation = types.filter((t) => t !== "main_frame" && t !== "history");
+  if (nonNavigation.length === 0) return { applyTo: "navigation", resourceTypes: [] };
+
+  const resourceTypes = mapResourceTypes(types, warn);
+  if (types.includes("history") && !types.includes("main_frame")) {
+    warn("history-state redirects are covered by main_frame in Reroute");
+  }
+  return { applyTo: "all", resourceTypes };
+}
+
+/** Converts one Redirector redirect; returns an error message instead of an item when it cannot. */
 export function convertRedirectorRedirect(
   input: unknown,
   index: number,
@@ -76,86 +145,32 @@ export function convertRedirectorRedirect(
   const where = `redirect[${index}]`;
   if (!isRecord(input)) return `${where}: not an object`;
   const warnings: string[] = [];
+  const warn: Warn = (message) => void warnings.push(message);
 
   const include = input.includePattern;
-  if (typeof include !== "string" || include.length === 0)
+  if (typeof include !== "string" || include.length === 0) {
     return `${where}: includePattern missing`;
+  }
   const redirectUrl = input.redirectUrl;
   if (typeof redirectUrl !== "string") return `${where}: redirectUrl missing`;
 
-  const patternType = input.patternType;
-  let matchType: Rule["matchType"];
-  if (patternType === "W" || patternType === undefined) matchType = "wildcard";
-  else if (patternType === "R") matchType = "regex";
-  else return `${where}: unknown patternType ${JSON.stringify(patternType)}`;
-
-  if (matchType === "regex" && !isValidRegexSource(include))
+  const matchType = readMatchType(input.patternType);
+  if (matchType === null) {
+    return `${where}: unknown patternType ${JSON.stringify(input.patternType)}`;
+  }
+  if (matchType === "regex" && !isValidRegexSource(include)) {
     return `${where}: includePattern is not a valid regex`;
-
-  const exclude: string[] = [];
-  if (typeof input.excludePattern === "string" && input.excludePattern.length > 0) {
-    if (matchType === "regex" && !isValidRegexSource(input.excludePattern)) {
-      warnings.push("excludePattern is not a valid regex and was dropped");
-    } else {
-      exclude.push(input.excludePattern);
-    }
   }
-
-  let transforms: Transform[] = [];
-  if (input.processMatches !== undefined) {
-    const t =
-      typeof input.processMatches === "string" ? PROCESS_MATCHES[input.processMatches] : undefined;
-    if (t === undefined) {
-      warnings.push(
-        `unknown processMatches ${JSON.stringify(input.processMatches)}; no transform applied`,
-      );
-    } else {
-      transforms = t;
-    }
-  } else if (input.unescapeMatches === true) {
-    transforms = PROCESS_MATCHES.urlDecode!;
-  } else if (input.escapeMatches === true) {
-    transforms = PROCESS_MATCHES.urlEncode!;
-  }
-
-  let applyTo: Rule["applyTo"] = "navigation";
-  const resourceTypes: ResourceType[] = [];
-  if (Array.isArray(input.appliesTo) && input.appliesTo.length > 0) {
-    const types = input.appliesTo.filter((x): x is string => typeof x === "string");
-    const nonNavigation = types.filter((t) => t !== "main_frame" && t !== "history");
-    if (nonNavigation.length > 0) {
-      applyTo = "all";
-      const seen = new Set<ResourceType>();
-      for (const t of types) {
-        const mapped = REDIRECTOR_TYPES[t];
-        if (mapped === undefined) {
-          if (isResourceType(t)) seen.add(t);
-          else warnings.push(`unknown appliesTo type "${t}" was dropped`);
-        } else if (mapped !== null) {
-          seen.add(mapped);
-        } else if (t === "history") {
-          seen.add("main_frame");
-        }
-      }
-      resourceTypes.push(...seen);
-      if (types.includes("history") && !types.includes("main_frame"))
-        warnings.push("history-state redirects are covered by main_frame in Reroute");
-    }
-  }
-
-  const name = typeof input.description === "string" ? input.description : "";
-  const enabled = input.disabled === true ? false : true;
 
   const rule = createRule({
-    name,
-    enabled,
+    name: typeof input.description === "string" ? input.description : "",
+    enabled: input.disabled !== true,
     matchType,
     include,
-    exclude,
+    exclude: readExclude(input.excludePattern, matchType, warn),
     redirectTo: redirectUrl,
-    transforms,
-    applyTo,
-    resourceTypes,
+    transforms: readTransforms(input, warn),
+    ...readAppliesTo(input.appliesTo, warn),
   });
   return { rule, warnings };
 }
@@ -185,11 +200,7 @@ export function importRedirectorJson(text: string): RedirectorImportResult {
   try {
     return importRedirector(JSON.parse(text));
   } catch (e) {
-    return {
-      items: [],
-      errors: [`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`],
-      source: "Redirector",
-    };
+    return { items: [], errors: [`Invalid JSON: ${errorMessage(e)}`], source: "Redirector" };
   }
 }
 

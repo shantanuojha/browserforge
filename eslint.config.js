@@ -4,6 +4,29 @@ import globals from "globals";
 import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
+/**
+ * Clean Code thresholds (see docs/CODE-STANDARDS.md). Values are what the refactored packages
+ * meet today; tighten them, never loosen them. `severity` lets a package adopt the rules as
+ * warnings first (Arbor) and flip to errors once it is refactored.
+ */
+const cleanCodeRules = (severity) => ({
+  complexity: [severity, 12],
+  "max-depth": [severity, 3],
+  "max-params": [severity, 4],
+  "max-lines-per-function": [severity, { max: 65, skipBlankLines: true, skipComments: true }],
+  "max-lines": [severity, { max: 300, skipBlankLines: true, skipComments: true }],
+  "no-nested-ternary": severity,
+  // Use the scoped logger from @browserforge/shared; raw console calls hide their origin.
+  "no-console": severity,
+});
+
+/** JSX markup is line-hungry; components get more room but the same complexity budget. */
+const componentRules = (severity) => ({
+  "max-lines-per-function": [severity, { max: 120, skipBlankLines: true, skipComments: true }],
+});
+
+const TEST_FILES = ["**/*.test.{ts,tsx}", "**/testing/**", "**/test-utils.ts"];
+
 export default tseslint.config(
   {
     ignores: ["**/node_modules/**", "**/.output/**", "**/.wxt/**", "**/dist/**", "**/coverage/**"],
@@ -35,5 +58,51 @@ export default tseslint.config(
       "no-implied-eval": "error",
       "no-new-func": "error",
     },
+  },
+
+  // ---- Clean Code thresholds: enforced in the refactored packages -----------------------------
+  {
+    files: ["packages/**/*.{ts,tsx}", "extensions/{reroute,cookiesweep}/**/*.{ts,tsx}"],
+    rules: cleanCodeRules("error"),
+  },
+  {
+    files: ["packages/**/*.tsx", "extensions/{reroute,cookiesweep}/**/*.tsx"],
+    rules: componentRules("error"),
+  },
+  {
+    // Library code declares its contract: exported functions carry explicit return types.
+    files: [
+      "packages/shared/src/**/*.ts",
+      "packages/licensing/src/**/*.ts",
+      "extensions/{reroute,cookiesweep}/src/lib/**/*.ts",
+    ],
+    ignores: TEST_FILES,
+    rules: { "@typescript-eslint/explicit-module-boundary-types": "error" },
+  },
+
+  // ---- Arbor: same standard as warnings until its own refactor lands -------------------------
+  {
+    files: ["extensions/arbor/**/*.{ts,tsx}"],
+    rules: cleanCodeRules("warn"),
+  },
+  {
+    files: ["extensions/arbor/**/*.tsx"],
+    rules: componentRules("warn"),
+  },
+
+  // ---- Exemptions -------------------------------------------------------------------------------
+  {
+    // Test suites read top to bottom; `describe` blocks and scenario builders are long by design.
+    files: TEST_FILES,
+    rules: {
+      "max-lines-per-function": "off",
+      "max-lines": "off",
+      "max-params": ["error", 5],
+    },
+  },
+  {
+    // The logger is the one place console is allowed; build scripts are CLI tools.
+    files: ["packages/shared/src/logger.ts", "**/scripts/**/*.{mjs,js,ts}"],
+    rules: { "no-console": "off" },
   },
 );

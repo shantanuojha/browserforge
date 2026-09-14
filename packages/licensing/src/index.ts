@@ -3,11 +3,16 @@
  * See README.md for the specification. Pure TypeScript; the dialog lives in `@browserforge/ui`.
  */
 export type {
+  ActivateRequest,
   AlarmInfo,
   AlarmsLike,
+  ApiCallResult,
   FetchLike,
+  InstanceRequest,
+  LicenseApi,
   LicenseClient,
   LicenseClientOptions,
+  LicenseEndpoint,
   LicenseError,
   LicenseErrorCode,
   LicenseFreeReason,
@@ -19,25 +24,24 @@ export type {
   ScheduleRevalidationOptions,
   ValidateOptions,
 } from "./types.js";
+export { DEFAULT_GRACE_PERIOD_MS, createLicenseClient } from "./client.js";
 export {
-  DEFAULT_GRACE_PERIOD_MS,
-  DEFAULT_REVALIDATE_EVERY_MS,
-  createLicenseClient,
   instanceSuffixStorageKey,
   isProState,
   licenseStorageKey,
   revalidationAlarmName,
-  scheduleRevalidation,
-} from "./client.js";
+} from "./license-record.js";
+export { DEFAULT_REVALIDATE_EVERY_MS, scheduleRevalidation } from "./revalidation.js";
 export { defineFeatures, type FeatureGate, type FeatureTier } from "./features.js";
 export { looksLikeLicenseKey, maskKey, normalizeKey } from "./mask.js";
 export { browserFamily, type BrowserFamily } from "./instance.js";
-export { LEMON_SQUEEZY_API, licenseError } from "./api.js";
+export { LEMON_SQUEEZY_API, createLicenseApi, licenseError } from "./api.js";
+export type { LicenseResponse } from "./api-schema.js";
 
 import type { LicenseClient } from "./types.js";
 
 /* ------------------------------------------------------------------------------------------ */
-/* Legacy entitlements API kept for extensions that predate the client.                       */
+/* Module-level entitlements: one client per JS context, consulted by `getEntitlements()`.     */
 
 export interface Entitlements {
   readonly pro: boolean;

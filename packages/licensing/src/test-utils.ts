@@ -1,4 +1,7 @@
-/* Shared helpers for the licensing test-suite (not exported from the package). */
+/**
+ * Test doubles for the licensing client, shared by every package that exercises Pro gating.
+ * Import from `@browserforge/licensing/testing`; never from production code.
+ */
 import { vi } from "vitest";
 import type { FetchLike, LicenseStorage } from "./types.js";
 
@@ -6,22 +9,22 @@ export interface MemoryStorage extends LicenseStorage {
   readonly data: Map<string, unknown>;
 }
 
+/** In-memory `chrome.storage.local` look-alike; values are cloned on write like the real thing. */
 export function createMemoryStorage(initial: Record<string, unknown> = {}): MemoryStorage {
   const data = new Map<string, unknown>(Object.entries(initial));
+  const toList = (keys: string | string[]) => (typeof keys === "string" ? [keys] : keys);
   return {
     data,
     async get(keys) {
-      const list = typeof keys === "string" ? [keys] : keys;
       const out: Record<string, unknown> = {};
-      for (const k of list) if (data.has(k)) out[k] = data.get(k);
+      for (const key of toList(keys)) if (data.has(key)) out[key] = data.get(key);
       return out;
     },
     async set(items) {
-      for (const [k, v] of Object.entries(items)) data.set(k, structuredClone(v));
+      for (const [key, value] of Object.entries(items)) data.set(key, structuredClone(value));
     },
     async remove(keys) {
-      const list = typeof keys === "string" ? [keys] : keys;
-      for (const k of list) data.delete(k);
+      for (const key of toList(keys)) data.delete(key);
     },
   };
 }
@@ -57,7 +60,18 @@ export const VARIANT_ID = 4242;
 export const RAW_KEY = "38b1460a-5104-4067-a91d-77b872934d51";
 export const INSTANCE_ID = "5bd6ff3b-9dd8-4fd2-9d7f-1ccb4a1ca2a1";
 
-export function activatedBody(overrides: Record<string, unknown> = {}) {
+export interface LicenseBodyOptions {
+  /** `meta.variant_id` in the answer; defaults to `VARIANT_ID`. */
+  variantId?: number;
+  /** `instance.name` in the answer. */
+  instanceName?: string;
+}
+
+/** A successful `activate` answer for `RAW_KEY`. */
+export function activatedBody(
+  overrides: Record<string, unknown> = {},
+  options: LicenseBodyOptions = {},
+) {
   return {
     activated: true,
     error: null,
@@ -70,11 +84,15 @@ export function activatedBody(overrides: Record<string, unknown> = {}) {
       created_at: "2026-01-01T00:00:00.000000Z",
       expires_at: null,
     },
-    instance: { id: INSTANCE_ID, name: "arbor@chrome-abc123", created_at: "2026-01-01" },
+    instance: {
+      id: INSTANCE_ID,
+      name: options.instanceName ?? "arbor@chrome-abc123",
+      created_at: "2026-01-01",
+    },
     meta: {
       store_id: 7,
       product_id: 9,
-      variant_id: VARIANT_ID,
+      variant_id: options.variantId ?? VARIANT_ID,
       customer_email: "pat@example.com",
       customer_name: "Pat",
     },
@@ -82,7 +100,11 @@ export function activatedBody(overrides: Record<string, unknown> = {}) {
   };
 }
 
-export function validBody(overrides: Record<string, unknown> = {}) {
-  const base = activatedBody();
+/** A successful `validate` answer for `RAW_KEY`. */
+export function validBody(
+  overrides: Record<string, unknown> = {},
+  options: LicenseBodyOptions = {},
+) {
+  const base = activatedBody({}, options);
   return { ...base, activated: undefined, valid: true, ...overrides };
 }

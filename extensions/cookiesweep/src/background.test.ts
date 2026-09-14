@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
+import type { CookieStoreInfo } from "./lib/background/store-registry.js";
 import type { CookiesGetAllDetails, CookiesRemoveDetails, ExecutorCookie } from "./lib/executor.js";
-import type { CookieStoreInfo } from "./lib/extension-api.js";
 import {
   ACTIVITY_STORAGE_KEY,
   DEFAULT_SETTINGS,

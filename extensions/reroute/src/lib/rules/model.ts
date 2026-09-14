@@ -3,6 +3,8 @@
  * this package deliberately has no schema library dependency.
  */
 
+import { errorMessage, isRecord } from "@browserforge/shared";
+
 export const MATCH_TYPES = ["wildcard", "regex"] as const;
 export type MatchType = (typeof MATCH_TYPES)[number];
 
@@ -82,10 +84,7 @@ export function isResourceType(v: unknown): v is ResourceType {
   return typeof v === "string" && (RESOURCE_TYPES as readonly string[]).includes(v);
 }
 
-function isRecord(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
-
+/** `undefined` reads as an empty list; anything that is not a string array is `null`. */
 function stringArray(v: unknown): string[] | null {
   if (v === undefined) return [];
   if (!Array.isArray(v)) return null;
@@ -127,72 +126,89 @@ export interface ValidationError {
 }
 export type Validation<T> = ValidationResult<T> | ValidationError;
 
+const invalid = (error: string): ValidationError => ({ ok: false, error });
+const valid = <T>(value: T): ValidationResult<T> => ({ ok: true, value });
+
+type IdentityFields = Pick<Rule, "id" | "name" | "enabled" | "matchType" | "include">;
+type BehaviourFields = Pick<
+  Rule,
+  "exclude" | "redirectTo" | "resourceTypes" | "transforms" | "applyTo"
+>;
+
+/** id, name, enabled, matchType, include: who the rule is and what it matches. */
+function parseIdentityFields(
+  input: Record<string, unknown>,
+  where: string,
+): Validation<IdentityFields> {
+  const id = input.id === undefined ? generateRuleId() : input.id;
+  if (typeof id !== "string" || id.length === 0) {
+    return invalid(`${where}: id must be a non-empty string`);
+  }
+  const name = input.name === undefined ? "" : input.name;
+  if (typeof name !== "string") return invalid(`${where}: name must be a string`);
+
+  const enabled = input.enabled === undefined ? true : input.enabled;
+  if (typeof enabled !== "boolean") return invalid(`${where}: enabled must be boolean`);
+
+  const matchType = input.matchType === undefined ? "wildcard" : input.matchType;
+  if (!isMatchType(matchType)) return invalid(`${where}: matchType must be "wildcard" or "regex"`);
+
+  const include = input.include;
+  if (typeof include !== "string" || include.length === 0) {
+    return invalid(`${where}: include must be a non-empty string`);
+  }
+  return valid({ id, name, enabled, matchType, include });
+}
+
+/** exclude, redirectTo, resourceTypes, transforms, applyTo: what the rule does with a match. */
+function parseBehaviourFields(
+  input: Record<string, unknown>,
+  where: string,
+): Validation<BehaviourFields> {
+  const exclude = stringArray(input.exclude);
+  if (exclude === null) return invalid(`${where}: exclude must be a string array`);
+
+  const redirectTo = input.redirectTo;
+  if (typeof redirectTo !== "string") return invalid(`${where}: redirectTo must be a string`);
+
+  const resourceTypes = stringArray(input.resourceTypes);
+  if (resourceTypes === null || !resourceTypes.every(isResourceType)) {
+    return invalid(`${where}: resourceTypes contains an unknown type`);
+  }
+  const transforms = stringArray(input.transforms);
+  if (transforms === null || !transforms.every(isTransform)) {
+    return invalid(`${where}: transforms contains an unknown transform`);
+  }
+  const applyTo = input.applyTo === undefined ? "navigation" : input.applyTo;
+  if (!isApplyTo(applyTo)) return invalid(`${where}: applyTo must be "navigation" or "all"`);
+
+  return valid({ exclude, redirectTo, resourceTypes, transforms, applyTo });
+}
+
 /**
  * Validates and normalises one rule object. Unknown keys are dropped; missing
  * optional arrays default to empty; missing `id` gets generated.
  */
 export function parseRule(input: unknown, index = 0): Validation<Rule> {
   const where = `rule[${index}]`;
-  if (!isRecord(input)) return { ok: false, error: `${where}: not an object` };
+  if (!isRecord(input)) return invalid(`${where}: not an object`);
 
-  const id = input.id === undefined ? generateRuleId() : input.id;
-  if (typeof id !== "string" || id.length === 0)
-    return { ok: false, error: `${where}: id must be a non-empty string` };
+  const identity = parseIdentityFields(input, where);
+  if (!identity.ok) return identity;
+  const behaviour = parseBehaviourFields(input, where);
+  if (!behaviour.ok) return behaviour;
 
-  const name = input.name === undefined ? "" : input.name;
-  if (typeof name !== "string") return { ok: false, error: `${where}: name must be a string` };
-
-  const enabled = input.enabled === undefined ? true : input.enabled;
-  if (typeof enabled !== "boolean")
-    return { ok: false, error: `${where}: enabled must be boolean` };
-
-  const matchType = input.matchType === undefined ? "wildcard" : input.matchType;
-  if (!isMatchType(matchType))
-    return { ok: false, error: `${where}: matchType must be "wildcard" or "regex"` };
-
-  const include = input.include;
-  if (typeof include !== "string" || include.length === 0)
-    return { ok: false, error: `${where}: include must be a non-empty string` };
-
-  const exclude = stringArray(input.exclude);
-  if (exclude === null) return { ok: false, error: `${where}: exclude must be a string array` };
-
-  const redirectTo = input.redirectTo;
-  if (typeof redirectTo !== "string")
-    return { ok: false, error: `${where}: redirectTo must be a string` };
-
-  const resourceTypesRaw = stringArray(input.resourceTypes);
-  if (resourceTypesRaw === null || !resourceTypesRaw.every(isResourceType))
-    return { ok: false, error: `${where}: resourceTypes contains an unknown type` };
-
-  const transformsRaw = stringArray(input.transforms);
-  if (transformsRaw === null || !transformsRaw.every(isTransform))
-    return { ok: false, error: `${where}: transforms contains an unknown transform` };
-
-  const applyTo = input.applyTo === undefined ? "navigation" : input.applyTo;
-  if (!isApplyTo(applyTo))
-    return { ok: false, error: `${where}: applyTo must be "navigation" or "all"` };
-
-  if (matchType === "regex") {
-    const bad = [include, ...exclude].find((src) => !isValidRegexSource(src));
-    if (bad !== undefined) return { ok: false, error: `${where}: invalid regex "${bad}"` };
+  if (identity.value.matchType === "regex") {
+    const sources = [identity.value.include, ...behaviour.value.exclude];
+    const bad = sources.find((src) => !isValidRegexSource(src));
+    if (bad !== undefined) return invalid(`${where}: invalid regex "${bad}"`);
   }
 
-  return {
-    ok: true,
-    value: {
-      id,
-      name,
-      enabled,
-      matchType,
-      include,
-      exclude: exclude.filter((e) => e.length > 0),
-      redirectTo,
-      resourceTypes: resourceTypesRaw as ResourceType[],
-      transforms: transformsRaw as Transform[],
-      applyTo,
-    },
-  };
+  return valid({
+    ...identity.value,
+    ...behaviour.value,
+    exclude: behaviour.value.exclude.filter((e) => e.length > 0),
+  });
 }
 
 export function isValidRegexSource(source: string): boolean {
@@ -209,14 +225,20 @@ export interface ParsedRules {
   errors: string[];
 }
 
+/** The list of candidate rules inside any of the accepted document shapes, or `null`. */
+function ruleListOf(input: unknown): unknown[] | null {
+  if (Array.isArray(input)) return input;
+  if (isRecord(input) && Array.isArray(input.rules)) return input.rules;
+  if (isRecord(input) && typeof input.include === "string") return [input];
+  return null;
+}
+
 /** Accepts a RuleSetDocument, a bare array of rules, or a single rule. */
 export function parseRules(input: unknown): ParsedRules {
-  let list: unknown[];
-  if (Array.isArray(input)) list = input;
-  else if (isRecord(input) && Array.isArray(input.rules)) list = input.rules;
-  else if (isRecord(input) && typeof input.include === "string") list = [input];
-  else return { rules: [], errors: ["Expected a rules document, an array of rules, or a rule"] };
-
+  const list = ruleListOf(input);
+  if (!list) {
+    return { rules: [], errors: ["Expected a rules document, an array of rules, or a rule"] };
+  }
   const rules: Rule[] = [];
   const errors: string[] = [];
   const seen = new Set<string>();
@@ -226,8 +248,7 @@ export function parseRules(input: unknown): ParsedRules {
       errors.push(res.error);
       return;
     }
-    let rule = res.value;
-    if (seen.has(rule.id)) rule = { ...rule, id: generateRuleId() };
+    const rule = seen.has(res.value.id) ? { ...res.value, id: generateRuleId() } : res.value;
     seen.add(rule.id);
     rules.push(rule);
   });
@@ -255,7 +276,7 @@ export function parseRulesJson(text: string): ParsedRules {
   try {
     json = JSON.parse(text);
   } catch (e) {
-    return { rules: [], errors: [`Invalid JSON: ${e instanceof Error ? e.message : String(e)}`] };
+    return { rules: [], errors: [`Invalid JSON: ${errorMessage(e)}`] };
   }
   return parseRules(json);
 }

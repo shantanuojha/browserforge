@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getCookieStores } from "../lib/extension-api.js";
+import { getCookieStores } from "../adapters/extension-api.js";
 
 /** Ids of the cookie stores the browser currently exposes (containers, incognito). */
 export function useCookieStores(): string[] {

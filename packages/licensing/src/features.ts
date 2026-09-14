@@ -1,4 +1,4 @@
-import { isProState } from "./client.js";
+import { isProState } from "./license-record.js";
 import type { LicenseClient, LicenseState } from "./types.js";
 
 export type FeatureTier = "free" | "pro";

@@ -1,18 +1,18 @@
 import { Button, Panel, ProBadge } from "@browserforge/ui";
 import { useCallback, useEffect, useState } from "react";
-import { browser } from "wxt/browser";
+import { allowlistItem, logItem, rulesItem, settingsItem } from "../../adapters/storage";
 import { ActivityLog } from "../../components/ActivityLog";
 import { AllowlistEditor } from "../../components/AllowlistEditor";
-import { ImportExport } from "../../components/ImportExport";
+import { ImportExport, type ImportMode } from "../../components/ImportExport";
 import { ProPanel } from "../../components/ProPanel";
 import { RuleEditor } from "../../components/RuleEditor";
 import { RuleList } from "../../components/RuleList";
 import { TrackingPanel } from "../../components/TrackingPanel";
+import { useBackgroundStatus } from "../../hooks/useBackgroundStatus";
 import { usePro } from "../../hooks/usePro";
 import { useStorageItem } from "../../hooks/useStorageItem";
-import type { Message, StatusResponse } from "../../lib/messages";
+import type { StatusResponse } from "../../lib/messages";
 import { appendRules, createRule, type Rule } from "../../lib/rules/model";
-import { allowlistItem, logItem, rulesItem, settingsItem } from "../../lib/storage";
 
 type Tab = "rules" | "import" | "tracking" | "allowlist" | "activity" | "pro";
 
@@ -25,139 +25,156 @@ const TABS: { id: Tab; label: string }[] = [
   { id: "pro", label: "Pro" },
 ];
 
-function useStatus(deps: unknown[]): StatusResponse | null {
-  const [status, setStatus] = useState<StatusResponse | null>(null);
+const isTab = (value: string): value is Tab => TABS.some((t) => t.id === value);
+
+/** The selected tab, mirrored into the URL hash so a reload lands on the same section. */
+function useHashTab(): [Tab, (tab: Tab) => void] {
+  const [tab, setTab] = useState<Tab>(() => {
+    const hash = window.location.hash.replace("#", "");
+    return isTab(hash) ? hash : "rules";
+  });
   useEffect(() => {
-    let cancelled = false;
-    const msg: Message = { type: "reroute:get-status" };
-    // Give the background a moment to recompile after a storage change.
-    const t = setTimeout(() => {
-      browser.runtime
-        .sendMessage(msg)
-        .then((res: unknown) => {
-          if (!cancelled && res && typeof res === "object") setStatus(res as StatusResponse);
-        })
-        .catch(() => {
-          if (!cancelled) setStatus(null);
-        });
-    }, 250);
-    return () => {
-      cancelled = true;
-      clearTimeout(t);
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-  return status;
+    window.location.hash = tab;
+  }, [tab]);
+  return [tab, setTab];
+}
+
+function engineSummary(status: StatusResponse | null): string {
+  if (!status) return "";
+  const network = `${status.dnrRules} rule${status.dnrRules === 1 ? "" : "s"}`;
+  return ` ${network} run in the network layer, ${status.jsOnlyRuleIds.length} through the JavaScript fallback.`;
+}
+
+interface RulesTabProps {
+  rules: Rule[];
+  rulesLoaded: boolean;
+  status: StatusResponse | null;
+  onChange: (rules: Rule[]) => void;
+}
+
+function RulesTab({ rules, rulesLoaded, status, onChange }: RulesTabProps) {
+  const [editing, setEditing] = useState<Rule | null>(null);
+  const isExisting = editing !== null && rules.some((r) => r.id === editing.id);
+
+  const saveRule = (rule: Rule) => {
+    onChange(isExisting ? rules.map((r) => (r.id === rule.id ? rule : r)) : [...rules, rule]);
+    setEditing(null);
+  };
+
+  let title = "Rules";
+  if (editing) title = isExisting ? "Edit rule" : "New rule";
+
+  return (
+    <Panel
+      title={title}
+      actions={
+        editing ? null : (
+          <Button size="sm" onClick={() => setEditing(createRule())}>
+            New rule
+          </Button>
+        )
+      }
+    >
+      {editing ? (
+        <RuleEditor
+          rule={editing}
+          allRules={rules}
+          onSave={saveRule}
+          onCancel={() => setEditing(null)}
+        />
+      ) : (
+        <div className="rr-stack">
+          <p className="rr-help">
+            Rules are tried top to bottom; the first match wins. Drag rows or use Up / Down to
+            reorder.
+            {engineSummary(status)}
+          </p>
+          {rulesLoaded ? (
+            <RuleList
+              rules={rules}
+              jsOnlyReasons={status?.jsOnlyReasons ?? {}}
+              onChange={onChange}
+              onEdit={setEditing}
+            />
+          ) : (
+            <p className="rr-muted">Loading...</p>
+          )}
+        </div>
+      )}
+    </Panel>
+  );
+}
+
+interface NavProps {
+  tab: Tab;
+  onSelect: (tab: Tab) => void;
+  enabledCount: number;
+  pro: boolean | null;
+  lastError: string | null | undefined;
+}
+
+function OptionsNav({ tab, onSelect, enabledCount, pro, lastError }: NavProps) {
+  return (
+    <nav className="rr-nav" aria-label="Settings sections">
+      <div className="rr-nav__brand">Reroute</div>
+      {TABS.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          className="rr-nav__item"
+          aria-current={tab === t.id ? "page" : undefined}
+          onClick={() => onSelect(t.id)}
+        >
+          <span>{t.label}</span>
+          {t.id === "rules" ? <span className="rr-tag">{enabledCount}</span> : null}
+          {t.id === "pro" && pro ? <ProBadge /> : null}
+        </button>
+      ))}
+      {lastError ? (
+        <div className="rr-notice rr-notice--error rr-small" style={{ marginTop: 12 }}>
+          {lastError}
+        </div>
+      ) : null}
+    </nav>
+  );
 }
 
 export function App() {
-  const [tab, setTab] = useState<Tab>(() => {
-    const hash = window.location.hash.replace("#", "");
-    return TABS.some((t) => t.id === hash) ? (hash as Tab) : "rules";
-  });
+  const [tab, setTab] = useHashTab();
   const [rules, setRules, rulesLoaded] = useStorageItem(rulesItem);
   const [allowlist, setAllowlist] = useStorageItem(allowlistItem);
   const [settings, setSettings] = useStorageItem(settingsItem);
   const [log, setLog] = useStorageItem(logItem);
   const pro = usePro();
-  const status = useStatus([rules, allowlist, settings]);
-  const [editing, setEditing] = useState<Rule | null>(null);
-
-  useEffect(() => {
-    window.location.hash = tab;
-  }, [tab]);
-
-  const saveRule = useCallback(
-    (rule: Rule) => {
-      const exists = rules.some((r) => r.id === rule.id);
-      void setRules(exists ? rules.map((r) => (r.id === rule.id ? rule : r)) : [...rules, rule]);
-      setEditing(null);
-    },
-    [rules, setRules],
-  );
+  const { status, refresh: refreshStatus } = useBackgroundStatus();
+  // Every one of these writes makes the background rebuild; ask for the new status afterwards.
+  useEffect(() => refreshStatus(), [rules, allowlist, settings, refreshStatus]);
 
   const importRules = useCallback(
-    (incoming: Rule[], mode: "append" | "replace") => {
+    (incoming: Rule[], mode: ImportMode) => {
       void setRules(mode === "replace" ? incoming : appendRules(rules, incoming));
     },
     [rules, setRules],
   );
 
-  const enabledCount = rules.filter((r) => r.enabled).length;
-
   return (
     <div className="rr-options">
-      <nav className="rr-nav" aria-label="Settings sections">
-        <div className="rr-nav__brand">Reroute</div>
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            className="rr-nav__item"
-            aria-current={tab === t.id ? "page" : undefined}
-            onClick={() => setTab(t.id)}
-          >
-            <span>{t.label}</span>
-            {t.id === "rules" ? <span className="rr-tag">{enabledCount}</span> : null}
-            {t.id === "pro" && pro ? <ProBadge /> : null}
-          </button>
-        ))}
-        {status?.lastError ? (
-          <div className="rr-notice rr-notice--error rr-small" style={{ marginTop: 12 }}>
-            {status.lastError}
-          </div>
-        ) : null}
-      </nav>
+      <OptionsNav
+        tab={tab}
+        onSelect={setTab}
+        enabledCount={rules.filter((r) => r.enabled).length}
+        pro={pro}
+        lastError={status?.lastError}
+      />
 
       <main className="rr-main">
         {tab === "rules" ? (
-          <Panel
-            title={
-              editing
-                ? rules.some((r) => r.id === editing.id)
-                  ? "Edit rule"
-                  : "New rule"
-                : "Rules"
-            }
-            actions={
-              editing ? null : (
-                <Button size="sm" onClick={() => setEditing(createRule())}>
-                  New rule
-                </Button>
-              )
-            }
-          >
-            {editing ? (
-              <RuleEditor
-                rule={editing}
-                allRules={rules}
-                onSave={saveRule}
-                onCancel={() => setEditing(null)}
-              />
-            ) : (
-              <div className="rr-stack">
-                <p className="rr-help">
-                  Rules are tried top to bottom; the first match wins. Drag rows or use Up / Down to
-                  reorder.
-                  {status
-                    ? ` ${status.dnrRules} rule${status.dnrRules === 1 ? "" : "s"} run in the network layer, ${
-                        status.jsOnlyRuleIds.length
-                      } through the JavaScript fallback.`
-                    : ""}
-                </p>
-                {rulesLoaded ? (
-                  <RuleList
-                    rules={rules}
-                    jsOnlyReasons={status?.jsOnlyReasons ?? {}}
-                    onChange={(next) => void setRules(next)}
-                    onEdit={setEditing}
-                  />
-                ) : (
-                  <p className="rr-muted">Loading...</p>
-                )}
-              </div>
-            )}
-          </Panel>
+          <RulesTab
+            rules={rules}
+            rulesLoaded={rulesLoaded}
+            status={status}
+            onChange={(next) => void setRules(next)}
+          />
         ) : null}
 
         {tab === "import" ? (

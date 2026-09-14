@@ -1,5 +1,5 @@
 import { useId, type InputHTMLAttributes, type ReactNode } from "react";
-import { cx } from "./classNames.js";
+import { cx, isRenderable } from "./classNames.js";
 
 export interface TextInputProps extends Omit<InputHTMLAttributes<HTMLInputElement>, "id"> {
   label: ReactNode;
@@ -28,8 +28,8 @@ export function TextInput({
   const inputId = id ?? `bf-input-${autoId}`;
   const hintId = `${inputId}-hint`;
   const errorId = `${inputId}-error`;
-  const hasHint = hint !== undefined && hint !== null && hint !== false;
-  const hasError = error !== undefined && error !== null && error !== false;
+  const hasHint = isRenderable(hint);
+  const hasError = isRenderable(error);
   const describedBy = cx(hasHint && hintId, hasError && errorId) || undefined;
 
   return (
@@ -41,7 +41,7 @@ export function TextInput({
         id={inputId}
         type={type}
         className={cx("bf-input", mono && "bf-input--mono")}
-        aria-invalid={hasError ? true : undefined}
+        aria-invalid={hasError || undefined}
         aria-describedby={describedBy}
         {...rest}
       />

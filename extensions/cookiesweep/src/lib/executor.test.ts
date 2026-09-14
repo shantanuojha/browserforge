@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   CHROME_SITE_DATA_TYPES,
   FIREFOX_SITE_DATA_TYPES,
-  cleanDomainsInStore,
+  cleanDomainsInStore as cleanTarget,
   cookiePlanningDomain,
   cookieUrl,
   countCookiesForHost,
@@ -14,10 +14,20 @@ import {
   type BrowsingDataTypes,
   type CookiesGetAllDetails,
   type CookiesRemoveDetails,
+  type ExecuteOptions,
   type ExecutorApi,
   type ExecutorCookie,
 } from "./executor.js";
 import { planCleanup } from "./planner.js";
+
+/** Positional builder so the scenarios read as (api, store, domains, options, cookies?). */
+const cleanDomainsInStore = (
+  api: ExecutorApi,
+  storeId: string,
+  domains: readonly string[],
+  options: ExecuteOptions,
+  cookies?: readonly ExecutorCookie[],
+) => cleanTarget(api, cookies ? { storeId, domains, cookies } : { storeId, domains }, options);
 
 type Flavor = "chrome" | "chrome-old" | "firefox";
 

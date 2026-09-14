@@ -7,15 +7,25 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Browser } from "wxt/browser";
 import { fakeBrowser } from "wxt/testing/fake-browser";
+import type * as LicensingAdapter from "./adapters/licensing";
+import { allowlistItem, logItem, rulesItem, settingsItem } from "./adapters/storage";
+import { browserSyncArea } from "./adapters/sync-area";
 import background from "./entrypoints/background";
 import type { DnrRule } from "./lib/dnr";
 import type { StatusResponse } from "./lib/messages";
 import { createRule, type Rule } from "./lib/rules/model";
-import { allowlistItem, logItem, rulesItem, settingsItem } from "./lib/storage";
-import { readRulesFromSync, writeRulesToSync } from "./lib/sync";
+import { createSyncStore } from "./lib/sync/store";
 
 const proState = vi.hoisted(() => ({ pro: false }));
-vi.mock("./lib/pro", () => ({ isPro: async () => proState.pro }));
+vi.mock("./adapters/licensing", async (importOriginal) => ({
+  ...(await importOriginal<typeof LicensingAdapter>()),
+  isPro: async () => proState.pro,
+}));
+
+/** The same sync storage the background writes to, seen through the store API. */
+const sync = createSyncStore(browserSyncArea);
+const writeRulesToSync = (rules: Rule[], origin: string) => sync.write(rules, origin);
+const readRulesFromSync = () => sync.read();
 
 interface DnrStub {
   rules: DnrRule[];

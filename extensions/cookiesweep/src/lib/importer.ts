@@ -1,3 +1,4 @@
+import { isRecord } from "@browserforge/shared";
 import {
   dedupeListEntries,
   isValidPattern,
@@ -25,12 +26,14 @@ export interface ImportSkip {
   raw: unknown;
 }
 
+export type ImportFormat = "cookie-autodelete" | "cookiesweep" | "unknown";
+
 export interface ImportResult {
   entries: ListEntry[];
   skipped: ImportSkip[];
   warnings: string[];
   /** Best-effort description of what was detected. */
-  format: "cookie-autodelete" | "cookiesweep" | "unknown";
+  format: ImportFormat;
 }
 
 export interface CookieSweepExport {
@@ -41,10 +44,6 @@ export interface CookieSweepExport {
 }
 
 export const EXPORT_VERSION = 1 as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 function parseListType(value: unknown): ListType | null {
   if (typeof value !== "string") return null;
@@ -88,46 +87,144 @@ interface RawItem {
   value: unknown;
 }
 
-/** Flatten every supported container shape into a list of candidate items. */
-function collectItems(root: unknown): { items: RawItem[]; format: ImportResult["format"] } {
-  if (Array.isArray(root)) {
-    return {
-      items: root.map((value, index) => ({ index, value })),
-      format: "cookie-autodelete",
-    };
-  }
-  if (isRecord(root)) {
-    if (root.app === "cookiesweep" && Array.isArray(root.lists)) {
-      return {
-        items: root.lists.map((value, index) => ({ index, value })),
-        format: "cookiesweep",
-      };
-    }
-    const container =
-      isRecord(root.lists) || Array.isArray(root.lists)
-        ? root.lists
-        : isRecord(root.expressions) || Array.isArray(root.expressions)
-          ? root.expressions
-          : root;
-    if (Array.isArray(container)) {
-      return {
-        items: container.map((value, index) => ({ index, value })),
-        format: "cookie-autodelete",
-      };
-    }
-    const items: RawItem[] = [];
-    let index = 0;
-    for (const [storeId, list] of Object.entries(container)) {
-      if (!Array.isArray(list)) continue;
-      for (const value of list) {
-        const store = parseStoreId(storeId);
-        items.push(store ? { index: index++, storeId: store, value } : { index: index++, value });
-      }
-    }
-    return { items, format: items.length > 0 ? "cookie-autodelete" : "unknown" };
-  }
-  return { items: [], format: "unknown" };
+interface Collected {
+  items: RawItem[];
+  format: ImportFormat;
 }
+
+const indexed = (values: unknown[]): RawItem[] => values.map((value, index) => ({ index, value }));
+
+/** The object or array that holds the entries inside a wrapped CAD backup. */
+function containerOf(root: Record<string, unknown>): unknown {
+  if (isRecord(root.lists) || Array.isArray(root.lists)) return root.lists;
+  if (isRecord(root.expressions) || Array.isArray(root.expressions)) return root.expressions;
+  return root;
+}
+
+/** `{ default: [...], "firefox-container-1": [...] }`: entries keyed by the store they belong to. */
+function itemsByStore(container: Record<string, unknown>): RawItem[] {
+  const items: RawItem[] = [];
+  for (const [storeKey, list] of Object.entries(container)) {
+    if (!Array.isArray(list)) continue;
+    const storeId = parseStoreId(storeKey);
+    for (const value of list) {
+      const item: RawItem = { index: items.length, value };
+      if (storeId) item.storeId = storeId;
+      items.push(item);
+    }
+  }
+  return items;
+}
+
+/** Flatten every supported container shape into a list of candidate items. */
+function collectItems(root: unknown): Collected {
+  if (Array.isArray(root)) return { items: indexed(root), format: "cookie-autodelete" };
+  if (!isRecord(root)) return { items: [], format: "unknown" };
+  if (root.app === "cookiesweep" && Array.isArray(root.lists)) {
+    return { items: indexed(root.lists), format: "cookiesweep" };
+  }
+  const container = containerOf(root);
+  if (Array.isArray(container)) return { items: indexed(container), format: "cookie-autodelete" };
+  const items = itemsByStore(container as Record<string, unknown>);
+  return { items, format: items.length > 0 ? "cookie-autodelete" : "unknown" };
+}
+
+/** Counters for the warnings summarised at the end of an import. */
+interface ImportTally {
+  cookieNameEntries: number;
+  unknownListTypes: number;
+}
+
+type ItemOutcome = { entry: ListEntry } | { skip: string };
+
+function withStore(entry: ListEntry, storeId: string | undefined): ListEntry {
+  return storeId ? { ...entry, storeId } : entry;
+}
+
+/** Bare string lists: treat as whitelist patterns. */
+function parseStringItem(raw: string, storeId: string | undefined): ItemOutcome {
+  const pattern = convertCadExpression(raw);
+  if (!isValidPattern(pattern)) return { skip: "Invalid pattern" };
+  return { entry: withStore({ pattern, listType: "white" }, storeId) };
+}
+
+/** The host expression under any of the field names the supported formats use. */
+function expressionOf(raw: Record<string, unknown>): string | null {
+  const expression = raw.expression ?? raw.domain ?? raw.pattern ?? raw.host;
+  return typeof expression === "string" && expression.trim() !== "" ? expression : null;
+}
+
+/** Our pattern for an expression, or the reason it cannot be imported. */
+function patternOf(
+  expression: string,
+  format: ImportFormat,
+): { pattern: string } | { skip: string } {
+  if (format !== "cookiesweep" && isCadInternalExpression(expression)) {
+    return { skip: "Cookie AutoDelete internal default entry" };
+  }
+  const pattern =
+    format === "cookiesweep" ? normalizePattern(expression) : convertCadExpression(expression);
+  if (!isValidPattern(pattern)) return { skip: `Invalid pattern "${expression}"` };
+  return { pattern };
+}
+
+function listTypeOf(raw: Record<string, unknown>, tally: ImportTally): ListType {
+  const listType = parseListType(raw.listType ?? raw.list ?? raw.type);
+  if (listType) return listType;
+  tally.unknownListTypes += 1;
+  return "white";
+}
+
+function parseObjectItem(
+  raw: Record<string, unknown>,
+  item: RawItem,
+  format: ImportFormat,
+  tally: ImportTally,
+): ItemOutcome {
+  const expression = expressionOf(raw);
+  if (expression === null) return { skip: "Missing expression/domain" };
+  const converted = patternOf(expression, format);
+  if ("skip" in converted) return converted;
+
+  const listType = listTypeOf(raw, tally);
+  if (Array.isArray(raw.cookieNames) && raw.cookieNames.length > 0) tally.cookieNameEntries += 1;
+  const storeId = parseStoreId(raw.storeId ?? raw.cookieStoreId) ?? item.storeId;
+  return { entry: withStore({ pattern: converted.pattern, listType }, storeId) };
+}
+
+function parseItem(item: RawItem, format: ImportFormat, tally: ImportTally): ItemOutcome {
+  const raw = item.value;
+  if (typeof raw === "string") return parseStringItem(raw, item.storeId);
+  if (!isRecord(raw)) return { skip: "Not an object" };
+  return parseObjectItem(raw, item, format, tally);
+}
+
+const plural = (count: number, one: string, many: string) => (count === 1 ? one : many);
+
+function tallyWarnings(tally: ImportTally, duplicates: number): string[] {
+  const warnings: string[] = [];
+  if (tally.cookieNameEntries > 0) {
+    const n = tally.cookieNameEntries;
+    warnings.push(
+      `${n} entr${plural(n, "y has", "ies have")} per-cookie name exceptions (cookieNames); CookieSweep keeps whole domains, so those exceptions were ignored.`,
+    );
+  }
+  if (tally.unknownListTypes > 0) {
+    const n = tally.unknownListTypes;
+    warnings.push(
+      `${n} entr${plural(n, "y", "ies")} had an unknown list type and were imported as whitelist.`,
+    );
+  }
+  if (duplicates > 0) warnings.push(`${duplicates} duplicate entries were merged.`);
+  return warnings;
+}
+
+const invalidJson = (source: string): ImportResult => ({
+  entries: [],
+  skipped: [{ index: -1, reason: "Not valid JSON", raw: source }],
+  warnings: [],
+  format: "unknown",
+});
 
 export function parseImport(source: string | unknown): ImportResult {
   let root: unknown = source;
@@ -135,83 +232,23 @@ export function parseImport(source: string | unknown): ImportResult {
     try {
       root = JSON.parse(source);
     } catch {
-      return {
-        entries: [],
-        skipped: [{ index: -1, reason: "Not valid JSON", raw: source }],
-        warnings: [],
-        format: "unknown",
-      };
+      return invalidJson(source);
     }
   }
 
   const { items, format } = collectItems(root);
   const entries: ListEntry[] = [];
   const skipped: ImportSkip[] = [];
-  let cookieNameEntries = 0;
-  let unknownListTypes = 0;
+  const tally: ImportTally = { cookieNameEntries: 0, unknownListTypes: 0 };
 
   for (const item of items) {
-    const raw = item.value;
-    if (typeof raw === "string") {
-      // Bare string lists: treat as whitelist patterns.
-      const pattern = convertCadExpression(raw);
-      if (!isValidPattern(pattern)) {
-        skipped.push({ index: item.index, reason: "Invalid pattern", raw });
-        continue;
-      }
-      entries.push(
-        item.storeId
-          ? { pattern, listType: "white", storeId: item.storeId }
-          : { pattern, listType: "white" },
-      );
-      continue;
-    }
-    if (!isRecord(raw)) {
-      skipped.push({ index: item.index, reason: "Not an object", raw });
-      continue;
-    }
-    const expression = raw.expression ?? raw.domain ?? raw.pattern ?? raw.host;
-    if (typeof expression !== "string" || expression.trim() === "") {
-      skipped.push({ index: item.index, reason: "Missing expression/domain", raw });
-      continue;
-    }
-    if (format !== "cookiesweep" && isCadInternalExpression(expression)) {
-      skipped.push({ index: item.index, reason: "Cookie AutoDelete internal default entry", raw });
-      continue;
-    }
-    const pattern =
-      format === "cookiesweep" ? normalizePattern(expression) : convertCadExpression(expression);
-    if (!isValidPattern(pattern)) {
-      skipped.push({ index: item.index, reason: `Invalid pattern "${expression}"`, raw });
-      continue;
-    }
-    let listType = parseListType(raw.listType ?? raw.list ?? raw.type);
-    if (!listType) {
-      unknownListTypes += 1;
-      listType = "white";
-    }
-    if (Array.isArray(raw.cookieNames) && raw.cookieNames.length > 0) cookieNameEntries += 1;
-
-    const storeId = parseStoreId(raw.storeId ?? raw.cookieStoreId) ?? item.storeId;
-    entries.push(storeId ? { pattern, listType, storeId } : { pattern, listType });
+    const outcome = parseItem(item, format, tally);
+    if ("entry" in outcome) entries.push(outcome.entry);
+    else skipped.push({ index: item.index, reason: outcome.skip, raw: item.value });
   }
 
-  const warnings: string[] = [];
-  if (cookieNameEntries > 0) {
-    warnings.push(
-      `${cookieNameEntries} entr${cookieNameEntries === 1 ? "y has" : "ies have"} per-cookie name exceptions (cookieNames); CookieSweep keeps whole domains, so those exceptions were ignored.`,
-    );
-  }
-  if (unknownListTypes > 0) {
-    warnings.push(
-      `${unknownListTypes} entr${unknownListTypes === 1 ? "y" : "ies"} had an unknown list type and were imported as whitelist.`,
-    );
-  }
   const deduped = dedupeListEntries(entries);
-  if (deduped.length < entries.length) {
-    warnings.push(`${entries.length - deduped.length} duplicate entries were merged.`);
-  }
-
+  const warnings = tallyWarnings(tally, entries.length - deduped.length);
   return { entries: deduped, skipped, warnings, format };
 }
 

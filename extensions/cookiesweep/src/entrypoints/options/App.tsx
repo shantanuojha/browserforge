@@ -7,10 +7,25 @@ import { ListEditor } from "../../components/ListEditor.js";
 import { Section } from "../../components/Section.js";
 import { StatusPill } from "../../components/StatusPill.js";
 import { Toggle } from "../../components/Toggle.js";
+import { sendMessage } from "../../adapters/messaging.js";
 import { useCookieStores } from "../../hooks/useCookieStores.js";
 import { useActivityLog, useSettings } from "../../hooks/useSettings.js";
-import { sendMessage } from "../../lib/messages.js";
-import { MAX_DELAY_SECONDS, MIN_DELAY_SECONDS, clampDelay } from "../../lib/settings.js";
+import type { CleanupSummary } from "../../lib/messages.js";
+import {
+  MAX_DELAY_SECONDS,
+  MIN_DELAY_SECONDS,
+  clampDelay,
+  type Settings,
+} from "../../lib/settings.js";
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+function describeCleanAll(summary: CleanupSummary | undefined): string {
+  if (!summary) return "Nothing to clean.";
+  const siteData =
+    summary.siteDataDomains > 0 ? ` and cleared site data for ${summary.siteDataDomains}` : "";
+  return `Removed ${plural(summary.cookiesRemoved, "cookie")} across ${plural(summary.domains.length, "domain")}${siteData}.`;
+}
 
 function DelayField({
   value,
@@ -50,6 +65,68 @@ function DelayField({
   );
 }
 
+interface BehaviourSectionProps {
+  settings: Settings;
+  disabled: boolean;
+  patch: (partial: Partial<Settings>) => Promise<void>;
+}
+
+/** The switches and delay that decide when automatic cleanups run and what they remove. */
+function BehaviourSection({ settings, disabled, patch }: BehaviourSectionProps) {
+  return (
+    <Section
+      title="Cleanup behaviour"
+      description="Cookies for a site are removed after its last tab closes or you navigate away, unless the site is on a list or still open somewhere."
+    >
+      <Toggle
+        label="Automatic cleanup"
+        hint="Pause to stop all automatic cleanups. Manual cleanups still work."
+        checked={settings.enabled}
+        disabled={disabled}
+        onChange={(enabled) => patch({ enabled })}
+      />
+      <div className="cs-field">
+        <div>
+          <label className="cs-field__label" htmlFor="cs-delay">
+            Delay before cleaning
+          </label>
+          <p className="cs-field__hint">
+            Seconds to wait after a trigger, so quick tab switches do not log you out. Delays under
+            30 s use a timer; if the browser suspends the extension first, the cleanup runs when it
+            wakes up again.
+          </p>
+        </div>
+        <DelayField
+          value={settings.delaySeconds}
+          disabled={disabled}
+          onCommit={(delaySeconds) => patch({ delaySeconds })}
+        />
+      </div>
+      <Toggle
+        label="Also clean site data"
+        hint="Clears localStorage, IndexedDB, Cache Storage and service workers for cleaned domains."
+        checked={settings.cleanSiteData}
+        disabled={disabled}
+        onChange={(cleanSiteData) => patch({ cleanSiteData })}
+      />
+      <Toggle
+        label="Full sweep on browser startup"
+        hint="Off: startup only expires the greylist. On: everything not whitelisted or open in a restored tab is cleaned at startup."
+        checked={settings.cleanOnStartup}
+        disabled={disabled}
+        onChange={(cleanOnStartup) => patch({ cleanOnStartup })}
+      />
+      <Toggle
+        label="Show a badge flash after each cleanup"
+        hint="Briefly shows the number of removed cookies on the toolbar icon. CookieSweep does not use system notifications."
+        checked={settings.notifications}
+        disabled={disabled}
+        onChange={(notifications) => patch({ notifications })}
+      />
+    </Section>
+  );
+}
+
 export function App() {
   const { settings, loading, patch } = useSettings();
   const { log, clear } = useActivityLog();
@@ -62,15 +139,8 @@ export function App() {
     setCleanResult(null);
     const response = await sendMessage({ type: "clean-all" });
     setCleaning(false);
-    if (!response.ok) {
-      setCleanResult(`Cleanup failed: ${response.error}`);
-      return;
-    }
-    const s = response.summary;
     setCleanResult(
-      s
-        ? `Removed ${s.cookiesRemoved} cookie${s.cookiesRemoved === 1 ? "" : "s"} across ${s.domains.length} domain${s.domains.length === 1 ? "" : "s"}${s.siteDataDomains > 0 ? ` and cleared site data for ${s.siteDataDomains}` : ""}.`
-        : "Nothing to clean.",
+      response.ok ? describeCleanAll(response.summary) : `Cleanup failed: ${response.error}`,
     );
   };
 
@@ -95,56 +165,7 @@ export function App() {
           </>
         }
       >
-        <Section
-          title="Cleanup behaviour"
-          description="Cookies for a site are removed after its last tab closes or you navigate away, unless the site is on a list or still open somewhere."
-        >
-          <Toggle
-            label="Automatic cleanup"
-            hint="Pause to stop all automatic cleanups. Manual cleanups still work."
-            checked={settings.enabled}
-            disabled={loading}
-            onChange={(enabled) => patch({ enabled })}
-          />
-          <div className="cs-field">
-            <div>
-              <label className="cs-field__label" htmlFor="cs-delay">
-                Delay before cleaning
-              </label>
-              <p className="cs-field__hint">
-                Seconds to wait after a trigger, so quick tab switches do not log you out. Delays
-                under 30 s use a timer; if the browser suspends the extension first, the cleanup
-                runs when it wakes up again.
-              </p>
-            </div>
-            <DelayField
-              value={settings.delaySeconds}
-              disabled={loading}
-              onCommit={(delaySeconds) => patch({ delaySeconds })}
-            />
-          </div>
-          <Toggle
-            label="Also clean site data"
-            hint="Clears localStorage, IndexedDB, Cache Storage and service workers for cleaned domains."
-            checked={settings.cleanSiteData}
-            disabled={loading}
-            onChange={(cleanSiteData) => patch({ cleanSiteData })}
-          />
-          <Toggle
-            label="Full sweep on browser startup"
-            hint="Off: startup only expires the greylist. On: everything not whitelisted or open in a restored tab is cleaned at startup."
-            checked={settings.cleanOnStartup}
-            disabled={loading}
-            onChange={(cleanOnStartup) => patch({ cleanOnStartup })}
-          />
-          <Toggle
-            label="Show a badge flash after each cleanup"
-            hint="Briefly shows the number of removed cookies on the toolbar icon. CookieSweep does not use system notifications."
-            checked={settings.notifications}
-            disabled={loading}
-            onChange={(notifications) => patch({ notifications })}
-          />
-        </Section>
+        <BehaviourSection settings={settings} disabled={loading} patch={patch} />
 
         <Section
           title="Whitelist and greylist"

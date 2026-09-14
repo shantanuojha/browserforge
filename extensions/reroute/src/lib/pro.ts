@@ -1,10 +1,9 @@
 /**
- * Pro gating. The licence itself is handled by `@browserforge/licensing` through the client in
- * `./licensing`; everything else about Pro (features, copy, URL) lives here.
+ * What Pro is, in words: the feature list and the upsell copy. The licence itself is handled by
+ * `@browserforge/licensing` through `adapters/licensing.ts`.
  */
 
-import { getEntitlements } from "@browserforge/licensing";
-import { getLicenseClient, PRO_PAGE_URL, PRO_PRICE_TEXT } from "./licensing";
+import { PRO_PAGE_URL, PRO_PRICE_TEXT } from "./licensing-config";
 
 export type ProFeature = "sync" | "rule-packs" | "share";
 
@@ -25,13 +24,3 @@ export const PRO_FEATURES: Record<ProFeature, { title: string; description: stri
 
 export const PRO_UPSELL_LABEL = PRO_PRICE_TEXT;
 export const PRO_URL = PRO_PAGE_URL;
-
-/** Resolves to `false` when licensing is not configured in this build. */
-export async function isPro(): Promise<boolean> {
-  try {
-    const ent = await getEntitlements(getLicenseClient());
-    return ent.pro === true;
-  } catch {
-    return false;
-  }
-}

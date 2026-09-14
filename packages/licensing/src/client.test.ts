@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-import { createLicenseClient, isProState, licenseStorageKey, scheduleRevalidation } from "./client";
+import { createLicenseClient } from "./client";
+import { isProState, licenseStorageKey } from "./license-record";
+import { scheduleRevalidation } from "./revalidation";
 import type { AlarmsLike, LicenseState, LicenseStorage } from "./types";
 import {
   INSTANCE_ID,

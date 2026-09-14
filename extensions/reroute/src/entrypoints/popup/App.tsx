@@ -1,75 +1,70 @@
-import { hostMatchesAny } from "@browserforge/shared";
-import { Button, Panel, ProBadge } from "@browserforge/ui";
+import { Button, copyToClipboard, Panel, ProBadge } from "@browserforge/ui";
 import { useEffect, useState } from "react";
 import { browser } from "wxt/browser";
+import { allowlistItem, rulesItem, settingsItem } from "../../adapters/storage";
+import { loadTrackingRules } from "../../adapters/tracking-rules";
 import { Toggle } from "../../components/Toggle";
+import { useActiveTabUrl } from "../../hooks/useActiveTabUrl";
+import { useBackgroundStatus } from "../../hooks/useBackgroundStatus";
 import { usePro } from "../../hooks/usePro";
 import { useStorageItem } from "../../hooks/useStorageItem";
-import type { Message, StatusResponse } from "../../lib/messages";
-import { allowlistItem, rulesItem, settingsItem } from "../../lib/storage";
-import { cleanUrl } from "../../lib/tracking/clean";
-import { loadTrackingRules } from "../../lib/tracking/load";
+import {
+  addHostToAllowlist,
+  isHostAllowlisted,
+  removeHostFromAllowlist,
+} from "../../lib/rules/allowlist";
+import { cleanUrl, type CleanResult } from "../../lib/tracking/clean";
+
+/** Hostname of an http(s) URL; null for pages Reroute cannot act on. */
+function httpHostOf(url: string | null): string | null {
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const isHttp = parsed.protocol === "http:" || parsed.protocol === "https:";
+    return isHttp ? parsed.hostname : null;
+  } catch {
+    return null;
+  }
+}
+
+function describeCopy(result: CleanResult): string {
+  if (!result.changed) return "Copied. Nothing to remove.";
+  const count = result.removed.length;
+  return `Copied. Removed ${count} parameter${count === 1 ? "" : "s"}: ${result.removed.join(", ")}`;
+}
+
+function pageLabel(host: string | null, tabUrl: string | null): string {
+  if (host) return host;
+  return tabUrl ? "This page cannot be rerouted" : "No active tab";
+}
 
 export function App() {
-  const [tabUrl, setTabUrl] = useState<string | null>(null);
+  const tabUrl = useActiveTabUrl();
   const [rules] = useStorageItem(rulesItem);
   const [allowlist, setAllowlist] = useStorageItem(allowlistItem);
   const [settings] = useStorageItem(settingsItem);
-  const [status, setStatus] = useState<StatusResponse | null>(null);
-  const [copied, setCopied] = useState<string | null>(null);
+  const { status, refresh: refreshStatus } = useBackgroundStatus(0);
+  useEffect(() => refreshStatus(), [refreshStatus]);
   const pro = usePro();
+  const [copied, setCopied] = useState<string | null>(null);
 
-  useEffect(() => {
-    void browser.tabs.query({ active: true, currentWindow: true }).then((tabs) => {
-      setTabUrl(tabs[0]?.url ?? null);
-    });
-    const msg: Message = { type: "reroute:get-status" };
-    browser.runtime
-      .sendMessage(msg)
-      .then((res: unknown) => {
-        if (res && typeof res === "object") setStatus(res as StatusResponse);
-      })
-      .catch(() => setStatus(null));
-  }, []);
-
-  let host: string | null = null;
-  let isHttp = false;
-  if (tabUrl) {
-    try {
-      const u = new URL(tabUrl);
-      isHttp = u.protocol === "http:" || u.protocol === "https:";
-      host = isHttp ? u.hostname : null;
-    } catch {
-      host = null;
-    }
-  }
-
-  const siteOn = host ? !hostMatchesAny(host, allowlist) : true;
+  const host = httpHostOf(tabUrl);
+  const siteOn = host ? !isHostAllowlisted(host, allowlist) : true;
   const enabledRules = rules.filter((r) => r.enabled).length;
 
   const toggleSite = (on: boolean) => {
     if (!host) return;
-    if (on) {
-      void setAllowlist(allowlist.filter((p) => !hostMatchesAny(host as string, [p])));
-    } else if (!allowlist.includes(host)) {
-      void setAllowlist([...allowlist, host]);
-    }
+    void setAllowlist(
+      on ? removeHostFromAllowlist(allowlist, host) : addHostToAllowlist(allowlist, host),
+    );
   };
 
   const cleanAndCopy = async () => {
     if (!tabUrl) return;
     const trackingRules = settings.trackingEnabled ? await loadTrackingRules() : [];
     const result = cleanUrl(tabUrl, trackingRules);
-    try {
-      await navigator.clipboard.writeText(result.url);
-      setCopied(
-        result.changed
-          ? `Copied. Removed ${result.removed.length} parameter${result.removed.length === 1 ? "" : "s"}: ${result.removed.join(", ")}`
-          : "Copied. Nothing to remove.",
-      );
-    } catch {
-      setCopied("Clipboard unavailable.");
-    }
+    const ok = await copyToClipboard(result.url);
+    setCopied(ok ? describeCopy(result) : "Clipboard unavailable.");
   };
 
   return (
@@ -77,7 +72,7 @@ export function App() {
       <Panel title="Reroute" actions={pro ? <ProBadge /> : null}>
         <div>
           <div className="rr-popup__host" title={host ?? tabUrl ?? ""}>
-            {host ?? (tabUrl ? "This page cannot be rerouted" : "No active tab")}
+            {pageLabel(host, tabUrl)}
           </div>
           {host ? (
             <Toggle
@@ -108,7 +103,7 @@ export function App() {
         </div>
 
         <div className="rr-stack">
-          <Button onClick={() => void cleanAndCopy()} disabled={!isHttp}>
+          <Button onClick={() => void cleanAndCopy()} disabled={host === null}>
             Clean &amp; copy current URL
           </Button>
           {copied ? (

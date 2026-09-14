@@ -19,65 +19,49 @@ export interface ListEditorProps {
 
 type Filter = "all" | ListType;
 
-export function ListEditor({ lists, stores, onChange }: ListEditorProps) {
+const PATTERN_HELP =
+  "Use a hostname such as example.com, *.example.com (subdomains only) or *example.com (site and subdomains).";
+
+/** Sort by the host part so `*.b.com`, `a.com` and `*c.com` read alphabetically. */
+function sortByHost(entries: readonly ListEntry[]): ListEntry[] {
+  const hostOf = (pattern: string) => pattern.replace(/^\*\.?/, "");
+  return [...entries].sort(
+    (a, b) =>
+      hostOf(a.pattern).localeCompare(hostOf(b.pattern)) || a.pattern.localeCompare(b.pattern),
+  );
+}
+
+const otherList = (type: ListType): ListType => (type === "white" ? "grey" : "white");
+
+interface AddEntryFormProps {
+  storeOptions: readonly string[];
+  onAdd: (entry: ListEntry) => Promise<void>;
+}
+
+function AddEntryForm({ storeOptions, onAdd }: AddEntryFormProps) {
   const [pattern, setPattern] = useState("");
   const [listType, setListType] = useState<ListType>("white");
   const [storeId, setStoreId] = useState("");
-  const [filter, setFilter] = useState<Filter>("all");
   const [error, setError] = useState<string | null>(null);
-
-  const visible = useMemo(() => {
-    const filtered = filter === "all" ? [...lists] : lists.filter((e) => e.listType === filter);
-    return filtered.sort((a, b) => {
-      const pa = a.pattern.replace(/^\*\.?/, "");
-      const pb = b.pattern.replace(/^\*\.?/, "");
-      return pa.localeCompare(pb) || a.pattern.localeCompare(b.pattern);
-    });
-  }, [lists, filter]);
-
-  const counts = useMemo(
-    () => ({
-      white: lists.filter((e) => e.listType === "white").length,
-      grey: lists.filter((e) => e.listType === "grey").length,
-    }),
-    [lists],
-  );
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     const trimmed = pattern.trim();
     if (!trimmed) return;
     if (!isValidPattern(trimmed)) {
-      setError(
-        "Use a hostname such as example.com, *.example.com (subdomains only) or *example.com (site and subdomains).",
-      );
+      setError(PATTERN_HELP);
       return;
     }
     setError(null);
     const entry: ListEntry = { pattern: normalizePattern(trimmed), listType };
     if (storeId) entry.storeId = storeId;
-    await onChange(addListEntry(lists, entry));
+    await onAdd(entry);
     setPattern("");
   };
 
-  const setType = async (entry: ListEntry, next: ListType) => {
-    if (entry.listType === next) return;
-    await onChange(addListEntry(lists, { ...entry, listType: next }));
-  };
-
-  const remove = async (entry: ListEntry) => {
-    await onChange(removeListEntry(lists, entry));
-  };
-
-  const storeOptions = useMemo(() => {
-    const known = new Set(stores);
-    for (const entry of lists) if (entry.storeId) known.add(entry.storeId);
-    return [...known].sort();
-  }, [stores, lists]);
-
   return (
-    <div className="cs-stack">
-      <form className="cs-row" onSubmit={submit}>
+    <>
+      <form className="cs-row" onSubmit={(event) => void submit(event)}>
         <input
           className="cs-input cs-input--grow"
           type="text"
@@ -121,80 +105,134 @@ export function ListEditor({ lists, stores, onChange }: ListEditorProps) {
           {error}
         </div>
       ) : null}
+    </>
+  );
+}
+
+interface FilterBarProps {
+  filter: Filter;
+  counts: { all: number; white: number; grey: number };
+  onChange: (filter: Filter) => void;
+}
+
+function FilterBar({ filter, counts, onChange }: FilterBarProps) {
+  const options: { id: Filter; label: string }[] = [
+    { id: "all", label: `All (${counts.all})` },
+    { id: "white", label: `Whitelist (${counts.white})` },
+    { id: "grey", label: `Greylist (${counts.grey})` },
+  ];
+  return (
+    <div className="cs-row" role="group" aria-label="Filter">
+      {options.map((option) => (
+        <Button
+          key={option.id}
+          size="sm"
+          variant={filter === option.id ? "primary" : "secondary"}
+          onClick={() => onChange(option.id)}
+        >
+          {option.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
+interface EntryTableProps {
+  entries: readonly ListEntry[];
+  onMove: (entry: ListEntry, to: ListType) => void;
+  onRemove: (entry: ListEntry) => void;
+}
+
+function EntryTable({ entries, onMove, onRemove }: EntryTableProps) {
+  if (entries.length === 0) {
+    return (
+      <div className="cs-empty">
+        No entries yet. Sites you add here keep their cookies when their tabs close.
+      </div>
+    );
+  }
+  return (
+    <div className="cs-table-wrap cs-table--scroll">
+      <table className="cs-table">
+        <thead>
+          <tr>
+            <th scope="col">Pattern</th>
+            <th scope="col">List</th>
+            <th scope="col">Store</th>
+            <th scope="col">
+              <span className="cs-nowrap">Actions</span>
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {entries.map((entry) => (
+            <tr key={`${entry.storeId ?? "*"}|${entry.pattern}`}>
+              <td className="cs-mono">{entry.pattern}</td>
+              <td>
+                <StatusPill status={entry.listType} label={listTypeLabel(entry.listType)} />
+              </td>
+              <td className="cs-muted">{entry.storeId ?? "All"}</td>
+              <td className="cs-table__actions">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => onMove(entry, otherList(entry.listType))}
+                >
+                  Move to {listTypeLabel(otherList(entry.listType)).toLowerCase()}
+                </Button>
+                <Button size="sm" variant="ghost" onClick={() => onRemove(entry)}>
+                  Remove
+                </Button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+export function ListEditor({ lists, stores, onChange }: ListEditorProps) {
+  const [filter, setFilter] = useState<Filter>("all");
+
+  const visible = useMemo(
+    () => sortByHost(filter === "all" ? lists : lists.filter((e) => e.listType === filter)),
+    [lists, filter],
+  );
+  const counts = useMemo(
+    () => ({
+      all: lists.length,
+      white: lists.filter((e) => e.listType === "white").length,
+      grey: lists.filter((e) => e.listType === "grey").length,
+    }),
+    [lists],
+  );
+  const storeOptions = useMemo(() => {
+    const known = new Set(stores);
+    for (const entry of lists) if (entry.storeId) known.add(entry.storeId);
+    return [...known].sort();
+  }, [stores, lists]);
+
+  return (
+    <div className="cs-stack">
+      <AddEntryForm
+        storeOptions={storeOptions}
+        onAdd={async (entry) => {
+          await onChange(addListEntry(lists, entry));
+        }}
+      />
       <p className="cs-small cs-muted" style={{ margin: 0 }}>
         <code className="cs-mono">example.com</code> matches that exact cookie domain,{" "}
         <code className="cs-mono">*.example.com</code> matches subdomains only, and{" "}
         <code className="cs-mono">*example.com</code> matches the site and every subdomain.
         Whitelist wins when a domain is on both lists.
       </p>
-
-      <div className="cs-row" role="group" aria-label="Filter">
-        <Button
-          size="sm"
-          variant={filter === "all" ? "primary" : "secondary"}
-          onClick={() => setFilter("all")}
-        >
-          All ({lists.length})
-        </Button>
-        <Button
-          size="sm"
-          variant={filter === "white" ? "primary" : "secondary"}
-          onClick={() => setFilter("white")}
-        >
-          Whitelist ({counts.white})
-        </Button>
-        <Button
-          size="sm"
-          variant={filter === "grey" ? "primary" : "secondary"}
-          onClick={() => setFilter("grey")}
-        >
-          Greylist ({counts.grey})
-        </Button>
-      </div>
-
-      {visible.length === 0 ? (
-        <div className="cs-empty">
-          No entries yet. Sites you add here keep their cookies when their tabs close.
-        </div>
-      ) : (
-        <div className="cs-table-wrap cs-table--scroll">
-          <table className="cs-table">
-            <thead>
-              <tr>
-                <th scope="col">Pattern</th>
-                <th scope="col">List</th>
-                <th scope="col">Store</th>
-                <th scope="col">
-                  <span className="cs-nowrap">Actions</span>
-                </th>
-              </tr>
-            </thead>
-            <tbody>
-              {visible.map((entry) => (
-                <tr key={`${entry.storeId ?? "*"}|${entry.pattern}`}>
-                  <td className="cs-mono">{entry.pattern}</td>
-                  <td>
-                    <StatusPill status={entry.listType} label={listTypeLabel(entry.listType)} />
-                  </td>
-                  <td className="cs-muted">{entry.storeId ?? "All"}</td>
-                  <td className="cs-table__actions">
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      onClick={() => setType(entry, entry.listType === "white" ? "grey" : "white")}
-                    >
-                      {entry.listType === "white" ? "Move to greylist" : "Move to whitelist"}
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => remove(entry)}>
-                      Remove
-                    </Button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+      <FilterBar filter={filter} counts={counts} onChange={setFilter} />
+      <EntryTable
+        entries={visible}
+        onMove={(entry, to) => void onChange(addListEntry(lists, { ...entry, listType: to }))}
+        onRemove={(entry) => void onChange(removeListEntry(lists, entry))}
+      />
     </div>
   );
 }
