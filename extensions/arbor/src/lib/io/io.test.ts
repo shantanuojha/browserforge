@@ -321,6 +321,43 @@ describe("Arbor JSON export/import", () => {
     expect(preview.warnings.length).toBe(2);
   });
 
+  it("never drops nodes silently: parent cycles are lifted, duplicate ids are reported", () => {
+    // Neither can come out of Arbor itself; both come out of hand-edited or concatenated files.
+    // Before: the cycle members vanished from the preview and the second "x" replaced the first,
+    // with no warning either way.
+    const cyclic = parseArborExport({
+      format: "arbor-tree",
+      version: 2,
+      nodes: [
+        { id: "ok", parentId: null, kind: "tab", title: "OK", url: "https://ok.test/" },
+        { id: "a", parentId: "b", kind: "tab", title: "A", url: "https://a.test/" },
+        { id: "b", parentId: "a", kind: "window", title: "B" },
+        { id: "c", parentId: "b", kind: "tab", title: "C", url: "https://c.test/" },
+      ],
+    });
+    expect(cyclic.counts.total).toBe(4);
+    expect(cyclic.roots.map((r) => r.title)).toEqual(["OK", "A"]);
+    expect(cyclic.roots[1]?.children[0]?.title).toBe("B");
+    expect(cyclic.roots[1]?.children[0]?.children.map((c) => c.title)).toEqual(["C"]);
+    expect(cyclic.warnings).toEqual([
+      "1 node(s) had a missing parent and were moved to the top level",
+    ]);
+
+    const dup = parseArborExport({
+      format: "arbor-tree",
+      version: 2,
+      nodes: [
+        { id: "x", parentId: null, kind: "tab", title: "first", url: "https://1.test/" },
+        { id: "x", parentId: null, kind: "tab", title: "second", url: "https://2.test/" },
+        { id: "y", parentId: "x", kind: "tab", title: "child", url: "https://3.test/" },
+      ],
+    });
+    expect(dup.counts.total).toBe(2);
+    expect(dup.roots.map((r) => r.title)).toEqual(["first"]);
+    expect(dup.roots[0]?.children.map((c) => c.title)).toEqual(["child"]);
+    expect(dup.warnings).toEqual(["1 node(s) with a duplicate id were skipped"]);
+  });
+
   it("rejects other formats", () => {
     expect(() => parseArborExport("{}")).toThrow(/Not an Arbor export/);
   });
