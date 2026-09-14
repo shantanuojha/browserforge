@@ -3,6 +3,7 @@ import {
   containerActions,
   deleteKeyAction,
   isContainer,
+  pinnedContainerAction,
   summarizeContainer,
   type ContainerActionHandlers,
   type ContainerNode,
@@ -186,6 +187,55 @@ describe("container actions", () => {
     const tree = createTree([node("g", null, "group", { note: "remember" })]);
     const acts = containerActions(tree, tree.get("g") as ContainerNode, handlers());
     expect(acts.find((a) => a.id === "note")?.label).toBe("Edit note");
+  });
+
+  it("a group whose tabs were closed offers Reopen all as its first row button and menu entry", () => {
+    // The owner's scenario: make a group, drag tabs in, close them; the group must offer a way
+    // to bring them all back. Row buttons and the context menu render from this same list.
+    const tree = createTree([
+      node("g", null, "group"),
+      tab("a", "g"),
+      tab("b", "g"),
+      tab("c", "g"),
+    ]);
+    const h = handlers();
+    const acts = containerActions(tree, tree.get("g") as ContainerNode, h);
+    const rowButtons = acts.filter((a) => a.inRow && !a.disabled);
+    expect(rowButtons[0]?.id).toBe("reopen");
+    expect(rowButtons[0]?.label).toBe("Reopen all (3 saved tabs)");
+    expect(rowButtons[0]?.icon).toBe("restore");
+    const menuOpenSection = acts.filter((a) => a.section === "open");
+    expect(menuOpenSection.map((a) => [a.id, a.disabled])).toEqual([
+      ["reopen", false],
+      ["closeAndSave", true],
+    ]);
+    expect(acts.find((a) => a.id === "reopen")?.shortcut).toBe("Enter");
+    rowButtons[0]?.run();
+    expect(h.calls).toEqual(["reopenAll:g"]);
+  });
+
+  it("pins Reopen on a fully saved container so it shows without hovering", () => {
+    const closedGroup = createTree([node("g", null, "group"), tab("a", "g")]);
+    expect(
+      pinnedContainerAction(
+        containerActions(closedGroup, closedGroup.get("g") as ContainerNode, handlers()),
+      )?.id,
+    ).toBe("reopen");
+    const closedWindow = createTree([node("w", null, "window"), tab("a", "w")]);
+    expect(
+      pinnedContainerAction(
+        containerActions(closedWindow, closedWindow.get("w") as ContainerNode, handlers()),
+      )?.label,
+    ).toBe("Reopen window (1 saved tab)");
+    // Nothing pinned while something beneath is still open, or when there is nothing to reopen.
+    const mixed = createTree([node("g", null, "group"), tab("a", "g"), tab("l", "g", 20)]);
+    expect(
+      pinnedContainerAction(containerActions(mixed, mixed.get("g") as ContainerNode, handlers())),
+    ).toBeUndefined();
+    const empty = createTree([node("g", null, "group")]);
+    expect(
+      pinnedContainerAction(containerActions(empty, empty.get("g") as ContainerNode, handlers())),
+    ).toBeUndefined();
   });
 
   it("Delete key closes-and-saves while something is open, deletes otherwise", () => {

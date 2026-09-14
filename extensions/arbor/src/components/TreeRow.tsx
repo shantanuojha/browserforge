@@ -8,7 +8,7 @@ import {
   type KeyboardEvent,
   type MouseEvent,
 } from "react";
-import type { ContainerAction } from "@/lib/container-actions";
+import { pinnedContainerAction, type ContainerAction } from "@/lib/container-actions";
 import type { DropPosition, FlatRow, NodeId, TreeNode } from "@/lib/model";
 import { Icon } from "./Icon";
 
@@ -200,6 +200,8 @@ export const TreeRow = memo(function TreeRow({
 
   // Tab rows only; window and group rows get their buttons from `containerActions`.
   const canRestore = saved && !!node.url;
+  // A closed window/group keeps its Reopen button visible; the rest appear on hover/selection.
+  const pinned = containerActions ? pinnedContainerAction(containerActions) : undefined;
 
   return (
     <div
@@ -281,11 +283,27 @@ export const TreeRow = memo(function TreeRow({
         ) : null}
         {live && node.kind === "tab" ? <span className="row__live" title="Open tab" /> : null}
 
+        {pinned ? (
+          <button
+            type="button"
+            className="icon-btn icon-btn--pinned"
+            tabIndex={-1}
+            title={pinned.label}
+            aria-label={pinned.label}
+            onClick={(e) => {
+              e.stopPropagation();
+              pinned.run();
+            }}
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            <Icon name={pinned.icon} />
+          </button>
+        ) : null}
         <span className="row__actions" onDoubleClick={(e) => e.stopPropagation()}>
           {containerActions ? (
             // Window and group rows: one definition drives buttons and context menu alike.
             containerActions
-              .filter((a) => a.inRow && !a.disabled)
+              .filter((a) => a.inRow && !a.disabled && a !== pinned)
               .map((a) => (
                 <button
                   key={a.id}
@@ -293,6 +311,7 @@ export const TreeRow = memo(function TreeRow({
                   className={a.danger ? "icon-btn icon-btn--danger" : "icon-btn"}
                   tabIndex={-1}
                   title={a.label}
+                  aria-label={a.label}
                   onClick={(e) => {
                     e.stopPropagation();
                     a.run();

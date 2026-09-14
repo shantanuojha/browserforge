@@ -1121,6 +1121,49 @@ describe("TabTracker.restore in place", () => {
     expect(fb.moved).toEqual([]);
   });
 
+  it("reopens a saved tab from a group nested under a live window in place, at the matching strip index", async () => {
+    // Row button, context menu, Enter and double-click all reach `restore`; the node must stay
+    // inside its group (the 0.1.2 bug moved it under the window and the group looked emptied).
+    const ctx = await setup();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    const s = fb.openTab(w.id, "https://s.test/", "S");
+    const t = fb.openTab(w.id, "https://t.test/", "T");
+    const b = fb.openTab(w.id, "https://b.test/", "B");
+    const winNode = winNodeOf(ctx, w);
+    // W: A, G[ S, T ], B  -- the user groups S and T under the live window.
+    store.append([
+      ops.add(makeNode({ id: "g", parentId: winNode?.id ?? "", kind: "group", title: "G", ts: 1 })),
+    ]);
+    await tracker.moveNode("g", winNode?.id ?? "", 1);
+    await drop(ctx, nodeOf(ctx, s)?.id ?? "", "g", "inside");
+    await drop(ctx, nodeOf(ctx, t)?.id ?? "", "g", "inside");
+    const sNode = nodeOf(ctx, s);
+    const tNode = nodeOf(ctx, t);
+    expect(titlesUnder(ctx, winNode?.id)).toEqual(["A", "G", "B"]);
+    expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
+    // Close & save the group, then reopen one tab from inside it.
+    expect(await tracker.closeAndSave("g")).toBe(2);
+    expect(store.getTree().get(sNode?.id ?? "")?.liveTabId).toBeUndefined();
+    const size = store.getTree().size;
+    await tracker.restore(sNode?.id ?? "");
+    const tree = store.getTree();
+    expect(tree.size).toBe(size);
+    expect(tree.get(sNode?.id ?? "")).toMatchObject({ parentId: "g", liveWindowId: w.id });
+    expect(tree.get(sNode?.id ?? "")?.liveTabId).toBeDefined();
+    expect(tree.get(tNode?.id ?? "")?.liveTabId).toBeUndefined();
+    expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
+    expect(titlesUnder(ctx, winNode?.id)).toEqual(["A", "G", "B"]);
+    // The browser tab opened between A and B, where the group sits in the tree.
+    expect(fb.stripOrder(w.id)).toEqual([a.id, tree.get(sNode?.id ?? "")?.liveTabId, b.id]);
+    // Reopen all on the group brings T back too, in place.
+    expect(await tracker.reopenAll("g")).toBe(1);
+    expect(store.getTree().get(tNode?.id ?? "")).toMatchObject({ parentId: "g" });
+    expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
+    expect(fb.stripOrder(w.id).length).toBe(4);
+  });
+
   it("opens a saved child of a live tab right after its parent in the strip", async () => {
     const ctx = await setup();
     const { store, fb, tracker } = ctx;

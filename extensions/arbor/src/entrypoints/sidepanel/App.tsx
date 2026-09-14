@@ -13,6 +13,7 @@ import { useTreeState } from "@/hooks/useTreeState";
 import { summarizeContainer } from "@/lib/container-actions";
 import { msg } from "@/lib/messages";
 import { descendantIds, ops, type NodeId, type Tree } from "@/lib/model";
+import { primaryActionFor } from "@/lib/primary-action";
 
 type View = "tree" | "recovery" | "io";
 
@@ -83,10 +84,11 @@ export function App() {
       primary: (id) => {
         const n = tree.get(id);
         if (!n) return;
-        const live =
-          (n.kind === "tab" && n.liveTabId !== undefined) ||
-          (n.kind === "window" && n.liveWindowId !== undefined);
-        run(live ? msg.focusNode.send({ id }) : msg.restoreNode.send({ id }));
+        run(
+          primaryActionFor(n) === "focus"
+            ? msg.focusNode.send({ id })
+            : msg.restoreNode.send({ id }),
+        );
       },
       closeAndSave: (id) => run(msg.closeAndSave.send({ id })),
       restore: (id) => run(msg.restoreNode.send({ id })),

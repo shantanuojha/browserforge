@@ -175,3 +175,17 @@ export function deleteKeyAction(actions: ContainerAction[]): ContainerAction | u
   const close = actions.find((a) => a.id === "closeAndSave");
   return close && !close.disabled ? close : actions.find((a) => a.id === "delete");
 }
+
+/**
+ * The one row button that stays visible without hovering: "Reopen" on a container that holds
+ * saved tabs and nothing open (a closed window, a group whose tabs were all closed and saved).
+ * The other buttons only appear on hover, focus or selection; a closed container's main purpose
+ * is to be reopened, so that action must be discoverable at a glance.
+ */
+export function pinnedContainerAction(actions: ContainerAction[]): ContainerAction | undefined {
+  const reopen = actions.find((a) => a.id === "reopen");
+  const close = actions.find((a) => a.id === "closeAndSave");
+  if (!reopen || reopen.disabled) return undefined;
+  if (close && !close.disabled) return undefined;
+  return reopen;
+}
