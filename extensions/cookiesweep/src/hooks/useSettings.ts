@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  DEFAULT_SETTINGS,
   activityLogKey,
   loadSettings,
-  normalizeSettings,
   settingsKey,
   updateSettings,
+} from "../adapters/settings-store.js";
+import {
+  DEFAULT_SETTINGS,
+  normalizeSettings,
   type ActivityEntry,
   type Settings,
 } from "../lib/settings.js";

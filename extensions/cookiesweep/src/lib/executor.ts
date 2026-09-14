@@ -235,18 +235,52 @@ async function removeSiteData(
   }
 }
 
+/** What to clean in one store. */
+export interface CleanTarget {
+  storeId: string;
+  /** Planning domains to remove cookies for (leading dots allowed). */
+  domains: readonly string[];
+  /** The store's cookies, when already listed, to avoid a second `getAll`. */
+  cookies?: readonly ExecutorCookie[];
+}
+
+function removalDetails(cookie: ExecutorCookie, storeId: string): CookiesRemoveDetails {
+  return {
+    url: cookieUrl(cookie),
+    name: cookie.name,
+    storeId,
+    ...(cookie.partitionKey ? { partitionKey: cookie.partitionKey } : {}),
+  };
+}
+
+async function removeCookies(
+  api: ExecutorApi,
+  cookies: readonly ExecutorCookie[],
+  storeId: string,
+): Promise<Pick<ExecuteResult, "cookiesRemoved" | "cookiesFailed">> {
+  const counts = { cookiesRemoved: 0, cookiesFailed: 0 };
+  for (const cookie of cookies) {
+    try {
+      await api.cookies.remove(removalDetails(cookie, storeId));
+      counts.cookiesRemoved += 1;
+    } catch {
+      counts.cookiesFailed += 1;
+    }
+  }
+  return counts;
+}
+
 /**
- * Remove every cookie in `storeId` whose planning domain is in `domains`, then (optionally)
- * the site data for those domains. `cookies` may be supplied to avoid a second `getAll`.
+ * Remove every cookie in the store whose planning domain is in `target.domains`, then
+ * (optionally) the site data for those domains.
  */
 export async function cleanDomainsInStore(
   api: ExecutorApi,
-  storeId: string,
-  domains: readonly string[],
+  target: CleanTarget,
   options: ExecuteOptions,
-  cookies?: readonly ExecutorCookie[],
 ): Promise<ExecuteResult> {
-  const targets = new Set(domains.map(normalizeCookieDomain).filter(Boolean));
+  const { storeId } = target;
+  const targets = new Set(target.domains.map(normalizeCookieDomain).filter(Boolean));
   const result: ExecuteResult = {
     storeId,
     domains: [...targets].sort(),
@@ -259,24 +293,13 @@ export async function cleanDomainsInStore(
   const extraHosts = options.extraHosts ?? [];
   if (targets.size === 0 && !(options.cleanSiteData && extraHosts.length > 0)) return result;
 
-  const all = targets.size === 0 ? [] : (cookies ?? (await listCookies(api, storeId)));
-  const matching = all.filter((c) => c.storeId === storeId && targets.has(cookiePlanningDomain(c)));
-
-  for (const cookie of matching) {
-    const details: CookiesRemoveDetails = {
-      url: cookieUrl(cookie),
-      name: cookie.name,
-      storeId,
-      ...(cookie.partitionKey ? { partitionKey: cookie.partitionKey } : {}),
-    };
-    try {
-      await api.cookies.remove(details);
-      result.cookiesRemoved += 1;
-    } catch {
-      result.cookiesFailed += 1;
-    }
+  if (targets.size > 0) {
+    const all = target.cookies ?? (await listCookies(api, storeId));
+    const matching = all.filter(
+      (c) => c.storeId === storeId && targets.has(cookiePlanningDomain(c)),
+    );
+    Object.assign(result, await removeCookies(api, matching, storeId));
   }
-
   if (options.cleanSiteData) {
     Object.assign(result, await removeSiteData(api, result.domains, extraHosts));
   }
@@ -289,7 +312,9 @@ export async function executeStorePlan(
   options: ExecuteOptions,
   cookies?: readonly ExecutorCookie[],
 ): Promise<ExecuteResult> {
-  return cleanDomainsInStore(api, plan.storeId, plan.cleanDomains, options, cookies);
+  const target: CleanTarget = { storeId: plan.storeId, domains: plan.cleanDomains };
+  if (cookies) target.cookies = cookies;
+  return cleanDomainsInStore(api, target, options);
 }
 
 export async function executePlan(

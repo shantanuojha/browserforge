@@ -7,10 +7,20 @@ import { ListEditor } from "../../components/ListEditor.js";
 import { Section } from "../../components/Section.js";
 import { StatusPill } from "../../components/StatusPill.js";
 import { Toggle } from "../../components/Toggle.js";
+import { sendMessage } from "../../adapters/messaging.js";
 import { useCookieStores } from "../../hooks/useCookieStores.js";
 import { useActivityLog, useSettings } from "../../hooks/useSettings.js";
-import { sendMessage } from "../../lib/messages.js";
+import type { CleanupSummary } from "../../lib/messages.js";
 import { MAX_DELAY_SECONDS, MIN_DELAY_SECONDS, clampDelay } from "../../lib/settings.js";
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+function describeCleanAll(summary: CleanupSummary | undefined): string {
+  if (!summary) return "Nothing to clean.";
+  const siteData =
+    summary.siteDataDomains > 0 ? ` and cleared site data for ${summary.siteDataDomains}` : "";
+  return `Removed ${plural(summary.cookiesRemoved, "cookie")} across ${plural(summary.domains.length, "domain")}${siteData}.`;
+}
 
 function DelayField({
   value,
@@ -62,15 +72,8 @@ export function App() {
     setCleanResult(null);
     const response = await sendMessage({ type: "clean-all" });
     setCleaning(false);
-    if (!response.ok) {
-      setCleanResult(`Cleanup failed: ${response.error}`);
-      return;
-    }
-    const s = response.summary;
     setCleanResult(
-      s
-        ? `Removed ${s.cookiesRemoved} cookie${s.cookiesRemoved === 1 ? "" : "s"} across ${s.domains.length} domain${s.domains.length === 1 ? "" : "s"}${s.siteDataDomains > 0 ? ` and cleared site data for ${s.siteDataDomains}` : ""}.`
-        : "Nothing to clean.",
+      response.ok ? describeCleanAll(response.summary) : `Cleanup failed: ${response.error}`,
     );
   };
 

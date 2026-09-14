@@ -76,35 +76,39 @@ const NON_WEB_SCHEMES =
 /** Firefox Reader View: `about:reader?url=<encoded article URL>`. The tab still is that site. */
 const READER_VIEW = /^about:reader\?/i;
 
+/** Hostname of an absolute http(s) URL; null for other schemes or unparsable input. */
+function hostOfWebUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return normalizeHost(url.hostname) || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Bare host, maybe with a port: "localhost:3000", "[::1]:8080", "example.com". */
+function hostOfBareInput(raw: string): string | null {
+  const bracketed = /^(\[[^\]]+\])(?::\d+)?$/.exec(raw);
+  if (bracketed?.[1]) return normalizeHost(bracketed[1]) || null;
+  const host = normalizeHost(raw.replace(/:\d+$/, ""));
+  if (!host || /[\s/]/.test(host)) return null;
+  return host;
+}
+
 /**
  * Hostname of a tab URL, or null for tabs that cannot own cookies (file://, chrome://, about:...).
  * Also accepts a bare hostname (optionally with a port) for convenience.
  */
 export function hostFromTabUrl(urlOrHost: string | undefined | null): string | null {
-  if (!urlOrHost) return null;
-  const raw = urlOrHost.trim();
+  const raw = urlOrHost?.trim();
   if (!raw) return null;
   if (READER_VIEW.test(raw)) {
     const inner = new URLSearchParams(raw.slice(raw.indexOf("?") + 1)).get("url");
     return inner ? hostFromTabUrl(inner) : null;
   }
   if (NON_WEB_SCHEMES.test(raw)) return null;
-  if (raw.includes("://")) {
-    try {
-      const url = new URL(raw);
-      if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-      const host = normalizeHost(url.hostname);
-      return host || null;
-    } catch {
-      return null;
-    }
-  }
-  // Bare host, maybe with a port: "localhost:3000", "[::1]:8080", "example.com".
-  const bracketed = /^(\[[^\]]+\])(?::\d+)?$/.exec(raw);
-  if (bracketed?.[1]) return normalizeHost(bracketed[1]) || null;
-  const host = normalizeHost(raw.replace(/:\d+$/, ""));
-  if (!host || /[\s/]/.test(host)) return null;
-  return host;
+  return raw.includes("://") ? hostOfWebUrl(raw) : hostOfBareInput(raw);
 }
 
 /**
@@ -189,43 +193,70 @@ export interface StorePlanOptions {
   startupScope?: StartupScope;
 }
 
+/** What one cookie store looks like at planning time. */
+export interface StoreSnapshot {
+  storeId: string;
+  /** Tab URLs (or bare hostnames) open in this store. */
+  openTabUrls: readonly string[];
+  /** Cookie domains present in this store (leading dots allowed). */
+  cookieDomains: readonly string[];
+}
+
+/** Site keys of every tab in the snapshot that can own cookies. */
+function openSiteKeys(openTabUrls: readonly string[]): Set<string> {
+  const sites = new Set<string>();
+  for (const url of openTabUrls) {
+    const host = hostFromTabUrl(url);
+    if (host) sites.add(siteKey(host));
+  }
+  return sites;
+}
+
+/** Unique, normalised cookie domains in first-seen order. */
+function uniqueCookieDomains(raw: readonly string[]): string[] {
+  const seen = new Set<string>();
+  for (const value of raw) {
+    const domain = normalizeCookieDomain(value);
+    if (domain) seen.add(domain);
+  }
+  return [...seen];
+}
+
+interface Verdict {
+  openSites: ReadonlySet<string>;
+  storeId: string;
+  lists: readonly ListEntry[];
+  greyExpired: boolean;
+  /** A "startup" run that only expires the greylist leaves unlisted domains alone. */
+  greyOnlyStartup: boolean;
+}
+
+/** The planner's rules, in priority order (see the module comment). */
+function reasonFor(domain: string, verdict: Verdict): PlanReason {
+  if (verdict.openSites.has(siteKey(domain))) return "open-tab";
+  const listType = listTypeFor(domain, verdict.storeId, verdict.lists);
+  if (listType === "white") return "whitelisted";
+  if (listType === "grey") return verdict.greyExpired ? "grey-expired" : "greylisted";
+  return verdict.greyOnlyStartup ? "startup-grey-only" : "unlisted";
+}
+
 export function planStore(
-  storeId: string,
-  openTabUrls: readonly string[],
-  cookieDomains: readonly string[],
+  store: StoreSnapshot,
   lists: readonly ListEntry[],
   options: StorePlanOptions,
 ): StorePlan {
-  const openSites = new Set<string>();
-  for (const url of openTabUrls) {
-    const host = hostFromTabUrl(url);
-    if (host) openSites.add(siteKey(host));
-  }
-
   const startupScope = options.startupScope ?? "grey-only";
-  const greyOnlyStartup = options.trigger === "startup" && startupScope === "grey-only";
+  const verdict: Verdict = {
+    openSites: openSiteKeys(store.openTabUrls),
+    storeId: store.storeId,
+    lists,
+    greyExpired: options.greyExpiredAtRestart,
+    greyOnlyStartup: options.trigger === "startup" && startupScope === "grey-only",
+  };
 
   const reasons: Record<string, PlanReason> = {};
-  const seen = new Set<string>();
-  for (const raw of cookieDomains) {
-    const domain = normalizeCookieDomain(raw);
-    if (!domain || seen.has(domain)) continue;
-    seen.add(domain);
-
-    if (openSites.has(siteKey(domain))) {
-      reasons[domain] = "open-tab";
-      continue;
-    }
-    const listType = listTypeFor(domain, storeId, lists);
-    if (listType === "white") {
-      reasons[domain] = "whitelisted";
-      continue;
-    }
-    if (listType === "grey") {
-      reasons[domain] = options.greyExpiredAtRestart ? "grey-expired" : "greylisted";
-      continue;
-    }
-    reasons[domain] = greyOnlyStartup ? "startup-grey-only" : "unlisted";
+  for (const domain of uniqueCookieDomains(store.cookieDomains)) {
+    reasons[domain] = reasonFor(domain, verdict);
   }
 
   const cleanDomains: string[] = [];
@@ -235,7 +266,7 @@ export function planStore(
   }
   cleanDomains.sort();
   keepDomains.sort();
-  return { storeId, cleanDomains, keepDomains, reasons };
+  return { storeId: store.storeId, cleanDomains, keepDomains, reasons };
 }
 
 export function planCleanup(input: PlannerInput): CleanupPlan {
@@ -248,17 +279,17 @@ export function planCleanup(input: PlannerInput): CleanupPlan {
     trigger: input.trigger,
     ...(input.startupScope ? { startupScope: input.startupScope } : {}),
   };
-  const stores = [...storeIds]
-    .sort()
-    .map((storeId) =>
-      planStore(
+  const stores = [...storeIds].sort().map((storeId) =>
+    planStore(
+      {
         storeId,
-        input.openTabHosts[storeId] ?? [],
-        input.cookieDomains[storeId] ?? [],
-        input.lists,
-        options,
-      ),
-    );
+        openTabUrls: input.openTabHosts[storeId] ?? [],
+        cookieDomains: input.cookieDomains[storeId] ?? [],
+      },
+      input.lists,
+      options,
+    ),
+  );
   return { trigger: input.trigger, stores };
 }
 

@@ -1,4 +1,7 @@
 import { browser, type Browser } from "wxt/browser";
+import type { BadgeTab } from "../lib/background/badge.js";
+import type { OpenTab } from "../lib/background/open-tabs.js";
+import type { CookieStoreInfo } from "../lib/background/store-registry.js";
 import type {
   BrowsingDataRemovalOptions,
   BrowsingDataTypes,
@@ -6,12 +9,11 @@ import type {
   CookiesRemoveDetails,
   ExecutorApi,
   ExecutorCookie,
-} from "./executor.js";
+} from "../lib/executor.js";
 
 /**
- * Thin adapters between the real `browser` object and the injectable shapes used by
- * `executor.ts`, plus small helpers shared by the background, popup and options page.
- * Nothing in here is imported by tests.
+ * Thin adapters between the real `browser` object and the injectable shapes used by the
+ * background services, plus small tab helpers shared with the popup and options page.
  */
 
 export const DEFAULT_STORE_ID = "0";
@@ -62,17 +64,12 @@ export function createExecutorApi(): ExecutorApi {
   return api;
 }
 
-export interface CookieStoreInfo {
-  id: string;
-  tabIds: number[];
-}
-
 export async function getCookieStores(): Promise<CookieStoreInfo[]> {
   try {
     const stores = await browser.cookies.getAllCookieStores();
     if (stores.length > 0) return stores.map((s) => ({ id: s.id, tabIds: [...s.tabIds] }));
   } catch {
-    // fall through
+    // Some browsers reject the call without the cookies permission; fall back to the default store.
   }
   return [{ id: DEFAULT_STORE_ID, tabIds: [] }];
 }
@@ -96,6 +93,20 @@ export async function getActiveTab(): Promise<Browser.tabs.Tab | undefined> {
 
 export function tabUrl(tab: Browser.tabs.Tab | undefined): string | undefined {
   return tab?.url || tab?.pendingUrl || undefined;
+}
+
+export function listOpenTabs(): Promise<OpenTab[]> {
+  return browser.tabs.query({});
+}
+
+/** The given tab, or the active one; undefined when it has been closed in the meantime. */
+export async function resolveBadgeTab(tabId?: number): Promise<BadgeTab | undefined> {
+  try {
+    const tab = tabId !== undefined ? await browser.tabs.get(tabId) : await getActiveTab();
+    return tab && tab.id !== undefined ? { ...tab, id: tab.id } : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /** `browser.action` on MV3, `browser.browserAction` on Firefox MV2. */

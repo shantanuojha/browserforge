@@ -7,14 +7,24 @@ import {
   listTypeFor,
   normalizeCookieDomain,
   planCleanup,
-  planStore,
+  planStore as planStoreSnapshot,
   sameSite,
   siteKey,
   suggestedPattern,
   summarizePlan,
   type PlannerInput,
+  type StorePlanOptions,
 } from "./planner.js";
 import { addListEntry, type ListEntry } from "./settings.js";
+
+/** Positional builder so the scenarios below read as (store, open tabs, cookies, lists, options). */
+const planStore = (
+  storeId: string,
+  openTabUrls: readonly string[],
+  cookieDomains: readonly string[],
+  lists: readonly ListEntry[],
+  options: StorePlanOptions,
+) => planStoreSnapshot({ storeId, openTabUrls, cookieDomains }, lists, options);
 
 const white = (pattern: string, storeId?: string): ListEntry =>
   storeId ? { pattern, listType: "white", storeId } : { pattern, listType: "white" };

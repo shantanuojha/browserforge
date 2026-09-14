@@ -1,8 +1,8 @@
-import { defineStorageKey, normalizeHost } from "@browserforge/shared";
+import { isRecord, normalizeHost } from "@browserforge/shared";
 
 /**
- * Settings schema for CookieSweep. Everything lives in `storage.local`; the
- * `settingsKey` / `activityLogKey` helpers are the only storage access points.
+ * Settings schema for CookieSweep and the pure rules over it (validation, list editing, the
+ * activity log shape). Storage access lives in `adapters/settings-store.ts`.
  *
  * `normalizeSettings` is permissive so older/partial stored objects (or a
  * hand-edited import) always resolve to a complete, valid `Settings` value.
@@ -67,23 +67,7 @@ export const SETTINGS_STORAGE_KEY = "cookiesweep:settings";
 export const ACTIVITY_STORAGE_KEY = "cookiesweep:activity";
 export const KNOWN_STORES_STORAGE_KEY = "cookiesweep:knownStores";
 
-export const settingsKey = defineStorageKey<Settings>(SETTINGS_STORAGE_KEY, {
-  ...DEFAULT_SETTINGS,
-  lists: [],
-});
-export const activityLogKey = defineStorageKey<ActivityEntry[]>(ACTIVITY_STORAGE_KEY, []);
-/**
- * Cookie store ids seen in `cookies.getAllCookieStores()`. Firefox (and Chrome for incognito)
- * only list stores that currently have a tab, so a container vanishes from the list exactly
- * when its last tab closes; remembering it lets the cleanup still reach its cookies.
- */
-export const knownStoresKey = defineStorageKey<string[]>(KNOWN_STORES_STORAGE_KEY, []);
-
 const TRIGGERS: readonly CleanupTrigger[] = ["tab-close", "domain-change", "startup", "manual"];
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
-}
 
 export function clampDelay(value: unknown, fallback = DEFAULT_SETTINGS.delaySeconds): number {
   const n = typeof value === "string" ? Number(value) : value;
@@ -128,14 +112,20 @@ export function isValidPattern(pattern: string): boolean {
   return true;
 }
 
+/** Unknown list types degrade to "white" (keeping cookies is the safe failure mode). */
+function parseListTypeLenient(value: unknown): ListType {
+  const text = String(value ?? "").toLowerCase();
+  return text === "grey" || text === "gray" ? "grey" : "white";
+}
+
 export function normalizeListEntry(raw: unknown): ListEntry | null {
   if (!isRecord(raw)) return null;
   const patternRaw = raw.pattern;
   if (typeof patternRaw !== "string" || !isValidPattern(patternRaw)) return null;
-  // Unknown list types degrade to "white" (keeping cookies is the safe failure mode).
-  const listType = String(raw.listType ?? "").toLowerCase();
-  const type: ListType = listType === "grey" || listType === "gray" ? "grey" : "white";
-  const entry: ListEntry = { pattern: normalizePattern(patternRaw), listType: type };
+  const entry: ListEntry = {
+    pattern: normalizePattern(patternRaw),
+    listType: parseListTypeLenient(raw.listType),
+  };
   if (typeof raw.storeId === "string" && raw.storeId.trim() !== "") {
     entry.storeId = raw.storeId.trim();
   }
@@ -169,29 +159,23 @@ export function removeListEntry(
   return lists.filter((item) => listEntryKey(item) !== key);
 }
 
+const booleanOr = (value: unknown, fallback: boolean): boolean =>
+  typeof value === "boolean" ? value : fallback;
+
+function normalizeLists(value: unknown): ListEntry[] {
+  if (!Array.isArray(value)) return [];
+  return dedupeListEntries(value.map(normalizeListEntry).filter((e): e is ListEntry => e !== null));
+}
+
 export function normalizeSettings(raw: unknown): Settings {
   const source = isRecord(raw) ? raw : {};
-  const lists = Array.isArray(source.lists)
-    ? dedupeListEntries(
-        source.lists.map(normalizeListEntry).filter((e): e is ListEntry => e !== null),
-      )
-    : [];
   return {
-    enabled: typeof source.enabled === "boolean" ? source.enabled : DEFAULT_SETTINGS.enabled,
+    enabled: booleanOr(source.enabled, DEFAULT_SETTINGS.enabled),
     delaySeconds: clampDelay(source.delaySeconds),
-    cleanSiteData:
-      typeof source.cleanSiteData === "boolean"
-        ? source.cleanSiteData
-        : DEFAULT_SETTINGS.cleanSiteData,
-    cleanOnStartup:
-      typeof source.cleanOnStartup === "boolean"
-        ? source.cleanOnStartup
-        : DEFAULT_SETTINGS.cleanOnStartup,
-    notifications:
-      typeof source.notifications === "boolean"
-        ? source.notifications
-        : DEFAULT_SETTINGS.notifications,
-    lists,
+    cleanSiteData: booleanOr(source.cleanSiteData, DEFAULT_SETTINGS.cleanSiteData),
+    cleanOnStartup: booleanOr(source.cleanOnStartup, DEFAULT_SETTINGS.cleanOnStartup),
+    notifications: booleanOr(source.notifications, DEFAULT_SETTINGS.notifications),
+    lists: normalizeLists(source.lists),
   };
 }
 
@@ -210,19 +194,4 @@ export function appendActivity(
 
 export function createActivityId(now = Date.now()): string {
   return `${now.toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-}
-
-/** Read settings from storage and coerce them into a complete object. */
-export async function loadSettings(): Promise<Settings> {
-  return normalizeSettings(await settingsKey.get());
-}
-
-export async function saveSettings(next: Settings): Promise<void> {
-  await settingsKey.set(normalizeSettings(next));
-}
-
-export async function updateSettings(fn: (current: Settings) => Settings): Promise<Settings> {
-  const next = normalizeSettings(fn(await loadSettings()));
-  await settingsKey.set(next);
-  return next;
 }
