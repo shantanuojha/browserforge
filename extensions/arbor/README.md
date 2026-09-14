@@ -65,12 +65,15 @@ appears, and `migrationOps` (run on every rebuild, idempotent, logged as ordinar
 old default title into the empty title. The export format is version 2; version 1 files import
 unchanged.
 
-Persistence lives in `src/lib/store/` behind an interface so tests use an in-memory adapter.
+Persistence lives in `src/lib/store/` behind an interface so tests use an in-memory adapter; the
+IndexedDB backend is `src/adapters/indexeddb-store.ts`. See `docs/ARCHITECTURE.md` for the layers
+and the module map of the tracker (`src/lib/sync/`).
 
 ## Licensing
 
 Pro is a $15 one-time Lemon Squeezy licence, handled by `@browserforge/licensing` through
-`src/lib/licensing.ts`. The store and variant ids are baked in at build time from WXT env vars (see
+`src/adapters/licensing.ts` (build-time config in `src/lib/licensing-config.ts`). The store and
+variant ids are baked in at build time from WXT env vars (see
 `.env.example`: `WXT_LEMONSQUEEZY_STORE_ID`, `WXT_LEMONSQUEEZY_VARIANT_ID_ARBOR`, optional
 `WXT_LEMONSQUEEZY_CHECKOUT_URL_ARBOR`). Without them the build still works: Pro gates stay closed
 and the options page shows a neutral "Pro purchases are opening soon" note (the developer-facing

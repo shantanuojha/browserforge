@@ -5,9 +5,9 @@ import reactHooks from "eslint-plugin-react-hooks";
 import tseslint from "typescript-eslint";
 
 /**
- * Clean Code thresholds (see docs/CODE-STANDARDS.md). Values are what the refactored packages
- * meet today; tighten them, never loosen them. `severity` lets a package adopt the rules as
- * warnings first (Arbor) and flip to errors once it is refactored.
+ * Clean Code thresholds (see docs/CODE-STANDARDS.md). Values are what the packages meet today;
+ * tighten them, never loosen them. `severity` lets a package adopt the rules as warnings first
+ * and flip to errors once it is refactored (every package is at `error` now).
  */
 const cleanCodeRules = (severity) => ({
   complexity: [severity, 12],
@@ -60,13 +60,13 @@ export default tseslint.config(
     },
   },
 
-  // ---- Clean Code thresholds: enforced in the refactored packages -----------------------------
+  // ---- Clean Code thresholds: enforced everywhere -----------------------------------------------
   {
-    files: ["packages/**/*.{ts,tsx}", "extensions/{reroute,cookiesweep}/**/*.{ts,tsx}"],
+    files: ["packages/**/*.{ts,tsx}", "extensions/*/**/*.{ts,tsx}"],
     rules: cleanCodeRules("error"),
   },
   {
-    files: ["packages/**/*.tsx", "extensions/{reroute,cookiesweep}/**/*.tsx"],
+    files: ["packages/**/*.tsx", "extensions/*/**/*.tsx"],
     rules: componentRules("error"),
   },
   {
@@ -74,20 +74,10 @@ export default tseslint.config(
     files: [
       "packages/shared/src/**/*.ts",
       "packages/licensing/src/**/*.ts",
-      "extensions/{reroute,cookiesweep}/src/lib/**/*.ts",
+      "extensions/*/src/lib/**/*.ts",
     ],
     ignores: TEST_FILES,
     rules: { "@typescript-eslint/explicit-module-boundary-types": "error" },
-  },
-
-  // ---- Arbor: same standard as warnings until its own refactor lands -------------------------
-  {
-    files: ["extensions/arbor/**/*.{ts,tsx}"],
-    rules: cleanCodeRules("warn"),
-  },
-  {
-    files: ["extensions/arbor/**/*.tsx"],
-    rules: componentRules("warn"),
   },
 
   // ---- Exemptions -------------------------------------------------------------------------------

@@ -68,6 +68,52 @@ function hostOf(url: string | undefined): string | undefined {
   }
 }
 
+/** What a Tabs Outliner node record says about itself, wherever it keeps it. */
+interface SourceFields {
+  type: string | undefined;
+  url: string | undefined;
+  noteText: string | undefined;
+  customTitle: string | undefined;
+  title: string | undefined;
+  favIconUrl: string | undefined;
+  collapsed: boolean;
+}
+
+/** The first non-empty string among the candidates. */
+const firstStr = (...values: unknown[]): string | undefined => values.map(str).find(Boolean);
+
+function sourceFields(o: Obj): SourceFields {
+  const data = isObj(o.data) ? o.data : {};
+  const marks = isObj(o.marks) ? o.marks : {};
+  return {
+    type: str(o.type),
+    url: firstStr(data.url, o.url, data.pendingUrl),
+    noteText: firstStr(data.note, o.note, data.text, o.text),
+    customTitle: firstStr(marks.customTitle, o.customTitle),
+    title: firstStr(data.title, o.title),
+    favIconUrl: firstStr(data.favIconUrl, o.favIconUrl),
+    // Tabs Outliner spells it "colapsed"; accept both, on the node or in its data bag.
+    collapsed: [o.colapsed, o.collapsed, data.collapsed].includes(true),
+  };
+}
+
+/**
+ * The imported title: the user's custom title, else the source title, else the note's text for
+ * a note. An unnamed window stays untitled (Arbor shows "Window"); an unnamed group reads
+ * "Group"; an unnamed tab reads as its host.
+ */
+function titleFor(fields: SourceFields, role: Role): string {
+  const given = fields.customTitle ?? fields.title ?? "";
+  if (given) return given;
+  if (role === "note" && fields.noteText) return fields.noteText;
+  if (role === "window") return "";
+  return role === "group" ? "Group" : (hostOf(fields.url) ?? "Untitled");
+}
+
+/** Values that carry no nodes and are not obviously noise (numbers, booleans, null). */
+const isStrayValue = (value: unknown): boolean =>
+  value !== null && value !== undefined && typeof value !== "number" && typeof value !== "boolean";
+
 class Parser {
   unknownObjects = 0;
   unknownValues = 0;
@@ -80,24 +126,19 @@ class Parser {
     }
     if (Array.isArray(value)) return this.parseArray(value, depth);
     if (looksLikeNode(value)) return [this.parseNode(value, depth)];
-    if (isObj(value)) {
-      // Unknown wrapper object: descend into its values looking for nodes.
-      const found: ImportedNode[] = [];
-      for (const v of Object.values(value)) {
-        if (Array.isArray(v) || isObj(v)) found.push(...this.parseAny(v, depth + 1));
-      }
-      if (!found.length) this.unknownObjects++;
-      return found;
-    }
-    if (
-      value !== null &&
-      value !== undefined &&
-      typeof value !== "number" &&
-      typeof value !== "boolean"
-    ) {
-      this.unknownValues++;
-    }
+    if (isObj(value)) return this.parseWrapper(value, depth);
+    if (isStrayValue(value)) this.unknownValues++;
     return [];
+  }
+
+  /** Unknown wrapper object: descend into its values looking for nodes. */
+  private parseWrapper(value: Obj, depth: number): ImportedNode[] {
+    const found: ImportedNode[] = [];
+    for (const v of Object.values(value)) {
+      if (Array.isArray(v) || isObj(v)) found.push(...this.parseAny(v, depth + 1));
+    }
+    if (!found.length) this.unknownObjects++;
+    return found;
   }
 
   private parseArray(arr: unknown[], depth: number): ImportedNode[] {
@@ -146,36 +187,29 @@ class Parser {
   }
 
   private parseNode(o: Obj, depth: number): ImportedNode {
-    const data = isObj(o.data) ? o.data : {};
-    const marks = isObj(o.marks) ? o.marks : {};
-    const url = str(data.url) ?? str(o.url) ?? str(data.pendingUrl);
-    const noteText = str(data.note) ?? str(o.note) ?? str(data.text) ?? str(o.text);
-    const customTitle = str(marks.customTitle) ?? str(o.customTitle);
-    const role = roleOf(str(o.type), url !== undefined, noteText !== undefined);
+    const fields = sourceFields(o);
+    const role = roleOf(fields.type, fields.url !== undefined, fields.noteText !== undefined);
     const kind = kindOf(role);
-    let title = customTitle ?? str(data.title) ?? str(o.title) ?? "";
-    if (!title && kind === "note") title = noteText ?? "";
-    // An unnamed window stays untitled (Arbor shows "Window"); an unnamed group reads "Group".
-    if (!title && role !== "window") {
-      title = role === "group" ? "Group" : (hostOf(url) ?? "Untitled");
-    }
-    const favIconUrl = str(data.favIconUrl) ?? str(o.favIconUrl);
-    const collapsed = o.colapsed === true || o.collapsed === true || data.collapsed === true;
-    const node: ImportedNode = {
-      kind,
-      title: title.slice(0, 500),
-      children: [],
-    };
-    if (kind === "tab" && url) node.url = url;
-    if (favIconUrl && favIconUrl.startsWith("http")) node.favIconUrl = favIconUrl;
-    if (collapsed) node.collapsed = true;
+    const title = titleFor(fields, role);
+    const node: ImportedNode = { kind, title: title.slice(0, 500), children: [] };
+    if (kind === "tab" && fields.url) node.url = fields.url;
+    if (fields.favIconUrl?.startsWith("http")) node.favIconUrl = fields.favIconUrl;
+    if (fields.collapsed) node.collapsed = true;
     // A note node's text is its title; on other nodes the text becomes the attached note.
-    if (noteText && noteText !== title) node.note = noteText;
+    if (fields.noteText && fields.noteText !== title) node.note = fields.noteText;
+    node.children.push(...this.parseChildren(o, depth));
+    return node;
+  }
+
+  /** Children under any of the keys Tabs Outliner has used, on the node or its `data` bag. */
+  private parseChildren(o: Obj, depth: number): ImportedNode[] {
+    const data = isObj(o.data) ? o.data : {};
+    const out: ImportedNode[] = [];
     for (const key of CHILD_KEYS) {
       const kids = o[key] ?? data[key];
-      if (Array.isArray(kids)) node.children.push(...this.parseAny(kids, depth + 1));
+      if (Array.isArray(kids)) out.push(...this.parseAny(kids, depth + 1));
     }
-    return node;
+    return out;
   }
 }
 

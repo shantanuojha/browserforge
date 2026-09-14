@@ -11,7 +11,8 @@ function compareKeys(a: Key, b: Key): number {
   if (typeof a === "number" && typeof b === "number") return a - b;
   const sa = String(a);
   const sb = String(b);
-  return sa < sb ? -1 : sa > sb ? 1 : 0;
+  if (sa === sb) return 0;
+  return sa < sb ? -1 : 1;
 }
 
 export class FakeKeyRange {

@@ -5,10 +5,9 @@ enforces the measurable parts; `docs/ARCHITECTURE.md` explains the layers these 
 
 ## Enforced by ESLint
 
-Thresholds are what the refactored packages (`extensions/reroute`, `extensions/cookiesweep`,
-`packages/*`) meet today. Tighten them when the code allows; never loosen them for one file. Arbor
-runs the same rules as warnings until its own refactor lands, then flips to errors by changing one
-word in `eslint.config.js`.
+Thresholds are what every package (`extensions/*`, `packages/*`) meets today. Tighten them when
+the code allows; never loosen them for one file. A new package may adopt the rules as warnings
+first (`cleanCodeRules("warn")` in `eslint.config.js`) and flip to errors once it is refactored.
 
 | Rule                                                | Limit                          | Applies to                                                      |
 | --------------------------------------------------- | ------------------------------ | --------------------------------------------------------------- |
@@ -46,8 +45,8 @@ options)`, `cleanDomainsInStore(api, target, options)`).
   Adapters implement ports and are the only place that API appears.
 - Tests use in-memory ports. Reach for `@webext-core/fake-browser` only when testing an adapter or
   the wiring itself.
-- Test doubles live once (`@browserforge/licensing/testing`, `lib/background/testing.ts`); do not
-  copy a fake storage into a fourth test file.
+- Test doubles live once (`@browserforge/licensing/testing`, `lib/background/testing.ts`,
+  Arbor's `lib/sync/testing/fake-browser.ts`); do not copy a fake storage into a fourth test file.
 
 ## Errors
 
@@ -92,5 +91,4 @@ options)`, `cleanDomainsInStore(api, target, options)`).
 pnpm format && pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm build
 ```
 
-All six must be green. `pnpm lint` reports 0 errors; warnings are Arbor's queue, not a licence to
-add more.
+All six must be green. `pnpm lint` reports 0 errors and 0 warnings.

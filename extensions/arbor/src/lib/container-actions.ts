@@ -44,6 +44,21 @@ export interface ContainerSummary {
   bound: boolean;
 }
 
+/** Open tab nodes anywhere beneath `node`, nested containers included. */
+function countLiveTabsBeneath(tree: Tree, node: TreeNode, index: ChildIndex): number {
+  let liveTabs = 0;
+  for (const id of descendantIds(tree, node.id, index)) {
+    const n = tree.get(id);
+    if (n?.kind === "tab" && n.liveTabId !== undefined) liveTabs++;
+  }
+  return liveTabs;
+}
+
+/** A live tab of the container that is not in its window: open elsewhere, or the container is closed. */
+function isOpenElsewhere(container: TreeNode, tab: TreeNode): boolean {
+  return container.liveWindowId === undefined || tab.liveWindowId !== container.liveWindowId;
+}
+
 export function summarizeContainer(
   tree: Tree,
   node: TreeNode,
@@ -54,18 +69,13 @@ export function summarizeContainer(
   for (const n of containerTabs(tree, node.id, index)) {
     if (n.liveTabId === undefined) {
       if (n.url) savedTabs++;
-    } else if (node.liveWindowId === undefined || n.liveWindowId !== node.liveWindowId) {
+    } else if (isOpenElsewhere(node, n)) {
       liveElsewhere++;
     }
   }
-  let liveTabs = 0;
-  for (const id of descendantIds(tree, node.id, index)) {
-    const n = tree.get(id);
-    if (n?.kind === "tab" && n.liveTabId !== undefined) liveTabs++;
-  }
   return {
     savedTabs,
-    liveTabs,
+    liveTabs: countLiveTabsBeneath(tree, node, index),
     liveElsewhere,
     children: index.get(node.id)?.length ?? 0,
     bound: isBound(node),
@@ -106,53 +116,60 @@ export interface ContainerActionHandlers {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
+/** `label`, or `label (detail)` when there is a detail to show. */
+function withDetail(label: string, detail: string): string {
+  return detail ? `${label} (${detail})` : label;
+}
+
 /**
- * Actions for a container node, in menu order. Disabled entries are still returned so a menu
- * can show them greyed out; row buttons typically hide them (`inRow && !disabled`).
- *
  * "Reopen all" on a bound container opens its closed tabs into that window; on an unbound one it
  * opens a new window holding its closed tabs and gathers in the ones open elsewhere, so it is
  * available as soon as the container holds any tab at all.
  */
-export function containerActions(
-  tree: Tree,
+function reopenAction(
+  s: ContainerSummary,
+  id: NodeId,
+  handlers: ContainerActionHandlers,
+): ContainerAction {
+  const counts = [s.savedTabs ? plural(s.savedTabs, "saved tab") : ""];
+  if (!s.bound) counts.push(s.liveElsewhere ? plural(s.liveElsewhere, "open tab") : "");
+  return {
+    id: "reopen",
+    label: withDetail(s.bound ? "Reopen all" : "Open as window", counts.filter(Boolean).join(", ")),
+    icon: "restore",
+    section: "open",
+    shortcut: s.bound ? undefined : "Enter",
+    disabled: !(s.savedTabs > 0 || (!s.bound && s.liveElsewhere > 0)),
+    inRow: true,
+    run: () => handlers.reopenAll(id),
+  };
+}
+
+function closeAction(
+  s: ContainerSummary,
+  id: NodeId,
+  handlers: ContainerActionHandlers,
+): ContainerAction {
+  const label = s.bound ? "Close window and save" : "Close all and save";
+  return {
+    id: "closeAndSave",
+    label: withDetail(label, s.liveTabs ? plural(s.liveTabs, "open tab") : ""),
+    icon: "close",
+    section: "open",
+    shortcut: "Del",
+    disabled: s.liveTabs === 0,
+    inRow: true,
+    run: () => handlers.closeAndSave(id),
+  };
+}
+
+function editActions(
+  s: ContainerSummary,
   node: ContainerNode,
   handlers: ContainerActionHandlers,
-  index: ChildIndex = buildChildIndex(tree),
 ): ContainerAction[] {
-  const s = summarizeContainer(tree, node, index);
   const id = node.id;
-  const reopenLabel = s.bound ? "Reopen all" : "Open as window";
-  const reopenCounts = s.bound
-    ? [s.savedTabs ? plural(s.savedTabs, "saved tab") : ""]
-    : [
-        s.savedTabs ? plural(s.savedTabs, "saved tab") : "",
-        s.liveElsewhere ? plural(s.liveElsewhere, "open tab") : "",
-      ];
-  const reopenDetail = reopenCounts.filter(Boolean).join(", ");
-  const canReopen = s.savedTabs > 0 || (!s.bound && s.liveElsewhere > 0);
-  const closeLabel = s.bound ? "Close window and save" : "Close all and save";
   return [
-    {
-      id: "reopen",
-      label: reopenDetail ? `${reopenLabel} (${reopenDetail})` : reopenLabel,
-      icon: "restore",
-      section: "open",
-      shortcut: s.bound ? undefined : "Enter",
-      disabled: !canReopen,
-      inRow: true,
-      run: () => handlers.reopenAll(id),
-    },
-    {
-      id: "closeAndSave",
-      label: s.liveTabs ? `${closeLabel} (${plural(s.liveTabs, "open tab")})` : closeLabel,
-      icon: "close",
-      section: "open",
-      shortcut: "Del",
-      disabled: s.liveTabs === 0,
-      inRow: true,
-      run: () => handlers.closeAndSave(id),
-    },
     {
       id: "note",
       label: node.note ? "Edit note" : "Add note",
@@ -183,16 +200,42 @@ export function containerActions(
       inRow: false,
       run: () => handlers.toggleCollapse(id, !node.collapsed),
     },
-    {
-      id: "delete",
-      label: s.liveTabs ? `Delete (closes ${plural(s.liveTabs, "open tab")})` : "Delete",
-      icon: "trash",
-      section: "danger",
-      danger: true,
-      disabled: false,
-      inRow: true,
-      run: () => handlers.deleteNode(id),
-    },
+  ];
+}
+
+function deleteAction(
+  s: ContainerSummary,
+  id: NodeId,
+  handlers: ContainerActionHandlers,
+): ContainerAction {
+  return {
+    id: "delete",
+    label: s.liveTabs ? `Delete (closes ${plural(s.liveTabs, "open tab")})` : "Delete",
+    icon: "trash",
+    section: "danger",
+    danger: true,
+    disabled: false,
+    inRow: true,
+    run: () => handlers.deleteNode(id),
+  };
+}
+
+/**
+ * Actions for a container node, in menu order. Disabled entries are still returned so a menu
+ * can show them greyed out; row buttons typically hide them (`inRow && !disabled`).
+ */
+export function containerActions(
+  tree: Tree,
+  node: ContainerNode,
+  handlers: ContainerActionHandlers,
+  index: ChildIndex = buildChildIndex(tree),
+): ContainerAction[] {
+  const s = summarizeContainer(tree, node, index);
+  return [
+    reopenAction(s, node.id, handlers),
+    closeAction(s, node.id, handlers),
+    ...editActions(s, node, handlers),
+    deleteAction(s, node.id, handlers),
   ];
 }
 

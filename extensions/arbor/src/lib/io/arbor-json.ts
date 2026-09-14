@@ -4,6 +4,7 @@ import {
   createTree,
   DEFAULT_WINDOW_TITLE,
   serializeNodes,
+  type ChildIndex,
   type Tree,
   type TreeNode,
 } from "../model";
@@ -55,19 +56,12 @@ export function isArborExport(value: unknown): value is { nodes: unknown[] } {
   );
 }
 
-/**
- * Parse our own export (any schema version) into an importable tree. Nodes whose parent is
- * missing are lifted to the root instead of being dropped; the number of such repairs is
- * reported in `warnings`. `now` stands in for timestamps a damaged file lacks.
- */
-export function parseArborExport(input: string | unknown, now: number): ImportPreview {
-  let value: unknown = input;
-  if (typeof input === "string") value = JSON.parse(input);
-  if (!isArborExport(value)) throw new Error("Not an Arbor export (missing format/nodes)");
+/** Nodes that parsed, with the pre-0.1.4 default window title normalised; `skipped` counts the rest. */
+function readNodes(raw: readonly unknown[], now: number): { nodes: TreeNode[]; skipped: number } {
   const nodes: TreeNode[] = [];
   let skipped = 0;
-  for (const raw of value.nodes) {
-    const n = coerceNode(raw, now);
+  for (const value of raw) {
+    const n = coerceNode(value, now);
     if (!n) {
       skipped++;
       continue;
@@ -75,10 +69,14 @@ export function parseArborExport(input: string | unknown, now: number): ImportPr
     // Version 1 titled browser-made windows "Window"; that is the empty title now.
     nodes.push(n.kind === "window" && n.title === DEFAULT_WINDOW_TITLE ? { ...n, title: "" } : n);
   }
-  // A second node with an id already seen would silently replace the first in the tree map.
+  return { nodes, skipped };
+}
+
+/** A second node with an id already seen would silently replace the first in the tree map. */
+function dropDuplicateIds(nodes: readonly TreeNode[]): { unique: TreeNode[]; duplicates: number } {
   const ids = new Set<string>();
-  let duplicates = 0;
   const unique: TreeNode[] = [];
+  let duplicates = 0;
   for (const n of nodes) {
     if (ids.has(n.id)) {
       duplicates++;
@@ -87,17 +85,27 @@ export function parseArborExport(input: string | unknown, now: number): ImportPr
     ids.add(n.id);
     unique.push(n);
   }
+  return { unique, duplicates };
+}
+
+/** Nodes whose parent is not in the file are lifted to the root instead of being dropped. */
+function liftOrphans(nodes: readonly TreeNode[]): { fixed: TreeNode[]; lifted: number } {
+  const ids = new Set(nodes.map((n) => n.id));
   let lifted = 0;
-  const fixed = unique.map((n) => {
-    if (n.parentId !== null && !ids.has(n.parentId)) {
-      lifted++;
-      return { ...n, parentId: null };
-    }
-    return n;
+  const fixed = nodes.map((n) => {
+    if (n.parentId === null || ids.has(n.parentId)) return n;
+    lifted++;
+    return { ...n, parentId: null };
   });
-  // Nodes whose parent chain loops never hang off the root and would be dropped by the walk
-  // below. Lift one node of each such cycle to the top level; the rest follow under it.
-  const index = buildChildIndex(createTree(fixed));
+  return { fixed, lifted };
+}
+
+/**
+ * Nodes whose parent chain loops never hang off the root and would be dropped by the export
+ * walk. Lift one node of each such cycle to the top level; the rest follow under it. Mutates
+ * `index` so the following walk sees the lifted roots. Returns how many were lifted.
+ */
+function liftCycles(fixed: readonly TreeNode[], index: ChildIndex): number {
   const reachable = new Set<string>();
   const reach = (from: readonly TreeNode[]): void => {
     const stack = [...from];
@@ -109,6 +117,7 @@ export function parseArborExport(input: string | unknown, now: number): ImportPr
     }
   };
   reach(index.get(null) ?? []);
+  let lifted = 0;
   for (const n of fixed) {
     if (reachable.has(n.id)) continue;
     lifted++;
@@ -118,11 +127,10 @@ export function parseArborExport(input: string | unknown, now: number): ImportPr
     else index.set(null, [root]);
     reach([n]);
   }
-  const warnings: string[] = [];
-  if (skipped) warnings.push(`${skipped} unreadable node(s) were skipped`);
-  if (duplicates) warnings.push(`${duplicates} node(s) with a duplicate id were skipped`);
-  if (lifted)
-    warnings.push(`${lifted} node(s) had a missing parent and were moved to the top level`);
+  return lifted;
+}
+
+function toImportedRoots(index: ChildIndex): ImportedNode[] {
   const seen = new Set<string>();
   const toImported = (n: TreeNode): ImportedNode => {
     seen.add(n.id);
@@ -136,8 +144,36 @@ export function parseArborExport(input: string | unknown, now: number): ImportPr
       children: (index.get(n.id) ?? []).filter((c) => !seen.has(c.id)).map(toImported),
     };
   };
-  const roots = (index.get(null) ?? []).map(toImported);
-  return makePreview("Arbor export", roots, warnings);
+  return (index.get(null) ?? []).map(toImported);
+}
+
+function repairWarnings(counts: { skipped: number; duplicates: number; lifted: number }): string[] {
+  const warnings: string[] = [];
+  if (counts.skipped) warnings.push(`${counts.skipped} unreadable node(s) were skipped`);
+  if (counts.duplicates) {
+    warnings.push(`${counts.duplicates} node(s) with a duplicate id were skipped`);
+  }
+  if (counts.lifted) {
+    warnings.push(`${counts.lifted} node(s) had a missing parent and were moved to the top level`);
+  }
+  return warnings;
+}
+
+/**
+ * Parse our own export (any schema version) into an importable tree. Nodes whose parent is
+ * missing are lifted to the root instead of being dropped; the number of such repairs is
+ * reported in `warnings`. `now` stands in for timestamps a damaged file lacks.
+ */
+export function parseArborExport(input: string | unknown, now: number): ImportPreview {
+  const value: unknown = typeof input === "string" ? JSON.parse(input) : input;
+  if (!isArborExport(value)) throw new Error("Not an Arbor export (missing format/nodes)");
+  const { nodes, skipped } = readNodes(value.nodes, now);
+  const { unique, duplicates } = dropDuplicateIds(nodes);
+  const { fixed, lifted } = liftOrphans(unique);
+  const index = buildChildIndex(createTree(fixed));
+  const liftedCycles = liftCycles(fixed, index);
+  const warnings = repairWarnings({ skipped, duplicates, lifted: lifted + liftedCycles });
+  return makePreview("Arbor export", toImportedRoots(index), warnings);
 }
 
 export function exportFileName(now: Date): string {
