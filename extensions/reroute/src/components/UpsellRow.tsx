@@ -1,14 +1,9 @@
 import { Button } from "@browserforge/ui";
-import { LICENSING, openCheckout } from "../lib/licensing";
+import { LICENSING, openCheckout } from "../adapters/licensing";
 import { PRO_UPSELL_LABEL } from "../lib/pro";
 
 export interface UpsellRowProps {
   feature?: string;
-}
-
-/** Opens the hosted checkout (or the product page when no checkout is configured) in a new tab. */
-export function openProPage(): void {
-  openCheckout();
 }
 
 export function UpsellRow({ feature }: UpsellRowProps) {
@@ -26,7 +21,7 @@ export function UpsellRow({ feature }: UpsellRowProps) {
             : "Unlock rule sync, curated rule packs and shareable rule links."}
         </div>
       </div>
-      <Button variant="primary" size="sm" onClick={openProPage}>
+      <Button variant="primary" size="sm" onClick={openCheckout}>
         {purchasable ? "Get Pro" : "About Pro"}
       </Button>
     </div>

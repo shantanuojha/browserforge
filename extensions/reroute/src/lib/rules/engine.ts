@@ -1,5 +1,6 @@
 /**
- * Pure rule engine. No browser APIs; everything here is unit-tested.
+ * Pure rule engine: pattern conversion, matching and loop protection. No browser APIs.
+ * Compilation to declarativeNetRequest lives in `./dnr-compiler`.
  *
  * Semantics follow Redirector so imports behave identically:
  *  - wildcard patterns are anchored and every `*` captures;
@@ -10,10 +11,8 @@
  *    continues with the next rule.
  */
 
-import type { DnrResourceType, DnrRule } from "../dnr";
-import { DNR_PRIORITY } from "../dnr";
-import { RESOURCE_TYPES, type Rule, type Transform } from "./model";
-import { isRE2Compatible } from "./re2";
+import { base64ToUtf8, utf8ToBase64 } from "@browserforge/shared";
+import type { Rule, Transform } from "./model";
 
 export { checkRE2Compatible, isRE2Compatible } from "./re2";
 
@@ -43,6 +42,12 @@ export function excludeRegexSources(rule: Pick<Rule, "matchType" | "exclude">): 
     .map((e) => (rule.matchType === "wildcard" ? wildcardToRegex(e) : e));
 }
 
+/** True when the `(` at `i` opens a capturing group (`(x)` or a named `(?<name>x)`). */
+function opensCaptureGroup(source: string, i: number): boolean {
+  if (source[i + 1] !== "?") return true;
+  return source[i + 2] === "<" && source[i + 3] !== "=" && source[i + 3] !== "!";
+}
+
 /** Number of capturing groups in a regex source (ignores `(?:`, lookarounds and escaped/classed parens). */
 export function countCaptureGroups(source: string): number {
   let count = 0;
@@ -58,10 +63,7 @@ export function countCaptureGroups(source: string): number {
       continue;
     }
     if (ch === "[") inClass = true;
-    else if (ch === "(") {
-      if (source[i + 1] !== "?") count++;
-      else if (source[i + 2] === "<" && source[i + 3] !== "=" && source[i + 3] !== "!") count++; // named group
-    }
+    else if (ch === "(" && opensCaptureGroup(source, i)) count++;
   }
   return count;
 }
@@ -91,56 +93,18 @@ export function getRegex(source: string): RegExp | null {
 // Transforms and substitution
 // ---------------------------------------------------------------------------
 
-const utf8Encoder = new TextEncoder();
-const utf8Decoder = new TextDecoder();
-
-function base64Encode(text: string): string {
-  const bytes = utf8Encoder.encode(text);
-  let bin = "";
-  for (const b of bytes) bin += String.fromCharCode(b);
-  return btoa(bin);
-}
-
-function base64Decode(text: string): string {
-  // Accept URL-safe alphabet and missing padding.
-  let normalized = text.replace(/-/g, "+").replace(/_/g, "/").replace(/\s+/g, "");
-  while (normalized.length % 4 !== 0) normalized += "=";
-  const bin = atob(normalized);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return utf8Decoder.decode(bytes);
-}
+const TRANSFORM_FUNCTIONS: Readonly<Record<Transform, (value: string) => string>> = {
+  decodeURIComponent: (value) => decodeURIComponent(value),
+  encodeURIComponent: (value) => encodeURIComponent(value),
+  atob: base64ToUtf8,
+  btoa: utf8ToBase64,
+  lower: (value) => value.toLowerCase(),
+  upper: (value) => value.toUpperCase(),
+};
 
 /** Applies transforms in order. Throws on malformed input (bad %-escape, bad base64). */
 export function applyTransforms(value: string, transforms: readonly Transform[]): string {
-  let out = value;
-  for (const t of transforms) {
-    switch (t) {
-      case "decodeURIComponent":
-        out = decodeURIComponent(out);
-        break;
-      case "encodeURIComponent":
-        out = encodeURIComponent(out);
-        break;
-      case "atob":
-        out = base64Decode(out);
-        break;
-      case "btoa":
-        out = base64Encode(out);
-        break;
-      case "lower":
-        out = out.toLowerCase();
-        break;
-      case "upper":
-        out = out.toUpperCase();
-        break;
-      default: {
-        const never: never = t;
-        throw new Error(`Unknown transform ${String(never)}`);
-      }
-    }
-  }
-  return out;
+  return transforms.reduce((out, transform) => TRANSFORM_FUNCTIONS[transform](out), value);
 }
 
 /** Replaces `$1`..`$9` in the template. Missing groups become "". */
@@ -168,6 +132,19 @@ export function isValidAbsoluteUrl(value: string): boolean {
   }
 }
 
+function isExcluded(url: string, rule: Rule): boolean {
+  return excludeRegexSources(rule).some((src) => getRegex(src)?.test(url) === true);
+}
+
+/** Transformed captures, or null when a transform rejects its input. */
+function transformGroups(groups: readonly string[], rule: Rule): string[] | null {
+  try {
+    return groups.map((g) => applyTransforms(g, rule.transforms));
+  } catch {
+    return null;
+  }
+}
+
 /**
  * Returns the redirect target for `url` under `rule`, or null when the rule
  * does not apply (no match, excluded, disabled, transform failure, invalid
@@ -175,26 +152,14 @@ export function isValidAbsoluteUrl(value: string): boolean {
  */
 export function matchRuleDetailed(url: string, rule: Rule): MatchDetail | null {
   if (!rule.enabled) return null;
-  const include = getRegex(includeRegexSource(rule));
-  if (!include) return null;
-  const m = include.exec(url);
-  if (!m) return null;
+  const match = getRegex(includeRegexSource(rule))?.exec(url);
+  if (!match || isExcluded(url, rule)) return null;
 
-  for (const src of excludeRegexSources(rule)) {
-    const re = getRegex(src);
-    if (re && re.test(url)) return null;
-  }
-
-  const groups = m.slice(1).map((g) => g ?? "");
-  let transformed: string[];
-  try {
-    transformed = groups.map((g) => applyTransforms(g, rule.transforms));
-  } catch {
-    return null;
-  }
+  const groups = match.slice(1).map((g) => g ?? "");
+  const transformed = transformGroups(groups, rule);
+  if (!transformed) return null;
   const target = substitute(rule.redirectTo, transformed);
-  if (!isValidAbsoluteUrl(target)) return null;
-  if (target === url) return null;
+  if (!isValidAbsoluteUrl(target) || target === url) return null;
   return { target, groups };
 }
 
@@ -268,174 +233,4 @@ export function wouldLoop(
   if (from === to) return true;
   if (history.length >= maxHops) return true;
   return history.some((h) => normalizeForLoop(h) === to);
-}
-
-// ---------------------------------------------------------------------------
-// DNR compilation
-// ---------------------------------------------------------------------------
-
-export interface CompiledRules {
-  dnrRules: DnrRule[];
-  /** Rule ids that must be handled by the JS fallback (transforms, excludes, non-RE2 regex...). */
-  jsOnlyRuleIds: string[];
-  /** rule.id -> reason it is JS-only (for the UI). */
-  jsOnlyReasons: Record<string, string>;
-  /** rule.id -> DNR rule id, for the "what fired" log. */
-  dnrIdByRuleId: Record<string, number>;
-}
-
-/** True when `|` occurs outside every group, class and escape, i.e. `^a|b$` anchors only one branch. */
-export function hasTopLevelAlternation(source: string): boolean {
-  let depth = 0;
-  let inClass = false;
-  for (let i = 0; i < source.length; i++) {
-    const ch = source[i];
-    if (ch === "\\") {
-      i++;
-      continue;
-    }
-    if (inClass) {
-      if (ch === "]") inClass = false;
-      continue;
-    }
-    if (ch === "[") inClass = true;
-    else if (ch === "(") depth++;
-    else if (ch === ")") depth = Math.max(0, depth - 1);
-    else if (ch === "|" && depth === 0) return true;
-  }
-  return false;
-}
-
-/** Wraps a regex so that DNR's "replace the first match" becomes "replace the whole URL". */
-export function anchorForDNR(source: string): string {
-  // A leading `^` / trailing `$` only anchors its own branch when there is a top-level `|`.
-  const alternation = hasTopLevelAlternation(source);
-  const startsAnchored = !alternation && source.startsWith("^");
-  const endsAnchored = !alternation && /(^|[^\\])(\\\\)*\$$/.test(source);
-  if (startsAnchored && endsAnchored) return source;
-  const head = startsAnchored ? "" : "^.*?";
-  const tail = endsAnchored ? "" : ".*$";
-  return `${head}(?:${source})${tail}`;
-}
-
-/** `$1` -> `\1`. Returns null when the template cannot be expressed. */
-export function toRegexSubstitution(template: string, groupCount: number): string | null {
-  if (template.includes("\\")) return null;
-  let bad = false;
-  const out = template.replace(/\$([1-9])/g, (_m, d: string) => {
-    if (Number(d) > groupCount) bad = true;
-    return `\\${d}`;
-  });
-  return bad ? null : out;
-}
-
-/** Why a rule cannot be a DNR rule, or null if it can. */
-export function dnrIneligibilityReason(rule: Rule): string | null {
-  if (rule.transforms.length > 0) return "uses transforms";
-  if (rule.exclude.length > 0) return "has exclude patterns";
-  const source = includeRegexSource(rule);
-  if (!isRE2Compatible(source)) return "regex is outside the RE2 subset";
-  if (toRegexSubstitution(rule.redirectTo, countCaptureGroups(source)) === null)
-    return "redirect target cannot be expressed as a regexSubstitution";
-  return null;
-}
-
-export function dnrResourceTypes(rule: Rule): DnrResourceType[] {
-  if (rule.applyTo === "navigation") return ["main_frame"];
-  return rule.resourceTypes.length > 0 ? [...rule.resourceTypes] : [...RESOURCE_TYPES];
-}
-
-/**
- * Compiles enabled rules to DNR redirect rules. Earlier rules get a higher
- * priority so first-match-wins survives the translation. Disabled rules are
- * skipped entirely; ineligible rules are reported in `jsOnlyRuleIds`.
- */
-export function compileToDNR(rules: readonly Rule[], idBase: number): CompiledRules {
-  const enabled = rules.filter((r) => r.enabled);
-  const dnrRules: DnrRule[] = [];
-  const jsOnlyRuleIds: string[] = [];
-  const jsOnlyReasons: Record<string, string> = {};
-  const dnrIdByRuleId: Record<string, number> = {};
-
-  enabled.forEach((rule, i) => {
-    const reason = dnrIneligibilityReason(rule);
-    if (reason) {
-      jsOnlyRuleIds.push(rule.id);
-      jsOnlyReasons[rule.id] = reason;
-      return;
-    }
-    const source = includeRegexSource(rule);
-    const substitution = toRegexSubstitution(rule.redirectTo, countCaptureGroups(source));
-    if (substitution === null) return; // unreachable: covered by dnrIneligibilityReason
-    const id = idBase + i;
-    dnrIdByRuleId[rule.id] = id;
-    dnrRules.push({
-      id,
-      priority: DNR_PRIORITY.userRuleBase + (enabled.length - 1 - i),
-      condition: {
-        regexFilter: anchorForDNR(source),
-        resourceTypes: dnrResourceTypes(rule),
-        isUrlFilterCaseSensitive: false,
-      },
-      action: { type: "redirect", redirect: { regexSubstitution: substitution } },
-    });
-  });
-
-  return { dnrRules, jsOnlyRuleIds, jsOnlyReasons, dnrIdByRuleId };
-}
-
-const escapeForRegex = (text: string): string => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-/**
- * Per-site allowlist -> high-priority allow rules with the same semantics as
- * `hostMatchesPattern`: `host` is the exact host, `*.host` its subdomains only,
- * `*host` both. `requestDomains` always includes subdomains, so only the last
- * form can use it; the other two become one RE2 regex each over the URL.
- */
-export function allowlistToDNR(patterns: readonly string[], idBase: number): DnrRule[] {
-  const exact = new Set<string>();
-  const subdomains = new Set<string>();
-  const domains = new Set<string>();
-  for (const raw of patterns) {
-    const pat = raw.trim().toLowerCase();
-    const host = pat.replace(/^\*\.?/, "").replace(/^\.+|\.+$/g, "");
-    if (!host) continue;
-    if (pat.startsWith("*.")) subdomains.add(host);
-    else if (pat.startsWith("*")) domains.add(host);
-    else exact.add(host);
-  }
-  const rules: DnrRule[] = [];
-  const base = { priority: DNR_PRIORITY.siteAllow, action: { type: "allow" } as const };
-  const resourceTypes = [...RESOURCE_TYPES];
-  if (domains.size > 0) {
-    rules.push({
-      ...base,
-      id: idBase,
-      condition: { requestDomains: [...domains], resourceTypes },
-    });
-  }
-  const hostGroup = (hosts: Set<string>) => `(?:${[...hosts].map(escapeForRegex).join("|")})`;
-  if (exact.size > 0) {
-    rules.push({
-      ...base,
-      id: idBase + 1,
-      condition: {
-        regexFilter: `^[^:/?#]+://${hostGroup(exact)}(?::\\d+)?/`,
-        isUrlFilterCaseSensitive: false,
-        resourceTypes,
-      },
-    });
-  }
-  if (subdomains.size > 0) {
-    rules.push({
-      ...base,
-      id: idBase + 2,
-      condition: {
-        regexFilter: `^[^:/?#]+://[^/?#]*\\.${hostGroup(subdomains)}(?::\\d+)?/`,
-        isUrlFilterCaseSensitive: false,
-        resourceTypes,
-      },
-    });
-  }
-  return rules;
 }

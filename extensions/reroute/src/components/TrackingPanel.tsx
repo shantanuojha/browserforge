@@ -1,8 +1,8 @@
 import { Button } from "@browserforge/ui";
 import { useEffect, useState } from "react";
+import { loadTrackingMeta, loadTrackingRules, type TrackingMeta } from "../adapters/tracking-rules";
 import type { DnrRule } from "../lib/dnr";
 import { cleanUrl } from "../lib/tracking/clean";
-import { loadTrackingMeta, loadTrackingRules, type TrackingMeta } from "../lib/tracking/load";
 import { Toggle } from "./Toggle";
 
 export interface TrackingPanelProps {

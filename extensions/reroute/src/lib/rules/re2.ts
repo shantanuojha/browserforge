@@ -16,41 +16,77 @@ export interface RE2CheckResult {
   reason?: string;
 }
 
-export function checkRE2Compatible(source: string): RE2CheckResult {
-  if (source.length === 0) return { ok: false, reason: "empty pattern" };
+const reject = (reason: string): RE2CheckResult => ({ ok: false, reason });
 
-  // DNR requires ASCII-only regex filters.
-  for (let i = 0; i < source.length; i++) {
-    if (source.charCodeAt(i) > 0x7f) return { ok: false, reason: "non-ASCII character" };
-  }
+/**
+ * Escapes whose meaning differs between JS and RE2 (or that RE2 lacks). JS reads `\A \z \Q \E
+ * \C \a` as the plain letter; RE2 reads them as anchors, a literal span, "any byte" and BEL.
+ */
+const ESCAPE_PROBLEMS: Readonly<Record<string, string>> = {
+  p: "unicode property escape",
+  P: "unicode property escape",
+  // \uXXXX is JS-only (RE2 uses \x{...}); \u{...} likewise.
+  u: "\\u escape",
+  c: "control escape",
+  A: "\\A means something else in RE2",
+  z: "\\z means something else in RE2",
+  Q: "\\Q means something else in RE2",
+  E: "\\E means something else in RE2",
+  C: "\\C means something else in RE2",
+  a: "\\a means something else in RE2",
+};
 
-  // Must at least parse as a JS regex (we use it in the JS fallback too).
+/** Why `\<next>` is not RE2-safe, or null. Backreferences are only meaningful outside classes. */
+function escapeProblem(next: string | undefined, inClass: boolean): string | null {
+  if (next === undefined) return "trailing backslash";
+  if (!inClass && next >= "1" && next <= "9") return "backreference";
+  if (!inClass && next === "k") return "named backreference";
+  return ESCAPE_PROBLEMS[next] ?? null;
+}
+
+/** Why a `(?` group with the two characters `tail` after it is not RE2-safe, or null. */
+function groupProblem(tail: string): string | null {
+  if (tail.startsWith("=") || tail.startsWith("!")) return "lookahead";
+  if (tail === "<=" || tail === "<!") return "lookbehind";
+  if (tail.startsWith("<")) return "named group";
+  if (tail.startsWith(":")) return null; // non-capturing, fine
+  // (?i) style inline flags are RE2-only and not valid JS; the JS parse rejects them first.
+  return "unsupported group syntax";
+}
+
+function isPossessiveQuantifier(source: string, i: number): boolean {
+  const ch = source[i];
+  return (ch === "*" || ch === "+" || ch === "?" || ch === "}") && source[i + 1] === "+";
+}
+
+function hasNonAscii(source: string): boolean {
+  for (let i = 0; i < source.length; i++) if (source.charCodeAt(i) > 0x7f) return true;
+  return false;
+}
+
+function jsParseError(source: string): string | null {
   try {
     new RegExp(source);
+    return null;
   } catch (e) {
-    return { ok: false, reason: `invalid regex: ${e instanceof Error ? e.message : String(e)}` };
+    return e instanceof Error ? e.message : String(e);
   }
+}
+
+export function checkRE2Compatible(source: string): RE2CheckResult {
+  if (source.length === 0) return reject("empty pattern");
+  // DNR requires ASCII-only regex filters.
+  if (hasNonAscii(source)) return reject("non-ASCII character");
+  // Must at least parse as a JS regex (we use it in the JS fallback too).
+  const parseError = jsParseError(source);
+  if (parseError !== null) return reject(`invalid regex: ${parseError}`);
 
   let inClass = false;
   for (let i = 0; i < source.length; i++) {
     const ch = source[i];
     if (ch === "\\") {
-      const next = source[i + 1];
-      if (next === undefined) return { ok: false, reason: "trailing backslash" };
-      if (!inClass) {
-        if (next >= "1" && next <= "9") return { ok: false, reason: "backreference" };
-        if (next === "k") return { ok: false, reason: "named backreference" };
-      }
-      if (next === "p" || next === "P") return { ok: false, reason: "unicode property escape" };
-      if (next === "u") {
-        // \uXXXX is JS-only (RE2 uses \x{...}); \u{...} likewise.
-        return { ok: false, reason: "\\u escape" };
-      }
-      if (next === "c") return { ok: false, reason: "control escape" };
-      // JS reads these as the plain letter; RE2 reads \A \z as anchors, \Q..\E as a literal
-      // span, \C as "any byte" and \a as BEL, so the two engines would disagree.
-      if ("AzQECa".includes(next))
-        return { ok: false, reason: `\\${next} means something else in RE2` };
+      const problem = escapeProblem(source[i + 1], inClass);
+      if (problem) return reject(problem);
       i++;
       continue;
     }
@@ -59,24 +95,18 @@ export function checkRE2Compatible(source: string): RE2CheckResult {
       continue;
     }
     if (ch === "[") {
-      inClass = true;
       // A leading "]" inside a class is literal in JS ("[]" is an empty class);
       // RE2 treats it differently, so just reject the ambiguity.
-      if (source[i + 1] === "]") return { ok: false, reason: "empty character class" };
+      if (source[i + 1] === "]") return reject("empty character class");
+      inClass = true;
       continue;
     }
     if (ch === "(" && source[i + 1] === "?") {
-      const tail = source.slice(i + 2, i + 4);
-      if (tail.startsWith("=") || tail.startsWith("!")) return { ok: false, reason: "lookahead" };
-      if (tail === "<=" || tail === "<!") return { ok: false, reason: "lookbehind" };
-      if (tail.startsWith("<")) return { ok: false, reason: "named group" };
-      if (tail.startsWith(":")) continue; // non-capturing, fine
-      // (?i) style inline flags are RE2-only and not valid JS; JS parse above rejects them.
-      return { ok: false, reason: "unsupported group syntax" };
+      const problem = groupProblem(source.slice(i + 2, i + 4));
+      if (problem) return reject(problem);
+      continue;
     }
-    if ((ch === "*" || ch === "+" || ch === "?" || ch === "}") && source[i + 1] === "+") {
-      return { ok: false, reason: "possessive quantifier" };
-    }
+    if (isPossessiveQuantifier(source, i)) return reject("possessive quantifier");
   }
   return { ok: true };
 }

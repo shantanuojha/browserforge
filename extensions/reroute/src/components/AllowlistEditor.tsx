@@ -1,17 +1,10 @@
-import { normalizeHost } from "@browserforge/shared";
 import { Button } from "@browserforge/ui";
 import { useState } from "react";
+import { normalizeAllowlistEntry } from "../lib/rules/allowlist";
 
 export interface AllowlistEditorProps {
   allowlist: string[];
   onChange: (next: string[]) => void;
-}
-
-export function normalizeAllowlistEntry(input: string): string | null {
-  const host = normalizeHost(input).replace(/\/.*$/, "");
-  if (!host) return null;
-  if (!/^\*?\.?[a-z0-9.-]+$/i.test(host)) return null;
-  return host;
 }
 
 export function AllowlistEditor({ allowlist, onChange }: AllowlistEditorProps) {

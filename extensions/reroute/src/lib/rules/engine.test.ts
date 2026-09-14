@@ -6,11 +6,14 @@ import { conditionMatches } from "../tracking/clean";
 import {
   allowlistToDNR,
   anchorForDNR,
+  compileToDNR,
+  dnrIneligibilityReason,
+  toRegexSubstitution,
+} from "./dnr-compiler";
+import {
   applyTransforms,
   appliesToNavigation,
-  compileToDNR,
   countCaptureGroups,
-  dnrIneligibilityReason,
   firstMatch,
   isRE2Compatible,
   isValidAbsoluteUrl,
@@ -18,7 +21,6 @@ import {
   matchRuleDetailed,
   substitute,
   testUrl,
-  toRegexSubstitution,
   wildcardToRegex,
   wouldLoop,
 } from "./engine";

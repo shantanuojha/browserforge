@@ -10,8 +10,8 @@ import {
   useLicense,
   type KeyValueItem,
 } from "@browserforge/ui";
-import type { LicenseClient } from "@browserforge/licensing";
-import { LICENSING, PRO_PAGE_URL, getLicenseClient, openCheckout } from "../lib/licensing";
+import type { LicenseClient, LicenseState } from "@browserforge/licensing";
+import { LICENSING, PRO_PAGE_URL, getLicenseClient, openCheckout } from "../adapters/licensing";
 
 /**
  * Licence status, activate/manage dialog and the "Buy Pro" link for the options page Pro tab.
@@ -56,24 +56,29 @@ function NotConfigured() {
   );
 }
 
+/** The compact detail rows for the Pro tab (the dialog shows the full list). */
+function licenceDetails(state: LicenseState | null): KeyValueItem[] {
+  if (state?.kind === "pro" || state?.kind === "grace") {
+    return [
+      { key: "Licence key", value: state.key, mono: true },
+      { key: "Status", value: state.kind === "pro" ? "Active" : "Active (offline grace)" },
+      { key: "Last checked", value: formatDate(state.lastValidatedAt) },
+    ];
+  }
+  if (state?.kind === "invalid" && state.key) {
+    return [
+      { key: "Licence key", value: state.key, mono: true },
+      { key: "Status", value: "Not valid" },
+    ];
+  }
+  return [];
+}
+
 function LicenseBody({ client }: { client: LicenseClient }) {
   const { state, isPro } = useLicense(client);
   const [open, setOpen] = useState(false);
   const summary = summarizeLicenseState(state);
-
-  const details: KeyValueItem[] =
-    state && (state.kind === "pro" || state.kind === "grace")
-      ? [
-          { key: "Licence key", value: state.key, mono: true },
-          { key: "Status", value: state.kind === "pro" ? "Active" : "Active (offline grace)" },
-          { key: "Last checked", value: formatDate(state.lastValidatedAt) },
-        ]
-      : state?.kind === "invalid" && state.key
-        ? [
-            { key: "Licence key", value: state.key, mono: true },
-            { key: "Status", value: "Not valid" },
-          ]
-        : [];
+  const details = licenceDetails(state);
 
   return (
     <div className="rr-stack">
@@ -94,12 +99,12 @@ function LicenseBody({ client }: { client: LicenseClient }) {
         <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
           {isPro ? "Manage licence" : "Enter licence key"}
         </Button>
-        {!isPro ? (
+        {isPro ? (
+          <ProBadge />
+        ) : (
           <Button size="sm" onClick={openCheckout}>
             Buy Pro
           </Button>
-        ) : (
-          <ProBadge />
         )}
       </div>
       {open ? (

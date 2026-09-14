@@ -1,82 +1,187 @@
-import { Button } from "@browserforge/ui";
+import { Button, copyToClipboard, dateStamp, downloadTextFile } from "@browserforge/ui";
 import { useMemo, useState, type ChangeEvent } from "react";
-import { parseRules, serializeRules, type Rule } from "../lib/rules/model";
-import { importRedirector, looksLikeRedirectorExport } from "../lib/rules/redirector-import";
-import { decodeShareLink, encodeShareLink, isShareLink } from "../lib/rules/share";
+import { analyseImportText, type ImportPreview } from "../lib/rules/import-analysis";
+import { serializeRules, type Rule } from "../lib/rules/model";
+import { encodeShareLink } from "../lib/rules/share";
 import { UpsellRow } from "./UpsellRow";
+
+export type ImportMode = "append" | "replace";
 
 export interface ImportExportProps {
   rules: Rule[];
   pro: boolean | null;
-  onImport: (rules: Rule[], mode: "append" | "replace") => void;
+  onImport: (rules: Rule[], mode: ImportMode) => void;
 }
 
-interface Preview {
-  source: string;
-  rules: Rule[];
-  warnings: string[];
-  errors: string[];
+type Notify = (text: string) => void;
+
+const plural = (count: number, noun: string) => `${count} ${noun}${count === 1 ? "" : "s"}`;
+
+function ShareLinkField({ link, notify }: { link: string; notify: Notify }) {
+  return (
+    <div className="rr-field" style={{ marginTop: 12 }}>
+      <label htmlFor="share-link">Share link (anyone can paste this into Reroute)</label>
+      <textarea
+        id="share-link"
+        className="rr-textarea rr-textarea--mono"
+        readOnly
+        value={link}
+        rows={3}
+        onFocus={(e) => e.target.select()}
+      />
+      <div className="rr-row">
+        <Button
+          size="sm"
+          variant="secondary"
+          onClick={() =>
+            void copyToClipboard(link).then((ok) =>
+              notify(ok ? "Share link copied." : "Clipboard unavailable."),
+            )
+          }
+        >
+          Copy link
+        </Button>
+        <span className="rr-small rr-muted">{link.length.toLocaleString()} characters</span>
+      </div>
+    </div>
+  );
 }
 
-function analyse(text: string): Preview | null {
-  const trimmed = text.trim();
-  if (!trimmed) return null;
-  if (isShareLink(trimmed)) {
-    const res = decodeShareLink(trimmed);
-    return { source: "Reroute share link", rules: res.rules, warnings: [], errors: res.errors };
-  }
-  let json: unknown;
-  try {
-    json = JSON.parse(trimmed);
-  } catch (e) {
-    return {
-      source: "unknown",
-      rules: [],
-      warnings: [],
-      errors: [`Not valid JSON: ${e instanceof Error ? e.message : String(e)}`],
-    };
-  }
-  if (looksLikeRedirectorExport(json)) {
-    const res = importRedirector(json);
-    return {
-      source: res.source,
-      rules: res.items.map((i) => i.rule),
-      warnings: res.items.flatMap((i, idx) =>
-        i.warnings.map((w) => `${i.rule.name || `redirect ${idx + 1}`}: ${w}`),
-      ),
-      errors: res.errors,
-    };
-  }
-  const res = parseRules(json);
-  return { source: "Reroute JSON", rules: res.rules, warnings: [], errors: res.errors };
-}
-
-function download(filename: string, text: string, type = "application/json") {
-  const blob = new Blob([text], { type });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-async function copy(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function ImportExport({ rules, pro, onImport }: ImportExportProps) {
-  const [text, setText] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
+function ExportSection({
+  rules,
+  pro,
+  notify,
+}: Pick<ImportExportProps, "rules" | "pro"> & { notify: Notify }) {
   const [shareLink, setShareLink] = useState<string | null>(null);
-  const preview = useMemo(() => analyse(text), [text]);
+  const empty = rules.length === 0;
+  return (
+    <section className="rr-section">
+      <h2>Export</h2>
+      <div className="rr-row">
+        <Button
+          variant="secondary"
+          onClick={() =>
+            downloadTextFile(`reroute-rules-${dateStamp()}.json`, serializeRules(rules))
+          }
+          disabled={empty}
+        >
+          Download JSON
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() =>
+            void copyToClipboard(serializeRules(rules)).then((ok) =>
+              notify(ok ? "Rules copied to clipboard." : "Clipboard unavailable."),
+            )
+          }
+          disabled={empty}
+        >
+          Copy JSON
+        </Button>
+        <Button
+          variant="secondary"
+          onClick={() => setShareLink(encodeShareLink(rules))}
+          disabled={empty || pro !== true}
+          title={pro ? "Encode all rules into a reroute:// link" : "Pro feature"}
+        >
+          Create share link
+        </Button>
+      </div>
+      {pro === false ? (
+        <div style={{ marginTop: 12 }}>
+          <UpsellRow feature="Shareable rule links" />
+        </div>
+      ) : null}
+      {shareLink ? <ShareLinkField link={shareLink} notify={notify} /> : null}
+    </section>
+  );
+}
+
+function MessageList({ items, tone }: { items: string[]; tone?: "error" }) {
+  if (items.length === 0) return null;
+  return (
+    <div className={tone === "error" ? "rr-notice rr-notice--error" : "rr-notice"}>
+      <ul className="rr-list">
+        {items.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function PreviewTable({ rules }: { rules: Rule[] }) {
+  return (
+    <table className="rr-table">
+      <thead>
+        <tr>
+          <th>Name</th>
+          <th>Type</th>
+          <th>Include</th>
+          <th>Redirect to</th>
+          <th>Transforms</th>
+          <th>Enabled</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rules.map((r) => (
+          <tr key={r.id}>
+            <td>{r.name || <span className="rr-muted">(none)</span>}</td>
+            <td>{r.matchType}</td>
+            <td className="rr-mono">{r.include}</td>
+            <td className="rr-mono">{r.redirectTo}</td>
+            <td>{r.transforms.join(", ") || "-"}</td>
+            <td>{r.enabled ? "yes" : "no"}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+function ImportPreviewView({
+  preview,
+  onApply,
+}: {
+  preview: ImportPreview;
+  onApply: (mode: ImportMode) => void;
+}) {
+  const count = preview.rules.length;
+  return (
+    <div className="rr-stack" style={{ marginTop: 12 }}>
+      <div>
+        Detected <strong>{preview.source}</strong>: {plural(count, "rule")}
+        {preview.errors.length > 0 ? `, ${preview.errors.length} skipped` : ""}.
+      </div>
+      <MessageList items={preview.errors} tone="error" />
+      <MessageList items={preview.warnings} />
+      {count > 0 ? (
+        <>
+          <PreviewTable rules={preview.rules} />
+          <div className="rr-row">
+            <Button onClick={() => onApply("append")}>Add {plural(count, "rule")}</Button>
+            <Button
+              variant="secondary"
+              onClick={() => {
+                if (window.confirm("Replace all existing rules with the imported ones?"))
+                  onApply("replace");
+              }}
+            >
+              Replace all
+            </Button>
+          </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
+
+function ImportSection({
+  onImport,
+  notify,
+}: Pick<ImportExportProps, "onImport"> & { notify: Notify }) {
+  const [text, setText] = useState("");
+  const preview = useMemo(() => analyseImportText(text), [text]);
 
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -85,187 +190,60 @@ export function ImportExport({ rules, pro, onImport }: ImportExportProps) {
     e.target.value = "";
   };
 
-  const stamp = new Date().toISOString().slice(0, 10);
+  const apply = (mode: ImportMode) => {
+    if (!preview) return;
+    onImport(preview.rules, mode);
+    setText("");
+    const count = preview.rules.length;
+    notify(
+      mode === "append"
+        ? `Imported ${count} rules.`
+        : `Replaced rules with ${count} imported rules.`,
+    );
+  };
 
   return (
-    <div className="rr-stack">
-      <section className="rr-section">
-        <h2>Export</h2>
+    <section className="rr-section">
+      <h2>Import</h2>
+      <p className="rr-help">
+        Paste Reroute JSON, a Redirector export (includePattern / redirectUrl / patternType ...) or
+        a reroute:// share link. Nothing is applied until you confirm the preview.
+      </p>
+      <div className="rr-field">
+        <textarea
+          className="rr-textarea rr-textarea--mono"
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder='{"createdBy":"Redirector v3.5.3","redirects":[...]}'
+          spellCheck={false}
+          aria-label="Import text"
+        />
         <div className="rr-row">
-          <Button
-            variant="secondary"
-            onClick={() => download(`reroute-rules-${stamp}.json`, serializeRules(rules))}
-            disabled={rules.length === 0}
+          <label
+            className="bf-button bf-button--secondary bf-button--sm"
+            style={{ cursor: "pointer" }}
           >
-            Download JSON
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() =>
-              void copy(serializeRules(rules)).then((ok) =>
-                setStatus(ok ? "Rules copied to clipboard." : "Clipboard unavailable."),
-              )
-            }
-            disabled={rules.length === 0}
-          >
-            Copy JSON
-          </Button>
-          <Button
-            variant="secondary"
-            onClick={() => setShareLink(encodeShareLink(rules))}
-            disabled={rules.length === 0 || pro !== true}
-            title={pro ? "Encode all rules into a reroute:// link" : "Pro feature"}
-          >
-            Create share link
-          </Button>
+            Choose file
+            <input type="file" accept=".json,application/json,.txt" onChange={onFile} hidden />
+          </label>
+          {text ? (
+            <Button size="sm" variant="ghost" onClick={() => setText("")}>
+              Clear
+            </Button>
+          ) : null}
         </div>
-        {pro === false ? (
-          <div style={{ marginTop: 12 }}>
-            <UpsellRow feature="Shareable rule links" />
-          </div>
-        ) : null}
-        {shareLink ? (
-          <div className="rr-field" style={{ marginTop: 12 }}>
-            <label htmlFor="share-link">Share link (anyone can paste this into Reroute)</label>
-            <textarea
-              id="share-link"
-              className="rr-textarea rr-textarea--mono"
-              readOnly
-              value={shareLink}
-              rows={3}
-              onFocus={(e) => e.target.select()}
-            />
-            <div className="rr-row">
-              <Button
-                size="sm"
-                variant="secondary"
-                onClick={() =>
-                  void copy(shareLink).then((ok) =>
-                    setStatus(ok ? "Share link copied." : "Clipboard unavailable."),
-                  )
-                }
-              >
-                Copy link
-              </Button>
-              <span className="rr-small rr-muted">
-                {shareLink.length.toLocaleString()} characters
-              </span>
-            </div>
-          </div>
-        ) : null}
-      </section>
+      </div>
+      {preview ? <ImportPreviewView preview={preview} onApply={apply} /> : null}
+    </section>
+  );
+}
 
-      <section className="rr-section">
-        <h2>Import</h2>
-        <p className="rr-help">
-          Paste Reroute JSON, a Redirector export (includePattern / redirectUrl / patternType ...)
-          or a reroute:// share link. Nothing is applied until you confirm the preview.
-        </p>
-        <div className="rr-field">
-          <textarea
-            className="rr-textarea rr-textarea--mono"
-            value={text}
-            onChange={(e) => setText(e.target.value)}
-            placeholder='{"createdBy":"Redirector v3.5.3","redirects":[...]}'
-            spellCheck={false}
-            aria-label="Import text"
-          />
-          <div className="rr-row">
-            <label
-              className="bf-button bf-button--secondary bf-button--sm"
-              style={{ cursor: "pointer" }}
-            >
-              Choose file
-              <input type="file" accept=".json,application/json,.txt" onChange={onFile} hidden />
-            </label>
-            {text ? (
-              <Button size="sm" variant="ghost" onClick={() => setText("")}>
-                Clear
-              </Button>
-            ) : null}
-          </div>
-        </div>
-
-        {preview ? (
-          <div className="rr-stack" style={{ marginTop: 12 }}>
-            <div>
-              Detected <strong>{preview.source}</strong>: {preview.rules.length} rule
-              {preview.rules.length === 1 ? "" : "s"}
-              {preview.errors.length > 0 ? `, ${preview.errors.length} skipped` : ""}.
-            </div>
-            {preview.errors.length > 0 ? (
-              <div className="rr-notice rr-notice--error">
-                <ul className="rr-list">
-                  {preview.errors.map((e) => (
-                    <li key={e}>{e}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {preview.warnings.length > 0 ? (
-              <div className="rr-notice">
-                <ul className="rr-list">
-                  {preview.warnings.map((w) => (
-                    <li key={w}>{w}</li>
-                  ))}
-                </ul>
-              </div>
-            ) : null}
-            {preview.rules.length > 0 ? (
-              <>
-                <table className="rr-table">
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      <th>Type</th>
-                      <th>Include</th>
-                      <th>Redirect to</th>
-                      <th>Transforms</th>
-                      <th>Enabled</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {preview.rules.map((r) => (
-                      <tr key={r.id}>
-                        <td>{r.name || <span className="rr-muted">(none)</span>}</td>
-                        <td>{r.matchType}</td>
-                        <td className="rr-mono">{r.include}</td>
-                        <td className="rr-mono">{r.redirectTo}</td>
-                        <td>{r.transforms.join(", ") || "-"}</td>
-                        <td>{r.enabled ? "yes" : "no"}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div className="rr-row">
-                  <Button
-                    onClick={() => {
-                      onImport(preview.rules, "append");
-                      setText("");
-                      setStatus(`Imported ${preview.rules.length} rules.`);
-                    }}
-                  >
-                    Add {preview.rules.length} rule{preview.rules.length === 1 ? "" : "s"}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      if (!window.confirm("Replace all existing rules with the imported ones?"))
-                        return;
-                      onImport(preview.rules, "replace");
-                      setText("");
-                      setStatus(`Replaced rules with ${preview.rules.length} imported rules.`);
-                    }}
-                  >
-                    Replace all
-                  </Button>
-                </div>
-              </>
-            ) : null}
-          </div>
-        ) : null}
-      </section>
-
+export function ImportExport({ rules, pro, onImport }: ImportExportProps) {
+  const [status, setStatus] = useState<string | null>(null);
+  return (
+    <div className="rr-stack">
+      <ExportSection rules={rules} pro={pro} notify={setStatus} />
+      <ImportSection onImport={onImport} notify={setStatus} />
       {status ? (
         <div className="rr-notice" role="status">
           {status}

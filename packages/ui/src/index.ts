@@ -28,3 +28,4 @@ export { useLicenseActions, type LicenseActions, type LicenseNotice } from "./us
 export { useModalFocus, type ModalFocus } from "./useModalFocus.js";
 export { FOCUSABLE_SELECTOR, focusableElements, nextFocusTarget } from "./focusTrap.js";
 export { cx, isRenderable } from "./classNames.js";
+export { copyToClipboard, dateStamp, downloadTextFile } from "./dom.js";
