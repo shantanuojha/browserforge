@@ -36,12 +36,34 @@ Pro (gated via `@browserforge/licensing`, feature ids: `scheduled-backups`, `dri
 
 ```ts
 type NodeId = string; // nanoid-style, generated locally
-interface TreeNode { id: NodeId; parentId: NodeId | null; kind: "window" | "tab" | "group" | "note";
+interface TreeNode { id: NodeId; parentId: NodeId | null; kind: "window" | "tab" | "note";
   title: string; url?: string; favIconUrl?: string; note?: string; collapsed?: boolean;
   liveTabId?: number; liveWindowId?: number; createdAt: number; updatedAt: number; order: number }
 interface Op { seq: number; ts: number; type: "add" | "update" | "move" | "remove"; ... }
 interface Snapshot { seq: number; ts: number; nodes: TreeNode[]; nodeCount: number }
 ```
+
+**Containers.** There is one container kind, `window`. A container is _bound_ while
+`liveWindowId` points at an open browser window and _unbound_ otherwise. What the UI calls a
+group is an unbound container with a user title; a window the browser opened is a bound
+container with an empty title (rendered as "Window"). Behaviour follows the state, not a kind:
+
+- "Reopen all" on an unbound container opens it as a new browser window: its closed tabs open
+  there in tree order, tabs of the container still open elsewhere are moved in (`tabs.move`),
+  and the container is bound to that window. Nested containers are windows of their own and are
+  not recursed into.
+- "Reopen all" on a bound container reopens its closed tabs into that window at their tree
+  positions.
+- Closing a bound container's window leaves it unbound with its tabs saved in place. Only an
+  untitled, note-less, childless container is pruned; anything the user named or annotated stays.
+- Dragging a live tab under an unbound container is a tree-only move (the browser tab stays where
+  it is, "detached" from strip ordering) until that container is opened as a window.
+
+Compatibility: trees, op logs, backups and exports written before 0.1.4 used a separate `group`
+kind and titled browser windows "Window". `coerceNode` reads `group` as `window` wherever it
+appears, and `migrationOps` (run on every rebuild, idempotent, logged as ordinary ops) turns the
+old default title into the empty title. The export format is version 2; version 1 files import
+unchanged.
 
 Persistence lives in `src/lib/store/` behind an interface so tests use an in-memory adapter.
 

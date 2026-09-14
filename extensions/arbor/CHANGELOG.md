@@ -2,6 +2,36 @@
 
 User-facing changes per Chrome Web Store release. Dates are release dates.
 
+## 0.1.4 — 2026-09-15
+
+### Changed
+
+- **Groups and windows are now the same thing.** A group is a window that is not open right now;
+  an open window is a group the browser is showing. Both share one icon (a window frame, filled
+  while the window is open, outlined while it is closed), the same row buttons and menu entries,
+  and the same behaviour:
+  - "Open as window" on a closed group or window opens it as a **new browser window** holding its
+    saved tabs in tree order. Tabs of that group that are still open elsewhere are moved into the
+    new window, so the window matches the tree. From then on the group _is_ that window.
+  - "Reopen all" on an open window reopens its closed tabs into that window, at their positions.
+  - "Close all and save" on either closes its tabs; the node stays in the tree with everything
+    saved in place, ready to be opened again. A group nested inside another is a window of its
+    own: it is only opened when you ask for it.
+  - Every window can be renamed (F2, Shift+Enter or the menu). A window you have not named shows
+    as "Window"; windows the browser opens still appear by themselves.
+- Existing trees are converted the first time this version starts (recorded like any other
+  change, so Recovery snapshots stay usable). Old exports and backups import unchanged; new
+  exports carry format version 2. The import preview counts windows and groups together.
+
+### Fixed
+
+- **"Reopen all" brings back every tab in a group.** Tabs dragged into a group while open and
+  closed afterwards were skipped; only tabs that had been saved into the group earlier came back.
+  Reopening now covers every tab under the group, however it got there. A tab whose close the
+  extension missed is treated as closed rather than skipped, one tab that cannot be opened no
+  longer stops the others (the error is shown once the rest are open), and reopening no longer
+  targets a popup or DevTools window that happened to have focus.
+
 ## 0.1.3 — 2026-09-15
 
 ### Fixed
