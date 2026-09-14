@@ -2,23 +2,28 @@ import { describe, expect, it } from "vitest";
 import {
   asSaved,
   HISTORY_DEPTH,
-  history,
+  createHistory,
   HistoryStack,
   inverseOps,
   readdOps,
   type HistoryEntry,
 } from "./history";
 import {
-  applyOps,
+  applyOps as applyOpsAt,
   childrenOf,
   createTree,
   makeNode,
   ops,
   serializeNodes,
   type NodeId,
+  type OpBody,
   type Tree,
   type TreeNode,
 } from "./model";
+
+const T0 = 7;
+const history = createHistory(() => T0);
+const applyOps = (tree: Tree, ops: readonly OpBody[]) => applyOpsAt(tree, ops, T0);
 
 function node(
   id: NodeId,
@@ -134,7 +139,7 @@ describe("entry builders", () => {
     const before = fixture();
     expect(history.rename(before, "g", "G")).toBeNull();
     expect(history.rename(before, "ghost", "x")).toBeNull();
-    const e = history.rename(before, "g", "Research", 7) as HistoryEntry;
+    const e = history.rename(before, "g", "Research") as HistoryEntry;
     expect(e).toMatchObject({ label: 'rename "G"', done: 'Renamed "G"', ts: 7 });
     expect(e.undo).toEqual([{ kind: "ops", ops: [ops.update("g", { title: "G" })] }]);
     expect(e.redo).toEqual([{ kind: "ops", ops: [ops.update("g", { title: "Research" })] }]);
@@ -162,7 +167,7 @@ describe("entry builders", () => {
 
   it("move: undo moves back to the original parent and index, re-adding pruned windows first", () => {
     const before = fixture();
-    const e = history.move(before, "c", "g", 0) as HistoryEntry;
+    const e = history.move(before, { id: "c", parentId: "g", index: 0 }) as HistoryEntry;
     expect(e.label).toBe('move "C"');
     expect(e.undo).toEqual([{ kind: "move", id: "c", parentId: "w", index: 2 }]);
     expect(e.redo).toEqual([{ kind: "move", id: "c", parentId: "g", index: 0 }]);
@@ -173,12 +178,12 @@ describe("entry builders", () => {
       ops.add(tab("x", "sw")),
     ]);
     const pruned = [saved.get("sw") as TreeNode];
-    const e2 = history.move(saved, "x", "g", 0, pruned) as HistoryEntry;
+    const e2 = history.move(saved, { id: "x", parentId: "g", index: 0 }, pruned) as HistoryEntry;
     expect(e2.undo).toEqual([
       { kind: "ops", ops: [ops.add(saved.get("sw") as TreeNode, 1)] },
       { kind: "move", id: "x", parentId: "sw", index: 0 },
     ]);
-    expect(history.move(before, "ghost", null, 0)).toBeNull();
+    expect(history.move(before, { id: "ghost", parentId: null, index: 0 })).toBeNull();
   });
 
   it("remove: labels describe what went, undo re-adds everything, redo deletes again", () => {

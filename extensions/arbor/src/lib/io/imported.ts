@@ -1,4 +1,4 @@
-import { newId as defaultNewId } from "../ids";
+import type { Clock } from "@browserforge/shared";
 import { makeNode, type NodeKind, type TreeNode } from "../model";
 
 /**
@@ -71,8 +71,8 @@ export interface MaterializeOptions {
    * to import at the root.
    */
   wrapTitle?: string | null | undefined;
-  newId?: (() => string) | undefined;
-  now?: (() => number) | undefined;
+  newId: () => string;
+  now: Clock;
 }
 
 /**
@@ -81,10 +81,9 @@ export interface MaterializeOptions {
  */
 export function materialize(
   roots: readonly ImportedNode[],
-  options: MaterializeOptions = {},
+  options: MaterializeOptions,
 ): TreeNode[] {
-  const newId = options.newId ?? defaultNewId;
-  const now = options.now ?? (() => Date.now());
+  const { newId, now } = options;
   const ts = now();
   const out: TreeNode[] = [];
   let parentId: string | null = null;

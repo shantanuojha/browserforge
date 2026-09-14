@@ -1,10 +1,12 @@
 import { useRef, useState, type ChangeEvent } from "react";
+import { systemClock } from "@browserforge/shared";
 import { Button } from "@browserforge/ui";
-import { downloadJson, readFileText } from "@/lib/download";
+import { downloadJson, readFileText } from "@/adapters/files";
+import { msg } from "@/adapters/messaging";
+import { newId } from "@/lib/ids";
 import { exportFileName, isArborExport, parseArborExport } from "@/lib/io/arbor-json";
 import { materialize, type ImportPreview } from "@/lib/io/imported";
 import { parseTabsOutliner, TABS_OUTLINER_STORAGE_KEY } from "@/lib/io/tabs-outliner";
-import { msg } from "@/lib/messages";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { UpsellRow } from "./UpsellRow";
 
@@ -72,7 +74,7 @@ export function ImportExportView({ pro, nodeCount }: ImportExportViewProps) {
         parsed = text;
       }
       if (isArborExport(parsed)) {
-        setPending({ preview: parseArborExport(parsed), arborNative: true });
+        setPending({ preview: parseArborExport(parsed, systemClock()), arborNative: true });
       } else {
         setPending({ preview: parseTabsOutliner(parsed), arborNative: false });
       }
@@ -98,7 +100,7 @@ export function ImportExportView({ pro, nodeCount }: ImportExportViewProps) {
     setBusy(true);
     try {
       const data = await msg.exportTree.send();
-      downloadJson(exportFileName(), data);
+      downloadJson(exportFileName(new Date()), data);
       setStatus(`Exported ${data.nodeCount} nodes.`);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -116,7 +118,7 @@ export function ImportExportView({ pro, nodeCount }: ImportExportViewProps) {
         mode === "replace"
           ? null
           : `Imported from ${pending.preview.source} (${new Date().toLocaleDateString()})`;
-      const nodes = materialize(pending.preview.roots, { wrapTitle });
+      const nodes = materialize(pending.preview.roots, { wrapTitle, newId, now: systemClock });
       const count = await msg.importNodes.send({ nodes, mode });
       setStatus(
         `Imported ${count} nodes${mode === "merge" ? " into a new group at the bottom of the tree" : ""}.`,

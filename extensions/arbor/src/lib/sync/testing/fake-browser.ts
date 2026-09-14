@@ -207,7 +207,7 @@ export async function setup() {
   const store = new MemoryTreeStore();
   await store.open();
   const fb = new FakeBrowser();
-  const tracker = new TabTracker(store, fb, { newId, now: () => 1 });
+  const tracker = new TabTracker(store, fb, { newId, clock: () => 1 });
   fb.tracker = tracker;
   return { store, fb, tracker };
 }
@@ -246,7 +246,7 @@ export function addSavedTab(ctx: Ctx, id: NodeId, parentId: NodeId, url: string,
 
 /** Service-worker restart: a fresh tracker over the same op log and the same live browser. */
 export async function restartWorker(ctx: Ctx) {
-  const fresh = new TabTracker(ctx.store, ctx.fb, { newId, now: () => 1 });
+  const fresh = new TabTracker(ctx.store, ctx.fb, { newId, clock: () => 1 });
   ctx.fb.tracker = fresh;
   const report = await fresh.rebuild();
   return { fresh, report };

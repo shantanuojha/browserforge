@@ -6,7 +6,19 @@
  */
 import { describe, expect, it } from "vitest";
 import { defineMessage, MessageRouter } from "./messaging";
-import { applyOp, applyOps, createTree, makeNode, ops, type OpBody } from "./model";
+import {
+  applyOp as applyOpAt,
+  applyOps as applyOpsAt,
+  createTree,
+  makeNode,
+  ops,
+  type OpBody,
+  type Tree,
+} from "./model";
+
+const T0 = 1;
+const applyOp = (tree: Tree, op: OpBody) => applyOpAt(tree, op, T0);
+const applyOps = (tree: Tree, ops: readonly OpBody[]) => applyOpsAt(tree, ops, T0);
 
 /** What `runtime.sendMessage` does to a payload. */
 const overTheWire = <T>(value: T): T => JSON.parse(JSON.stringify(value)) as T;

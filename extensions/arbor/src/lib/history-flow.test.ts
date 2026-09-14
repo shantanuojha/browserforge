@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { history, HistoryStack, type HistoryEntry } from "./history";
+import { createHistory, HistoryStack, type HistoryEntry } from "./history";
 import { childrenOf, makeNode, ops, serializeNodes, type Tree, type TreeNode } from "./model";
 import {
   addRootGroup,
@@ -10,6 +10,8 @@ import {
   winNodeOf,
   type Ctx,
 } from "./sync/testing/fake-browser";
+
+const history = createHistory(() => 1);
 
 /**
  * The side panel's half of undo, against a fake browser: build the entry from the tree as shown
@@ -132,7 +134,11 @@ describe("undo / redo flows", () => {
     expect(pruned).toEqual([]);
     expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "C"]);
     expect(titlesUnder(ctx, "g")).toEqual(["B"]);
-    const entry = history.move(before, bNode.id, "g", 0, pruned) as HistoryEntry;
+    const entry = history.move(
+      before,
+      { id: bNode.id, parentId: "g", index: 0 },
+      pruned,
+    ) as HistoryEntry;
     expect(entry.label).toBe('move "B"');
 
     await run(ctx, entry.undo);
@@ -158,7 +164,11 @@ describe("undo / redo flows", () => {
     const pruned = await tracker.moveNode("s", "g", 0);
     expect(pruned.map((n) => n.id)).toEqual(["sw"]);
     expect(store.getTree().has("sw")).toBe(false);
-    const entry = history.move(before, "s", "g", 0, pruned) as HistoryEntry;
+    const entry = history.move(
+      before,
+      { id: "s", parentId: "g", index: 0 },
+      pruned,
+    ) as HistoryEntry;
     await run(ctx, entry.undo);
     expect(shape(store.getTree())).toEqual(shape(before));
     expect(titlesUnder(ctx, "sw")).toEqual(["S"]);
@@ -347,9 +357,7 @@ describe("undo / redo flows", () => {
     stack.push(
       history.move(
         before,
-        bNode.id,
-        "g",
-        0,
+        { id: bNode.id, parentId: "g", index: 0 },
         await tracker.moveNode(bNode.id, "g", 0),
       ) as HistoryEntry,
     );

@@ -7,16 +7,20 @@ import { TabTracker } from "./sync/tracker";
 
 describe("migrationOps", () => {
   it("turns the old 'Window' default title into the empty title, and nothing else", () => {
-    const tree = applyOps(createTree(), [
-      ops.add(makeNode({ id: "auto", parentId: null, kind: "window", title: "Window", ts: 1 })),
-      ops.add(makeNode({ id: "named", parentId: null, kind: "window", title: "Work", ts: 1 })),
-      ops.add(makeNode({ id: "fresh", parentId: null, kind: "window", title: "", ts: 1 })),
-      ops.add(makeNode({ id: "t", parentId: "auto", kind: "tab", title: "Window", ts: 1 })),
-      ops.add(makeNode({ id: "n", parentId: "auto", kind: "note", title: "Window", ts: 1 })),
-    ]);
+    const tree = applyOps(
+      createTree(),
+      [
+        ops.add(makeNode({ id: "auto", parentId: null, kind: "window", title: "Window", ts: 1 })),
+        ops.add(makeNode({ id: "named", parentId: null, kind: "window", title: "Work", ts: 1 })),
+        ops.add(makeNode({ id: "fresh", parentId: null, kind: "window", title: "", ts: 1 })),
+        ops.add(makeNode({ id: "t", parentId: "auto", kind: "tab", title: "Window", ts: 1 })),
+        ops.add(makeNode({ id: "n", parentId: "auto", kind: "note", title: "Window", ts: 1 })),
+      ],
+      1,
+    );
     expect(migrationOps(tree)).toEqual([ops.update("auto", { title: "" })]);
     // Idempotent: once applied there is nothing left to do.
-    expect(migrationOps(applyOps(tree, migrationOps(tree)))).toEqual([]);
+    expect(migrationOps(applyOps(tree, migrationOps(tree), 1))).toEqual([]);
   });
 });
 
@@ -66,7 +70,7 @@ describe("loading a pre-0.1.4 tree", () => {
 
     // The first rebuild normalises the old default title as ordinary ops...
     const fb = new FakeBrowser();
-    const tracker = new TabTracker(store, fb, { newId, now: () => 1 });
+    const tracker = new TabTracker(store, fb, { newId, clock: () => 1 });
     fb.tracker = tracker;
     const rebuilt = await tracker.rebuild();
     expect(rebuilt.migrated).toBe(1);

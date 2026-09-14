@@ -1,4 +1,7 @@
-import { browser } from "wxt/browser";
+/**
+ * User settings: the shape, the defaults and the rules that turn stored data back into a valid
+ * `Settings`. Reading and writing the storage area is `adapters/settings-store.ts`.
+ */
 
 export type ThemeMode = "system" | "light" | "dark";
 
@@ -32,16 +35,20 @@ const clamp = (v: unknown, min: number, max: number, fallback: number): number =
     ? Math.min(max, Math.max(min, Math.round(v)))
     : fallback;
 
+const bool = (v: unknown, fallback: boolean): boolean => (typeof v === "boolean" ? v : fallback);
+
+const asRecord = (v: unknown): Record<string, unknown> =>
+  (typeof v === "object" && v !== null ? v : {}) as Record<string, unknown>;
+
+function themeOf(v: unknown, fallback: ThemeMode): ThemeMode {
+  return v === "light" || v === "dark" || v === "system" ? v : fallback;
+}
+
 /** Merge unknown stored data over the defaults, ignoring anything malformed. */
 export function normalizeSettings(raw: unknown): Settings {
-  const r = (typeof raw === "object" && raw !== null ? raw : {}) as Record<string, unknown>;
-  const b = (typeof r.backups === "object" && r.backups !== null ? r.backups : {}) as Record<
-    string,
-    unknown
-  >;
+  const r = asRecord(raw);
+  const b = asRecord(r.backups);
   const d = DEFAULT_SETTINGS;
-  const theme =
-    r.theme === "light" || r.theme === "dark" || r.theme === "system" ? r.theme : d.theme;
   return {
     compactionIntervalMinutes: clamp(
       r.compactionIntervalMinutes,
@@ -49,40 +56,18 @@ export function normalizeSettings(raw: unknown): Settings {
       120,
       d.compactionIntervalMinutes,
     ),
-    confirmCloseAll: typeof r.confirmCloseAll === "boolean" ? r.confirmCloseAll : d.confirmCloseAll,
-    theme,
+    confirmCloseAll: bool(r.confirmCloseAll, d.confirmCloseAll),
+    theme: themeOf(r.theme, d.theme),
     backups: {
-      enabled: typeof b.enabled === "boolean" ? b.enabled : d.backups.enabled,
+      enabled: bool(b.enabled, d.backups.enabled),
       intervalMinutes: clamp(b.intervalMinutes, 5, 24 * 60, d.backups.intervalMinutes),
       retention: clamp(b.retention, 1, 100, d.backups.retention),
-      driveEnabled: typeof b.driveEnabled === "boolean" ? b.driveEnabled : d.backups.driveEnabled,
+      driveEnabled: bool(b.driveEnabled, d.backups.driveEnabled),
     },
   };
 }
 
-export async function loadSettings(): Promise<Settings> {
-  const result = await browser.storage.local.get(SETTINGS_KEY);
-  return normalizeSettings(result[SETTINGS_KEY]);
-}
-
-export async function saveSettings(settings: Settings): Promise<Settings> {
-  const normalized = normalizeSettings(settings);
-  await browser.storage.local.set({ [SETTINGS_KEY]: normalized });
-  return normalized;
-}
-
-export function watchSettings(callback: (settings: Settings) => void): () => void {
-  const listener = (changes: Record<string, { newValue?: unknown }>, area: string) => {
-    if (area !== "local") return;
-    const change = changes[SETTINGS_KEY];
-    if (change) callback(normalizeSettings(change.newValue));
-  };
-  browser.storage.onChanged.addListener(listener);
-  return () => browser.storage.onChanged.removeListener(listener);
-}
-
-/** Apply the theme choice to a document root (used by every extension page). */
-export function applyTheme(theme: ThemeMode, root: HTMLElement = document.documentElement): void {
-  if (theme === "system") root.removeAttribute("data-theme");
-  else root.setAttribute("data-theme", theme);
+/** Compaction interval in milliseconds, as the store wants it. */
+export function compactionIntervalMs(settings: Settings): number {
+  return settings.compactionIntervalMinutes * 60_000;
 }

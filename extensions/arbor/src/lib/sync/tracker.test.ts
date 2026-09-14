@@ -1,4 +1,4 @@
-﻿import { describe, expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 import { childrenOf, findByLiveTabId, findWindowByLiveId, makeNode, ops } from "../model";
 import { MemoryTreeStore } from "../store/memory";
 import {
@@ -325,7 +325,7 @@ describe("TabTracker.rebuild", () => {
     const live = fb.tabs.find((t) => t.id === a.id);
     if (live) live.url = "https://a.test/other";
 
-    const fresh = new TabTracker(store, fb, { newId, now: () => 1 });
+    const fresh = new TabTracker(store, fb, { newId, clock: () => 1 });
     const report = await fresh.rebuild();
     expect(report).toMatchObject({ windowsMatched: 1, tabsMatched: 2, tabsCreated: 0 });
     expect(store.getTree().get(aNode?.id ?? "")).toMatchObject({
@@ -341,7 +341,7 @@ describe("TabTracker.rebuild", () => {
     fb.openTab(w.id, "chrome://newtab/", "New tab");
     const winNode = findWindowByLiveId(store.getTree(), w.id);
 
-    const fresh = new TabTracker(store, fb, { newId, now: () => 1 });
+    const fresh = new TabTracker(store, fb, { newId, clock: () => 1 });
     const report = await fresh.rebuild();
     expect(report).toMatchObject({ windowsMatched: 1, windowsCreated: 0, nodesSaved: 0 });
     const windows = [...store.getTree().values()].filter((n) => n.kind === "window");
@@ -362,7 +362,7 @@ describe("TabTracker.rebuild", () => {
     fb.addTab(w2.id, "https://b.test/", "B");
     fb.addTab(w2.id, "https://new.test/", "New");
 
-    const fresh = new TabTracker(store, fb, { newId, now: () => 1 });
+    const fresh = new TabTracker(store, fb, { newId, clock: () => 1 });
     const report = await fresh.rebuild();
     expect(report).toMatchObject({
       windowsMatched: 1,
@@ -427,7 +427,7 @@ describe("TabTracker.rebuild", () => {
     fb.tabs = fb.tabs.filter((t) => t.windowId !== w2.id && t.url !== "https://a.test/");
     fb.addTab(w1.id, "https://c.test/", "C");
 
-    const fresh = new TabTracker(store, fb, { newId, now: () => 1 });
+    const fresh = new TabTracker(store, fb, { newId, clock: () => 1 });
     const report = await fresh.rebuild();
     // w1's id cannot be verified (none of its tabs survived) so it is saved too, not reused.
     expect(report.nodesSaved).toBe(4); // windows w1 + w2, tabs A + B
@@ -589,7 +589,7 @@ describe("TabTracker.rebuild", () => {
     const fb = new FakeBrowser();
     fb.addWindow(1);
     fb.addTab(1, "https://unrelated.test/", "U", { id: 7 });
-    const tracker = new TabTracker(store, fb, { newId, now: () => 1 });
+    const tracker = new TabTracker(store, fb, { newId, clock: () => 1 });
     fb.tracker = tracker;
     const report = await tracker.rebuild();
     expect(report.tabsMatched).toBe(0);
@@ -1171,7 +1171,7 @@ describe("TabTracker.restore in place", () => {
     await store.open();
     const fb = new FakeBrowser();
     let clock = 1;
-    const tracker = new TabTracker(store, fb, { newId, now: () => clock });
+    const tracker = new TabTracker(store, fb, { newId, clock: () => clock });
     fb.tracker = tracker;
     const ctx: Ctx = { store, fb, tracker };
     const w = fb.openWindow();

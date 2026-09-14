@@ -7,6 +7,7 @@ import {
   type Tree,
   type TreeNode,
 } from "../model";
+import { fileStamp } from "../format";
 import { makePreview, type ImportedNode, type ImportPreview } from "./imported";
 
 export const ARBOR_FORMAT = "arbor-tree" as const;
@@ -29,7 +30,7 @@ export interface ArborExport {
 }
 
 /** Snapshot of the tree in our own JSON format. Live ids are stripped: an export is always "saved". */
-export function createExport(tree: Tree, now = Date.now()): ArborExport {
+export function createExport(tree: Tree, now: number): ArborExport {
   const nodes = serializeNodes(tree).map((n) => {
     const copy: TreeNode = { ...n };
     delete copy.liveTabId;
@@ -57,16 +58,16 @@ export function isArborExport(value: unknown): value is { nodes: unknown[] } {
 /**
  * Parse our own export (any schema version) into an importable tree. Nodes whose parent is
  * missing are lifted to the root instead of being dropped; the number of such repairs is
- * reported in `warnings`.
+ * reported in `warnings`. `now` stands in for timestamps a damaged file lacks.
  */
-export function parseArborExport(input: string | unknown): ImportPreview {
+export function parseArborExport(input: string | unknown, now: number): ImportPreview {
   let value: unknown = input;
   if (typeof input === "string") value = JSON.parse(input);
   if (!isArborExport(value)) throw new Error("Not an Arbor export (missing format/nodes)");
   const nodes: TreeNode[] = [];
   let skipped = 0;
   for (const raw of value.nodes) {
-    const n = coerceNode(raw);
+    const n = coerceNode(raw, now);
     if (!n) {
       skipped++;
       continue;
@@ -139,7 +140,6 @@ export function parseArborExport(input: string | unknown): ImportPreview {
   return makePreview("Arbor export", roots, warnings);
 }
 
-export function exportFileName(now = new Date()): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `arbor-${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}.json`;
+export function exportFileName(now: Date): string {
+  return `arbor-${fileStamp(now)}.json`;
 }

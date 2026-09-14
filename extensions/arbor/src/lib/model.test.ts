@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  applyOp,
-  applyOps,
+  applyOp as applyOpAt,
+  applyOps as applyOpsAt,
   childrenOf,
-  coerceNode,
-  coerceOp,
+  coerceNode as coerceNodeAt,
+  coerceOp as coerceOpAt,
   containerTabs,
   createTree,
   descendantIds,
@@ -22,10 +22,17 @@ import {
   validateTree,
   windowNodeOf,
   type NodeKind,
+  type OpBody,
   type Tree,
 } from "./model";
 
 const T0 = 1_000;
+
+// The model takes time as an argument; these pin it so the bodies below read like the API.
+const applyOp = (tree: Tree, op: OpBody, ts = T0) => applyOpAt(tree, op, ts);
+const applyOps = (tree: Tree, ops: readonly OpBody[]) => applyOpsAt(tree, ops, T0);
+const coerceNode = (value: unknown) => coerceNodeAt(value, T0);
+const coerceOp = (value: unknown) => coerceOpAt(value, T0);
 
 function node(
   id: string,

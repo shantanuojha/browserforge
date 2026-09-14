@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@browserforge/ui";
-import { formatDateTime } from "@/lib/download";
-import { msg, type StartupInfo } from "@/lib/messages";
+import { msg } from "@/adapters/messaging";
+import { formatDateTime } from "@/lib/format";
+import type { StartupInfo } from "@/lib/messages";
 import type { QuarantinedOp, SnapshotMeta } from "@/lib/store/types";
 import { ConfirmDialog } from "./ConfirmDialog";
 

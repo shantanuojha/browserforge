@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
-import { onLicenseChange } from "@/lib/licensing";
-import { isPro } from "@/lib/pro";
+import { isPro, onLicenseChange } from "@/adapters/licensing";
 
 /** `null` while the entitlement check is in flight; re-checks whenever the licence changes. */
 export function usePro(): boolean | null {

@@ -1,6 +1,9 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { browser } from "wxt/browser";
+import { errorMessage, systemClock } from "@browserforge/shared";
 import { Button, ProBadge } from "@browserforge/ui";
+import { faviconFallback } from "@/adapters/favicon";
+import { msg } from "@/adapters/messaging";
+import { openOptionsPage } from "@/adapters/runtime";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
 import { Icon } from "@/components/Icon";
 import { ImportExportView } from "@/components/ImportExportView";
@@ -12,10 +15,11 @@ import { usePro } from "@/hooks/usePro";
 import { useSettings } from "@/hooks/useSettings";
 import { useTreeState } from "@/hooks/useTreeState";
 import { summarizeContainer } from "@/lib/container-actions";
-import { history } from "@/lib/history";
-import { msg } from "@/lib/messages";
+import { createHistory } from "@/lib/history";
 import { descendantIds, displayTitle, ops, type NodeId, type Tree } from "@/lib/model";
 import { primaryActionFor } from "@/lib/primary-action";
+
+const history = createHistory(systemClock);
 
 type View = "tree" | "recovery" | "io";
 
@@ -40,14 +44,6 @@ function deleteWarning(tree: Tree, id: NodeId): string {
   return `${what}${open} Earlier snapshots in Recovery still contain them.`;
 }
 
-/** Chromium exposes cached favicons at `/_favicon/` when the `favicon` permission is granted. */
-function faviconFallback(): ((url: string) => string) | null {
-  const hasSidePanel = "sidePanel" in browser;
-  if (!hasSidePanel || typeof chrome === "undefined" || !chrome.runtime?.getURL) return null;
-  const base = chrome.runtime.getURL("/_favicon/");
-  return (url) => `${base}?pageUrl=${encodeURIComponent(url)}&size=16`;
-}
-
 export function App() {
   const { state, tree, error } = useTreeState();
   const [settings] = useSettings();
@@ -62,7 +58,7 @@ export function App() {
   const fallback = useMemo(() => faviconFallback(), []);
 
   const report = useCallback((e: unknown) => {
-    setToast({ text: e instanceof Error ? e.message : String(e) });
+    setToast({ text: errorMessage(e) });
   }, []);
   const hist = useHistory(report);
   const { undo, redo, push } = hist;
@@ -185,7 +181,7 @@ export function App() {
         run(
           msg.moveNode
             .send({ id, parentId, index })
-            .then((pruned) => push(history.move(tree, id, parentId, index, pruned))),
+            .then((pruned) => push(history.move(tree, { id, parentId, index }, pruned))),
         ),
       // A group is a closed container with a name: the same node kind as a window.
       addGroup: (parentId, index) =>
@@ -356,7 +352,7 @@ export function App() {
         ) : (
           <span>Arrows move, Enter opens, Delete closes and saves, Ctrl+Z undoes.</span>
         )}
-        <Button size="sm" variant="ghost" onClick={() => void browser.runtime.openOptionsPage()}>
+        <Button size="sm" variant="ghost" onClick={openOptionsPage}>
           Options
         </Button>
       </footer>

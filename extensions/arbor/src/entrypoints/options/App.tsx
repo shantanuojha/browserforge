@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { browser } from "wxt/browser";
 import { Button, ProBadge } from "@browserforge/ui";
+import { downloadJson } from "@/adapters/files";
+import { msg } from "@/adapters/messaging";
+import { hasIdentityPermission, requestIdentityPermission } from "@/adapters/permissions";
 import { LicenseSection } from "@/components/LicenseSection";
 import { UpsellRow } from "@/components/UpsellRow";
 import { usePro } from "@/hooks/usePro";
 import { useSettings } from "@/hooks/useSettings";
 import type { BackupMeta } from "@/lib/backups";
-import { downloadJson, formatDateTime } from "@/lib/download";
-import { msg } from "@/lib/messages";
+import { fileStamp, formatDateTime } from "@/lib/format";
 import { DRIVE_BACKUP_ENABLED } from "@/lib/pro";
 import type { Settings } from "@/lib/settings";
 
@@ -115,8 +116,7 @@ export function App() {
         if (!cancelled) setStatus(e instanceof Error ? e.message : String(e));
       });
     if (DRIVE_BACKUP_ENABLED) {
-      browser.permissions
-        .contains({ permissions: ["identity"] })
+      hasIdentityPermission()
         .then((granted) => {
           if (!cancelled) setIdentityGranted(granted);
         })
@@ -145,18 +145,13 @@ export function App() {
       setStatus("That backup no longer exists.");
       return;
     }
-    const d = new Date(b.ts);
-    const pad = (n: number) => String(n).padStart(2, "0");
-    downloadJson(
-      `arbor-backup-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.json`,
-      data,
-    );
+    downloadJson(`arbor-backup-${fileStamp(new Date(b.ts))}.json`, data);
   };
 
   const toggleDrive = async (enabled: boolean) => {
     if (enabled) {
       try {
-        const granted = await browser.permissions.request({ permissions: ["identity"] });
+        const granted = await requestIdentityPermission();
         setIdentityGranted(granted);
         if (!granted) return;
       } catch (e) {

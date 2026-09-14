@@ -1,5 +1,5 @@
 import { Button, ProBadge } from "@browserforge/ui";
-import { LICENSING, openCheckout, PRO_PRICE_TEXT } from "@/lib/licensing";
+import { LICENSING, openCheckout, PRO_PRICE_TEXT } from "@/adapters/licensing";
 
 export interface UpsellRowProps {
   /** What the user would unlock, e.g. "Scheduled backups". */

@@ -1,3 +1,4 @@
+import type { Clock, Logger } from "@browserforge/shared";
 import type { Op, OpBody, Snapshot, Tree, TreeNode } from "../model";
 
 export interface SnapshotMeta {
@@ -84,5 +85,8 @@ export interface LogStoreOptions {
   snapshotRetention?: number;
   /** Debounce for writing ops to the backend. Default 250 ms; 0 writes on next tick. */
   flushDelayMs?: number;
-  now?: () => number;
+  /** Stamps ops and snapshots. */
+  now: Clock;
+  /** Where failures of background work (flush, compaction, listeners) are reported. */
+  logger?: Logger;
 }

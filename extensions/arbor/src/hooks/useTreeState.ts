@@ -1,16 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
-import { browser } from "wxt/browser";
-import { msg, TREE_PORT, type TreePortMessage, type TreeState } from "@/lib/messages";
+import { errorMessage } from "@browserforge/shared";
+import { msg } from "@/adapters/messaging";
+import { connectTreePort, type TreePortSubscription } from "@/adapters/tree-port";
+import type { TreeState } from "@/lib/messages";
 import { createTree, type Tree } from "@/lib/model";
 
-function isTreeMessage(value: unknown): value is TreePortMessage {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    (value as { type?: unknown }).type === "tree" &&
-    typeof (value as { state?: unknown }).state === "object"
-  );
-}
+const RECONNECT_DELAY_MS = 800;
 
 export interface TreeStateHook {
   state: TreeState | null;
@@ -28,47 +23,35 @@ export function useTreeState(): TreeStateHook {
   useEffect(() => {
     let disposed = false;
     let retry: ReturnType<typeof setTimeout> | null = null;
+    let subscription: TreePortSubscription;
 
-    const connect = (): (() => void) => {
-      const port = browser.runtime.connect({ name: TREE_PORT });
-      const onMessage = (m: unknown) => {
-        if (isTreeMessage(m)) {
-          setState(m.state);
+    const connect = (): TreePortSubscription =>
+      connectTreePort({
+        onState(next) {
+          setState(next);
           setError(null);
           setConnected(true);
-        }
-      };
-      const onDisconnect = () => {
-        setConnected(false);
-        if (!disposed) retry = setTimeout(() => (cleanup = connect()), 800);
-      };
-      port.onMessage.addListener(onMessage);
-      port.onDisconnect.addListener(onDisconnect);
-      return () => {
-        port.onMessage.removeListener(onMessage);
-        port.onDisconnect.removeListener(onDisconnect);
-        try {
-          port.disconnect();
-        } catch {
-          // already gone
-        }
-      };
-    };
+        },
+        onDisconnect() {
+          setConnected(false);
+          if (!disposed) retry = setTimeout(() => (subscription = connect()), RECONNECT_DELAY_MS);
+        },
+      });
 
-    let cleanup = connect();
+    subscription = connect();
     void msg.getState
       .send()
       .then((s) => {
         if (!disposed) setState((prev) => prev ?? s);
       })
       .catch((e: unknown) => {
-        if (!disposed) setError(e instanceof Error ? e.message : String(e));
+        if (!disposed) setError(errorMessage(e));
       });
 
     return () => {
       disposed = true;
       if (retry !== null) clearTimeout(retry);
-      cleanup();
+      subscription.disconnect();
     };
   }, []);
 

@@ -11,7 +11,7 @@ import {
   type KeyValueItem,
 } from "@browserforge/ui";
 import type { LicenseClient } from "@browserforge/licensing";
-import { LICENSING, PRO_PAGE_URL, getLicenseClient, openCheckout } from "@/lib/licensing";
+import { LICENSING, PRO_PAGE_URL, getLicenseClient, openCheckout } from "@/adapters/licensing";
 
 /**
  * Options-page "Pro" section: licence status, activate/manage dialog and the "Buy Pro" link.

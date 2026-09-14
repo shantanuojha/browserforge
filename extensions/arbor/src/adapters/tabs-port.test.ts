@@ -6,6 +6,7 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
+import { newId } from "../lib/ids";
 import {
   childrenOf,
   findByLiveTabId,
@@ -15,10 +16,11 @@ import {
   resolveDrop,
   type NodeId,
   type Tree,
-} from "../model";
-import { MemoryLogBackend, MemoryTreeStore } from "../store/memory";
-import { bindTrackerEvents, browserTabsPort } from "./browser-port";
-import { TabTracker } from "./tracker";
+} from "../lib/model";
+import { MemoryLogBackend, MemoryTreeStore } from "../lib/store/memory";
+import { TabTracker } from "../lib/sync/tracker";
+import { browserTabsPort } from "./tabs-port";
+import { bindTrackerEvents } from "./tracker-events";
 
 type Listener = (...args: unknown[]) => void;
 
@@ -70,7 +72,7 @@ async function seedBrowser() {
 async function startBackground(backend = new MemoryLogBackend()) {
   const store = new MemoryTreeStore(backend);
   await store.open();
-  const tracker = new TabTracker(store, browserTabsPort);
+  const tracker = new TabTracker(store, browserTabsPort, { newId, clock: () => 1 });
   const ready = tracker.rebuild();
   const unbind = bindTrackerEvents(tracker, ready);
   const report = await ready;

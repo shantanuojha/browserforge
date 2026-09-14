@@ -450,16 +450,16 @@ function applyOpMut(map: Map<NodeId, TreeNode>, op: OpBody, ts: number): void {
 }
 
 /** Apply one op and return the resulting tree. Throws `OpError` when the op is invalid. */
-export function applyOp(tree: Tree, op: OpBody, ts = Date.now()): Tree {
+export function applyOp(tree: Tree, op: OpBody, ts: number): Tree {
   const map = new Map(tree);
   applyOpMut(map, op, ts);
   return map;
 }
 
-/** Apply many ops; all-or-nothing. */
-export function applyOps(tree: Tree, ops: readonly (OpBody & { ts?: number })[]): Tree {
+/** Apply many ops; all-or-nothing. Ops without their own `ts` are stamped with `ts`. */
+export function applyOps(tree: Tree, ops: readonly (OpBody & { ts?: number })[], ts: number): Tree {
   const map = new Map(tree);
-  for (const op of ops) applyOpMut(map, op, op.ts ?? Date.now());
+  for (const op of ops) applyOpMut(map, op, op.ts ?? ts);
   return map;
 }
 
@@ -477,11 +477,12 @@ export interface NewNodeInput {
   collapsed?: boolean | undefined;
   liveTabId?: number | undefined;
   liveWindowId?: number | undefined;
-  ts?: number | undefined;
+  /** Creation time; also the initial `updatedAt`. */
+  ts: number;
 }
 
 export function makeNode(input: NewNodeInput): TreeNode {
-  const ts = input.ts ?? Date.now();
+  const { ts } = input;
   const node: TreeNode = {
     id: input.id,
     parentId: input.parentId,
@@ -526,16 +527,15 @@ export const ops = {
 /**
  * Ensure a value parsed from JSON is a TreeNode; returns undefined otherwise. The pre-0.1.4
  * `group` kind is read as `window` (an unbound container), so old snapshots, op logs, backups
- * and exports load unchanged.
+ * and exports load unchanged. `now` stands in for missing timestamps.
  */
-export function coerceNode(value: unknown): TreeNode | undefined {
+export function coerceNode(value: unknown, now: number): TreeNode | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const v = value as Record<string, unknown>;
   if (typeof v.id !== "string" || !v.id) return undefined;
   if (!(v.parentId === null || typeof v.parentId === "string")) return undefined;
   const kind = v.kind === LEGACY_GROUP_KIND ? "window" : v.kind;
   if (kind !== "window" && kind !== "tab" && kind !== "note") return undefined;
-  const now = Date.now();
   const node: TreeNode = {
     id: v.id,
     parentId: v.parentId as NodeId | null,
@@ -555,14 +555,14 @@ export function coerceNode(value: unknown): TreeNode | undefined {
 }
 
 /** Ensure a value parsed from storage is an Op; returns undefined otherwise. */
-export function coerceOp(value: unknown): Op | undefined {
+export function coerceOp(value: unknown, now: number): Op | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const v = value as Record<string, unknown>;
   if (typeof v.seq !== "number" || typeof v.ts !== "number") return undefined;
   const base = { seq: v.seq, ts: v.ts };
   switch (v.type) {
     case "add": {
-      const node = coerceNode(v.node);
+      const node = coerceNode(v.node, now);
       if (!node) return undefined;
       return typeof v.index === "number"
         ? { ...base, type: "add", node, index: v.index }

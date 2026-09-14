@@ -1,83 +1,34 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fakeBrowser } from "wxt/testing/fake-browser";
-import { getEntitlements, licenseStorageKey, type LicenseStorage } from "@browserforge/licensing";
+import { getEntitlements, licenseStorageKey } from "@browserforge/licensing";
 import {
-  ENV,
+  RAW_KEY,
+  VARIANT_ID,
+  activatedBody,
+  createFakeFetch,
+  createMemoryStorage,
+  validBody,
+  type Responder,
+} from "@browserforge/licensing/testing";
+import { ENV, PRO_PAGE_URL, readLicensingConfig } from "../lib/licensing-config";
+import {
   LICENSING,
-  PRO_PAGE_URL,
   createArborLicenseClient,
   getLicenseClient,
+  isPro,
   onLicenseChange,
-  readLicensingConfig,
   resetLicensingForTests,
   setupLicensing,
 } from "./licensing";
-import { isPro } from "./pro";
 
 const DAY = 24 * 3600 * 1000;
 const T0 = Date.parse("2026-09-01T00:00:00Z");
-const VARIANT_ID = 4242;
-const RAW_KEY = "38b1460a-5104-4067-a91d-77b872934d51";
-const INSTANCE_ID = "5bd6ff3b-9dd8-4fd2-9d7f-1ccb4a1ca2a1";
 
 const CONFIGURED = readLicensingConfig({
   [ENV.storeId]: "7",
   [ENV.variantId]: String(VARIANT_ID),
   [ENV.checkoutUrl]: "https://browserforge.lemonsqueezy.com/checkout/buy/abc",
 });
-
-function memoryStorage(): LicenseStorage & { data: Map<string, unknown> } {
-  const data = new Map<string, unknown>();
-  return {
-    data,
-    async get(keys) {
-      const out: Record<string, unknown> = {};
-      for (const k of typeof keys === "string" ? [keys] : keys)
-        if (data.has(k)) out[k] = data.get(k);
-      return out;
-    },
-    async set(items) {
-      for (const [k, v] of Object.entries(items)) data.set(k, structuredClone(v));
-    },
-    async remove(keys) {
-      for (const k of typeof keys === "string" ? [keys] : keys) data.delete(k);
-    },
-  };
-}
-
-type Answer = { status?: number; json: unknown } | Error;
-type Responder = (endpoint: string, body: Record<string, string>) => Answer;
-
-/** `fetch` double: records calls and answers through `responder`. */
-function fakeFetch(responder: Responder) {
-  const calls: { endpoint: string; body: Record<string, string> }[] = [];
-  const fetchImpl = vi.fn(async (input: string, init?: RequestInit) => {
-    const endpoint = input.slice(input.lastIndexOf("/") + 1);
-    const body = JSON.parse(String(init?.body ?? "{}")) as Record<string, string>;
-    calls.push({ endpoint, body });
-    const answer = responder(endpoint, body);
-    if (answer instanceof Error) throw answer;
-    return new Response(JSON.stringify(answer.json), {
-      status: answer.status ?? 200,
-      headers: { "Content-Type": "application/json" },
-    });
-  });
-  return { fetch: fetchImpl, calls };
-}
-
-function activatedBody(variantId = VARIANT_ID) {
-  return {
-    activated: true,
-    error: null,
-    license_key: { id: 1, status: "active", key: RAW_KEY, activation_limit: 3, expires_at: null },
-    instance: { id: INSTANCE_ID, name: "arbor@chrome-abc123" },
-    meta: { store_id: 7, product_id: 9, variant_id: variantId, customer_email: "pat@example.com" },
-  };
-}
-
-function validBody() {
-  return { ...activatedBody(), activated: undefined, valid: true };
-}
 
 describe("readLicensingConfig", () => {
   it("is not configured when the env vars are absent, and falls back to the product page", () => {
@@ -124,8 +75,8 @@ describe("extension-level licence client", () => {
   afterEach(() => resetLicensingForTests());
 
   function setup(responder: Responder) {
-    const storage = memoryStorage();
-    const { fetch, calls } = fakeFetch(responder);
+    const storage = createMemoryStorage();
+    const { fetch, calls } = createFakeFetch(responder);
     const clock = { t: T0 };
     const client = setupLicensing(CONFIGURED, {
       storage,
@@ -195,7 +146,7 @@ describe("extension-level licence client", () => {
   it("rejects keys bought for another product and releases the seat", async () => {
     const { client, calls } = setup((endpoint) =>
       endpoint === "activate"
-        ? { json: activatedBody(VARIANT_ID + 1) }
+        ? { json: activatedBody({}, { variantId: VARIANT_ID + 1 }) }
         : { json: { deactivated: true } },
     );
     const res = await client.activate(RAW_KEY);
@@ -267,7 +218,7 @@ describe("extension-level licence client", () => {
   });
 
   it("uses browser.storage.local by default", async () => {
-    const { fetch } = fakeFetch(() => ({ json: activatedBody() }));
+    const { fetch } = createFakeFetch(() => ({ json: activatedBody() }));
     const client = setupLicensing(CONFIGURED, { fetch, now: () => T0 });
     if (!client) throw new Error("client expected");
     await client.activate(RAW_KEY);

@@ -1,5 +1,5 @@
+import { errorMessage, type Clock } from "@browserforge/shared";
 import type { HistoryStep } from "../history";
-import { newId } from "../ids";
 import { migrationOps } from "../migrate";
 import {
   buildChildIndex,
@@ -49,8 +49,8 @@ export interface LiveState {
 }
 
 export interface TrackerOptions {
-  newId?: () => string;
-  now?: () => number;
+  newId: () => string;
+  clock: Clock;
 }
 
 function tabTitle(tab: { title?: string | undefined; url?: string | undefined }): string {
@@ -71,8 +71,6 @@ function sameUrl(a: string | undefined, b: string | undefined): boolean {
   const strip = (u: string) => u.replace(/\/$/, "").replace(/^http:\/\//, "https://");
   return strip(a) === strip(b);
 }
-
-const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
 
 /**
  * Mirrors live windows and tabs into the tree. Pure with respect to the browser: events are fed
@@ -116,10 +114,10 @@ export class TabTracker {
   constructor(
     private readonly store: TreeStore,
     private readonly port: TabsPort,
-    options: TrackerOptions = {},
+    options: TrackerOptions,
   ) {
-    this.newId = options.newId ?? newId;
-    this.now = options.now ?? (() => Date.now());
+    this.newId = options.newId;
+    this.now = options.clock;
   }
 
   private get tree(): Tree {
@@ -1000,7 +998,7 @@ export class TabTracker {
     }
     if (failures.length) {
       throw new Error(
-        `${failures.length} of ${opened + failures.length} tabs could not be opened: ${errorText(failures[0])}`,
+        `${failures.length} of ${opened + failures.length} tabs could not be opened: ${errorMessage(failures[0])}`,
       );
     }
     return opened;

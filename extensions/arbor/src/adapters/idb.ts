@@ -1,5 +1,6 @@
 /**
- * Tiny promise wrappers over raw IndexedDB. Only the subset Arbor needs; no library.
+ * Tiny promise wrappers over raw IndexedDB. Only the subset Arbor needs; no library. The one
+ * database (`arbor`) hosts the op log, its snapshots, the quarantine and the scheduled backups.
  */
 
 export const DB_NAME = "arbor";
