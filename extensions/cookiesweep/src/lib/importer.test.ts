@@ -81,6 +81,48 @@ describe("parseImport: Cookie AutoDelete 3.x", () => {
     ]);
   });
 
+  it("reads the real CAD 'Export expressions' file (root keyed by store id)", () => {
+    // CAD's Expressions.tsx does `downloadObjectAsJSON(this.props.lists)`; `lists` is
+    // StoreIdToExpressionList, i.e. the root object is keyed by store id.
+    const result = parseImport({
+      default: [
+        { expression: "*.github.com", listType: "WHITE", storeId: "default", id: "x1" },
+        // Added by CAD's "Create default options" button; not a domain.
+        { expression: "_Default:WHITE", listType: "WHITE", storeId: "firefox-default" },
+        { expression: "_Default:GREY", listType: "GREY", storeId: "0" },
+      ],
+      "firefox-container-1": [
+        { expression: "work.example", listType: "GREY", storeId: "firefox-container-1" },
+      ],
+    });
+    expect(result.format).toBe("cookie-autodelete");
+    expect(result.entries).toEqual([
+      { pattern: "*github.com", listType: "white" },
+      { pattern: "work.example", listType: "grey", storeId: "firefox-container-1" },
+    ]);
+    expect(result.skipped.map((s) => s.reason)).toEqual([
+      "Cookie AutoDelete internal default entry",
+      "Cookie AutoDelete internal default entry",
+    ]);
+  });
+
+  it("maps CAD's Chrome incognito alias 'private' to Chrome's store id", () => {
+    // CAD's getStoreId() rewrites Chrome store "1" to "private" before saving.
+    const result = parseImport([
+      { expression: "a.com", listType: "WHITE", storeId: "private" },
+      { expression: "b.com", listType: "WHITE", storeId: "firefox-private" },
+    ]);
+    expect(result.entries).toEqual([
+      { pattern: "a.com", listType: "white", storeId: "1" },
+      { pattern: "b.com", listType: "white", storeId: "firefox-private" },
+    ]);
+  });
+
+  it("imports internationalised expressions in the form cookies use", () => {
+    const result = parseImport([{ expression: "*.münchen.de", listType: "WHITE" }]);
+    expect(result.entries).toEqual([{ pattern: "*xn--mnchen-3ya.de", listType: "white" }]);
+  });
+
   it("merges duplicates and warns", () => {
     const result = parseImport([
       { expression: "a.com", listType: "WHITE" },

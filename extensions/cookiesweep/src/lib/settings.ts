@@ -84,11 +84,30 @@ export function clampDelay(value: unknown, fallback = DEFAULT_SETTINGS.delaySeco
   return Math.min(MAX_DELAY_SECONDS, Math.max(MIN_DELAY_SECONDS, Math.round(n)));
 }
 
+/**
+ * Bring a typed hostname into the form the cookie store and tab URLs use: IDN labels become
+ * punycode (`münchen.de` -> `xn--mnchen-3ya.de`) and a trailing `:port` is dropped. Anything
+ * the URL parser rejects, or that carries a path/query/credentials, is returned unchanged so
+ * `isValidPattern` can refuse it.
+ */
+export function toAsciiHost(host: string): string {
+  // Fast path: plain ASCII without a colon needs no conversion.
+  if (!host || !/[^\x21-\x7e]|:/.test(host)) return host;
+  try {
+    const url = new URL(`http://${host}`);
+    const bare = url.pathname === "/" && !url.search && !url.hash && !url.username;
+    if (bare && !url.password) return url.hostname;
+  } catch {
+    // Not a hostname the URL parser accepts.
+  }
+  return host;
+}
+
 export function normalizePattern(pattern: string): string {
   const trimmed = pattern.trim().toLowerCase();
-  if (trimmed.startsWith("*.")) return "*." + normalizeHost(trimmed.slice(2));
-  if (trimmed.startsWith("*")) return "*" + normalizeHost(trimmed.slice(1));
-  return normalizeHost(trimmed);
+  if (trimmed.startsWith("*.")) return "*." + normalizeHost(toAsciiHost(trimmed.slice(2)));
+  if (trimmed.startsWith("*")) return "*" + normalizeHost(toAsciiHost(trimmed.slice(1)));
+  return normalizeHost(toAsciiHost(trimmed));
 }
 
 export function isValidPattern(pattern: string): boolean {
@@ -97,6 +116,8 @@ export function isValidPattern(pattern: string): boolean {
   if (!body) return false;
   if (/\s/.test(body)) return false;
   if (body.includes("/") || body.includes("*")) return false;
+  // After normalisation the only legitimate colon is inside a bracketed IPv6 literal.
+  if (body.includes(":") && !/^\[[0-9a-f:.]+\]$/.test(body)) return false;
   return true;
 }
 

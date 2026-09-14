@@ -60,18 +60,39 @@ describe("patterns", () => {
     expect(normalizePattern(" https://Example.com/x ")).toBe("example.com");
     expect(normalizePattern(".example.com")).toBe("example.com");
   });
+  it("stores internationalised hostnames in the punycode form the cookie store uses", () => {
+    // `new URL("https://münchen.de").hostname` (tab URLs) and `cookies.getAll()` domains are
+    // both ASCII, so a pattern typed in Unicode must be converted or it never matches.
+    expect(normalizePattern("münchen.de")).toBe("xn--mnchen-3ya.de");
+    expect(normalizePattern("MÜNCHEN.de")).toBe("xn--mnchen-3ya.de");
+    expect(normalizePattern("*.münchen.de")).toBe("*.xn--mnchen-3ya.de");
+    expect(normalizePattern("*bücher.example")).toBe("*xn--bcher-kva.example");
+    expect(normalizePattern("日本.jp")).toBe("xn--wgv71a.jp");
+    expect(normalizePattern("xn--mnchen-3ya.de")).toBe("xn--mnchen-3ya.de");
+  });
+  it("drops a port, which cookie domains never carry", () => {
+    expect(normalizePattern("localhost:3000")).toBe("localhost");
+    expect(normalizePattern("*.example.com:8443")).toBe("*.example.com");
+    expect(normalizePattern("[::1]:8080")).toBe("[::1]");
+    expect(normalizePattern("[::1]")).toBe("[::1]");
+  });
   it("validates patterns", () => {
     expect(isValidPattern("example.com")).toBe(true);
     expect(isValidPattern("*.example.com")).toBe(true);
     expect(isValidPattern("*example.com")).toBe(true);
     expect(isValidPattern("localhost")).toBe(true);
     expect(isValidPattern("127.0.0.1")).toBe(true);
+    expect(isValidPattern("[::1]")).toBe(true);
+    expect(isValidPattern("münchen.de")).toBe(true);
     expect(isValidPattern("")).toBe(false);
     expect(isValidPattern("*")).toBe(false);
     expect(isValidPattern("*.")).toBe(false);
     expect(isValidPattern("exa mple.com")).toBe(false);
     expect(isValidPattern("example.com/path")).toBe(false);
     expect(isValidPattern("ex*ample.com")).toBe(false);
+    // A colon that is not a port and not an IPv6 literal can never be a cookie domain.
+    expect(isValidPattern("_Default:WHITE")).toBe(false);
+    expect(isValidPattern("a:b")).toBe(false);
   });
   it("normalizeListEntry rejects invalid input", () => {
     expect(normalizeListEntry(null)).toBeNull();

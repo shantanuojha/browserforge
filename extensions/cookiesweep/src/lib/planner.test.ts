@@ -14,7 +14,7 @@ import {
   summarizePlan,
   type PlannerInput,
 } from "./planner.js";
-import type { ListEntry } from "./settings.js";
+import { addListEntry, type ListEntry } from "./settings.js";
 
 const white = (pattern: string, storeId?: string): ListEntry =>
   storeId ? { pattern, listType: "white", storeId } : { pattern, listType: "white" };
@@ -329,6 +329,18 @@ describe("planStore: lists", () => {
       },
     );
     expect(plan.keepDomains).toEqual(["login.example.com"]);
+  });
+  it("a whitelist entry typed in Unicode protects the punycode cookie domain", () => {
+    // Real flow: the options page stores the entry through addListEntry (normalisation),
+    // the cookie store reports `.xn--mnchen-3ya.de`, the tab URL hostname is ASCII too.
+    const lists = addListEntry([], { pattern: "münchen.de", listType: "white" });
+    const plan = planStore("0", [], [".xn--mnchen-3ya.de"], lists, {
+      greyExpiredAtRestart: false,
+      trigger: "tab-close",
+    });
+    expect(plan.keepDomains).toEqual(["xn--mnchen-3ya.de"]);
+    expect(plan.reasons["xn--mnchen-3ya.de"]).toBe("whitelisted");
+    expect(classifyHost(hostFromTabUrl("https://münchen.de/")!, "0", lists)).toBe("white");
   });
   it("applies per-store entries only to their store", () => {
     const lists = [white("example.com", "firefox-container-1")];
