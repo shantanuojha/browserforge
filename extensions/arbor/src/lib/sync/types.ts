@@ -43,6 +43,8 @@ export interface RebuildReport {
   tabsCreated: number;
   nodesSaved: number;
   nodesDropped: number;
+  /** Childless window nodes removed by the startup sweep. */
+  windowsPruned: number;
 }
 
 /** URLs that carry no information worth keeping when the tab closes. */

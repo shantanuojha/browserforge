@@ -233,12 +233,7 @@ export default defineBackground(() => {
     )
     .on(
       msg.deleteNode,
-      gated(async ({ id }) => {
-        // Remove from the tree first so the resulting tab events do not re-save the nodes.
-        const liveIds = tracker.liveTabIdsIn(id);
-        if (store.getTree().has(id)) store.append([ops.remove(id)]);
-        if (liveIds.length) await browserTabsPort.removeTabs(liveIds);
-      }),
+      gated(({ id }) => tracker.deleteNode(id)),
     )
     .on(
       msg.addNode,

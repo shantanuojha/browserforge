@@ -242,6 +242,71 @@ export class TabTracker {
     };
   }
 
+  // -- empty window pruning -------------------------------------------------------------------
+
+  /** Tabs the real window `windowId` still holds, minus the ones known to be closing. */
+  private realTabsRemaining(windowId: number, closing?: ReadonlySet<number>): number {
+    const order = this.windowTabs.get(windowId) ?? [];
+    return closing ? order.filter((id) => !closing.has(id)).length : order.length;
+  }
+
+  /**
+   * Whether a window node has outlived its purpose: it has no children of any kind (a note or
+   * group beneath it keeps it) and, when it still mirrors a browser window, that window has no
+   * tabs left (a window showing only a new-tab page is still a window, so its node stays).
+   */
+  private isPrunableWindow(node: TreeNode, closing?: ReadonlySet<number>): boolean {
+    if (node.kind !== "window") return false;
+    if (childrenOf(this.tree, node.id).length > 0) return false;
+    if (node.liveWindowId !== undefined && this.realTabsRemaining(node.liveWindowId, closing) > 0) {
+      return false;
+    }
+    return true;
+  }
+
+  /**
+   * Remove window nodes left without children. Only `kind: "window"` nodes are ever removed
+   * (user-created groups and notes are never pruned); the check cascades to a parent window when
+   * an emptied window was nested in one. Without `candidates` every window node is examined
+   * (startup / rebuild sweep). `closing` names browser tabs about to be closed by the caller so
+   * a live window whose last tab is being deleted is pruned together with the node, not later
+   * from the resulting events. Returns the removed nodes, innermost first.
+   */
+  private pruneEmptyWindows(
+    candidates?: Iterable<NodeId | null | undefined>,
+    closing?: ReadonlySet<number>,
+  ): TreeNode[] {
+    const queue: NodeId[] = [];
+    if (candidates) {
+      for (const id of candidates) if (id) queue.push(id);
+    } else {
+      for (const n of this.tree.values()) if (n.kind === "window") queue.push(n.id);
+    }
+    const removed: TreeNode[] = [];
+    const seen = new Set<NodeId>();
+    while (queue.length) {
+      const id = queue.shift() as NodeId;
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const node = this.tree.get(id);
+      if (!node || !this.isPrunableWindow(node, closing)) continue;
+      this.store.append([ops.remove(id)]);
+      removed.push(node);
+      if (node.parentId !== null) {
+        seen.delete(node.parentId); // re-examine: it just lost a child
+        queue.push(node.parentId);
+      }
+    }
+    return removed;
+  }
+
+  /** Window nodes to re-examine after `parentId` lost a child: the nearest window at or above it. */
+  private windowCandidates(parentId: NodeId | null): NodeId[] {
+    if (parentId === null) return [];
+    const win = windowNodeOf(this.tree, parentId);
+    return win ? [win.id] : [];
+  }
+
   private patchFor(node: TreeNode, tab: LiveTab): NodePatch | null {
     const patch: NodePatch = {};
     const url = tab.url || tab.pendingUrl;
@@ -427,10 +492,16 @@ export class TabTracker {
   }
 
   handleTabRemoved(tabId: number): void {
+    const windowId = this.tabs.get(tabId)?.windowId;
     this.removeTabRecord(tabId);
     const node = findByLiveTabId(this.tree, tabId);
-    if (!node) return;
-    this.store.append([this.saveOrDrop(node)]);
+    if (node) this.store.append([this.saveOrDrop(node)]);
+    // A dropped blank tab, or a node deleted from the panel before its tab closed, may have left
+    // its window node empty; the real window is gone too once its last tab has closed.
+    this.pruneEmptyWindows([
+      ...(node ? this.windowCandidates(node.parentId) : []),
+      windowId === undefined ? undefined : findWindowByLiveId(this.tree, windowId)?.id,
+    ]);
   }
 
   handleTabReplaced(addedTabId: number, removedTabId: number): void {
@@ -498,9 +569,7 @@ export class TabTracker {
       batch.push(ops.update(windowNode.id, { liveWindowId: undefined }));
     }
     if (batch.length) this.store.append(batch);
-    if (windowNode && childrenOf(this.tree, windowNode.id).length === 0) {
-      this.store.append([ops.remove(windowNode.id)]);
-    }
+    if (windowNode) this.pruneEmptyWindows([windowNode.id]);
   }
 
   handleWindowFocusChanged(windowId: number | undefined): void {
@@ -550,6 +619,7 @@ export class TabTracker {
       tabsCreated: 0,
       nodesSaved: 0,
       nodesDropped: 0,
+      windowsPruned: 0,
     };
     this.windowTabs.clear();
     this.tabs.clear();
@@ -695,6 +765,9 @@ export class TabTracker {
       cleanup.push(op);
     }
     if (cleanup.length) this.store.append(cleanup);
+    // Sweep: window nodes that ended up childless (including ones older versions left behind)
+    // go, unless their browser window is open with at least one tab. Logged as ordinary ops.
+    report.windowsPruned = this.pruneEmptyWindows().length;
     return report;
   }
 
@@ -758,14 +831,7 @@ export class TabTracker {
     toClose.delete(keepAlive.id);
     if (toClose.size) await this.port.removeTabs([...toClose]);
     // Windows other than the keep-alive one close with their tabs; drop empty window nodes.
-    const leftovers: OpBody[] = [];
-    const index = buildChildIndex(this.tree);
-    for (const n of this.tree.values()) {
-      if (n.kind === "window" && n.liveWindowId === undefined && !index.has(n.id)) {
-        leftovers.push(ops.remove(n.id));
-      }
-    }
-    if (leftovers.length) this.store.append(leftovers);
+    this.pruneEmptyWindows();
     return toClose.size;
   }
 
@@ -926,21 +992,49 @@ export class TabTracker {
   }
 
   /**
+   * Delete a node and its subtree from the tree, closing any live tabs beneath it without saving
+   * them. The tree is changed first so the resulting tab events do not re-save the nodes. A window
+   * node emptied by the delete is pruned in the same step (the browser window is about to close
+   * when its last tab goes). Returns every removed node, parents before children, so the caller
+   * can put them back (undo) in one batch of adds.
+   */
+  async deleteNode(nodeId: NodeId): Promise<TreeNode[]> {
+    const before = this.tree;
+    const node = before.get(nodeId);
+    if (!node) return [];
+    const liveIds = this.liveTabIdsIn(nodeId);
+    const subtree = [
+      node,
+      ...descendantIds(before, nodeId).map((id) => before.get(id) as TreeNode),
+    ];
+    this.store.append([ops.remove(nodeId)]);
+    const pruned = this.pruneEmptyWindows(this.windowCandidates(node.parentId), new Set(liveIds));
+    if (liveIds.length) await this.port.removeTabs(liveIds);
+    return [...pruned.reverse(), ...subtree];
+  }
+
+  /**
    * Move a node from the UI. When a live tab lands in a different live window, or in a new
    * position among its window's attached live tabs, the browser tab follows. Dropping it outside
    * any live window's subtree detaches it from strip ordering and leaves the browser alone.
+   * A saved window left childless by the move is pruned; the pruned nodes are returned
+   * (outermost first) so an undo can restore them before moving the node back.
    */
-  async moveNode(nodeId: NodeId, parentId: NodeId | null, index: number): Promise<void> {
+  async moveNode(nodeId: NodeId, parentId: NodeId | null, index: number): Promise<TreeNode[]> {
     const before = this.tree.get(nodeId);
-    if (!before) return;
+    if (!before) return [];
     this.store.append([ops.move(nodeId, parentId, index)]);
-    if (before.kind !== "tab" || before.liveTabId === undefined) return;
+    const pruned =
+      before.parentId !== parentId
+        ? this.pruneEmptyWindows(this.windowCandidates(before.parentId)).reverse()
+        : [];
+    if (before.kind !== "tab" || before.liveTabId === undefined) return pruned;
     const tabId = before.liveTabId;
     const targetWindow = windowNodeOf(this.tree, nodeId);
-    if (!targetWindow || targetWindow.liveWindowId === undefined) return;
+    if (!targetWindow || targetWindow.liveWindowId === undefined) return pruned;
     const desired = this.attachedOrderInTree(targetWindow);
     const pos = desired.indexOf(tabId);
-    if (pos < 0) return;
+    if (pos < 0) return pruned;
     const record = this.tabs.get(tabId);
     const currentOrder = this.windowTabs.get(targetWindow.liveWindowId) ?? [];
     const sameWindow = record?.windowId === targetWindow.liveWindowId;
@@ -956,7 +1050,8 @@ export class TabTracker {
     if (pred !== undefined) targetIndex = others.indexOf(pred) + 1;
     else if (succ !== undefined) targetIndex = others.indexOf(succ);
     else targetIndex = sameWindow ? currentOrder.indexOf(tabId) : others.length;
-    if (sameWindow && currentOrder.indexOf(tabId) === targetIndex) return;
+    if (sameWindow && currentOrder.indexOf(tabId) === targetIndex) return pruned;
     await this.port.moveTab(tabId, targetWindow.liveWindowId, targetIndex);
+    return pruned;
   }
 }

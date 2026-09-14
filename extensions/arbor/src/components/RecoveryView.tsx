@@ -158,7 +158,11 @@ export function RecoveryView({ currentNodeCount }: RecoveryViewProps) {
                   Live windows: {startup.rebuild.windowsMatched} matched,{" "}
                   {startup.rebuild.windowsCreated} new; tabs: {startup.rebuild.tabsMatched} matched,{" "}
                   {startup.rebuild.tabsCreated} new; {startup.rebuild.nodesSaved} node(s) marked
-                  saved.
+                  saved
+                  {startup.rebuild.windowsPruned
+                    ? `; ${startup.rebuild.windowsPruned} empty window node(s) removed`
+                    : ""}
+                  .
                 </p>
               ) : null}
             </>

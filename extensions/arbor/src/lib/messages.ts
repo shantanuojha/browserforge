@@ -27,14 +27,18 @@ export const msg = {
   getStartupInfo: defineMessage<void, StartupInfo>("getStartupInfo"),
   /** Generic edits from the UI: notes, titles, collapse, delete. */
   applyOps: defineMessage<OpBody[], Op[]>("applyOps"),
-  moveNode: defineMessage<{ id: NodeId; parentId: NodeId | null; index: number }, void>("moveNode"),
+  /** Returns the window nodes pruned because the move left them empty (outermost first). */
+  moveNode: defineMessage<{ id: NodeId; parentId: NodeId | null; index: number }, TreeNode[]>(
+    "moveNode",
+  ),
   focusNode: defineMessage<{ id: NodeId }, void>("focusNode"),
   restoreNode: defineMessage<{ id: NodeId }, void>("restoreNode"),
   /** Container action: reopen every saved tab beneath a window/group in place. Returns the count. */
   reopenAll: defineMessage<{ id: NodeId }, number>("reopenAll"),
   closeAndSave: defineMessage<{ id: NodeId }, number>("closeAndSave"),
   closeAllAndSave: defineMessage<void, number>("closeAllAndSave"),
-  deleteNode: defineMessage<{ id: NodeId }, void>("deleteNode"),
+  /** Returns every node removed (subtree plus pruned windows), parents before children. */
+  deleteNode: defineMessage<{ id: NodeId }, TreeNode[]>("deleteNode"),
   addNode: defineMessage<
     { parentId: NodeId | null; index?: number; kind: "group" | "note"; title: string },
     TreeNode
