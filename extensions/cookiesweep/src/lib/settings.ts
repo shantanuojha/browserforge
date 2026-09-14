@@ -65,12 +65,19 @@ export interface ActivityEntry {
 
 export const SETTINGS_STORAGE_KEY = "cookiesweep:settings";
 export const ACTIVITY_STORAGE_KEY = "cookiesweep:activity";
+export const KNOWN_STORES_STORAGE_KEY = "cookiesweep:knownStores";
 
 export const settingsKey = defineStorageKey<Settings>(SETTINGS_STORAGE_KEY, {
   ...DEFAULT_SETTINGS,
   lists: [],
 });
 export const activityLogKey = defineStorageKey<ActivityEntry[]>(ACTIVITY_STORAGE_KEY, []);
+/**
+ * Cookie store ids seen in `cookies.getAllCookieStores()`. Firefox (and Chrome for incognito)
+ * only list stores that currently have a tab, so a container vanishes from the list exactly
+ * when its last tab closes; remembering it lets the cleanup still reach its cookies.
+ */
+export const knownStoresKey = defineStorageKey<string[]>(KNOWN_STORES_STORAGE_KEY, []);
 
 const TRIGGERS: readonly CleanupTrigger[] = ["tab-close", "domain-change", "startup", "manual"];
 

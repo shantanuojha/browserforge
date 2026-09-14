@@ -17,6 +17,7 @@ import {
   getCookieStores,
   storeIdForTab,
   tabUrl,
+  type CookieStoreInfo,
 } from "../lib/extension-api.js";
 import {
   isMessage,
@@ -39,6 +40,7 @@ import {
   addListEntry,
   appendActivity,
   createActivityId,
+  knownStoresKey,
   loadSettings,
   normalizeSettings,
   settingsKey,
@@ -154,6 +156,29 @@ async function recordResults(trigger: CleanupTrigger, results: readonly ExecuteR
   });
 }
 
+/**
+ * Live stores plus the ones we have seen before. `cookies.getAllCookieStores()` only lists
+ * stores that currently own a tab (Firefox always, Chrome for incognito), so a container drops
+ * out of the list the moment its last tab closes: exactly when its cookies need cleaning.
+ * Remembered stores carry no tabs; the browser is asked to forget them once it rejects them.
+ */
+async function resolveStores(): Promise<{ stores: CookieStoreInfo[]; remembered: Set<string> }> {
+  const live = await getCookieStores();
+  const liveIds = new Set(live.map((s) => s.id));
+  const known = await knownStoresKey.get();
+  const remembered = new Set(known.filter((id) => !liveIds.has(id)));
+  const all = [...new Set([...known, ...liveIds])].sort();
+  if (all.length !== known.length || all.some((id, i) => id !== known[i])) {
+    await knownStoresKey.set(all);
+  }
+  const stores = all.map((id) => live.find((s) => s.id === id) ?? { id, tabIds: [] });
+  return { stores, remembered };
+}
+
+async function forgetStore(storeId: string): Promise<void> {
+  await knownStoresKey.update((ids) => ids.filter((id) => id !== storeId));
+}
+
 async function runCleanup(
   trigger: CleanupTrigger,
   options: RunOptions = {},
@@ -165,13 +190,16 @@ async function runCleanup(
   }
 
   const api = createExecutorApi();
-  const stores = await getCookieStores();
+  const { stores, remembered } = await resolveStores();
   const tabs = await browser.tabs.query({});
 
-  const urlByTab = new Map<number, string>();
+  // A tab mid-navigation owns two sites: the committed one (`url`) and the one it is loading
+  // (`pendingUrl`). Both must be protected or the user arrives at the destination logged out.
+  const urlsByTab = new Map<number, string[]>();
   for (const tab of tabs) {
-    const url = tabUrl(tab);
-    if (tab.id !== undefined && url) urlByTab.set(tab.id, url);
+    if (tab.id === undefined) continue;
+    const urls = [tab.url, tab.pendingUrl].filter((u): u is string => !!u);
+    if (urls.length > 0) urlsByTab.set(tab.id, urls);
   }
 
   const assigned = new Set<number>();
@@ -179,12 +207,13 @@ async function runCleanup(
   for (const store of stores) {
     openTabHosts[store.id] = store.tabIds.flatMap((id) => {
       assigned.add(id);
-      const url = urlByTab.get(id);
-      return url ? [url] : [];
+      return urlsByTab.get(id) ?? [];
     });
   }
   // Tabs the browser did not attribute to a store: protect them in every store.
-  const orphanUrls = [...urlByTab.entries()].filter(([id]) => !assigned.has(id)).map(([, u]) => u);
+  const orphanUrls = [...urlsByTab.entries()]
+    .filter(([id]) => !assigned.has(id))
+    .flatMap(([, urls]) => urls);
   if (orphanUrls.length > 0) {
     for (const store of stores) openTabHosts[store.id]?.push(...orphanUrls);
   }
@@ -198,6 +227,7 @@ async function runCleanup(
       cookieDomains[store.id] = planningDomains(cookies);
     } catch (error) {
       log.warn("cookies.getAll failed for store", store.id, error);
+      if (remembered.has(store.id)) await forgetStore(store.id);
     }
   }
 
@@ -263,14 +293,43 @@ async function mergePendingTrigger(trigger: CleanupTrigger): Promise<void> {
   }
 }
 
-async function runPendingCleanup(): Promise<void> {
-  const trigger = (await getSessionValue<CleanupTrigger>(PENDING_TRIGGER_KEY)) ?? "tab-close";
-  await setSessionValue(PENDING_TRIGGER_KEY, undefined);
-  try {
-    await runCleanup(trigger);
-  } catch (error) {
-    log.error("cleanup failed", error);
-  }
+/**
+ * Cleanups never overlap: a run snapshots tabs and cookies and then deletes, so two concurrent
+ * runs (a window closing several tabs with delaySeconds 0) would each "remove" the same
+ * cookies, Chrome echoing success for cookies that are already gone, and both would be logged.
+ * Triggers that arrive while a run is in progress collapse into exactly one follow-up run,
+ * which sees any tab that closed after the first snapshot.
+ */
+let cleanupChain: Promise<void> = Promise.resolve();
+let cleanupQueued = false;
+
+function runPendingCleanup(): Promise<void> {
+  if (cleanupQueued) return cleanupChain;
+  cleanupQueued = true;
+  cleanupChain = cleanupChain.then(async () => {
+    cleanupQueued = false;
+    const trigger = (await getSessionValue<CleanupTrigger>(PENDING_TRIGGER_KEY)) ?? "tab-close";
+    await setSessionValue(PENDING_TRIGGER_KEY, undefined);
+    try {
+      await runCleanup(trigger);
+    } catch (error) {
+      log.error("cleanup failed", error);
+    }
+  });
+  return cleanupChain;
+}
+
+/**
+ * A worker can die with a sub-30 s `setTimeout` still pending. The trigger it was going to
+ * serve is in `storage.session`, so a fresh worker re-arms it (an alarm that is still
+ * registered will fire on its own and needs no help).
+ */
+async function resumePendingCleanup(): Promise<void> {
+  const pending = await getSessionValue<CleanupTrigger>(PENDING_TRIGGER_KEY);
+  if (!pending) return;
+  const alarm = await browser.alarms.get(ALARM_NAME).catch(() => undefined);
+  if (alarm) return;
+  await scheduleCleanup(pending);
 }
 
 async function scheduleCleanup(trigger: CleanupTrigger): Promise<void> {
@@ -542,7 +601,9 @@ export default defineBackground(() => {
     return true;
   });
 
-  // The worker may have just been revived: make sure the badge and tab memory are warm.
+  // The worker may have just been revived: make sure the badge and tab memory are warm and
+  // that a cleanup the previous worker owed is not lost.
   void primeTabHosts();
   void refreshBadge();
+  void resumePendingCleanup().catch((error) => log.warn("could not resume cleanup", error));
 });
