@@ -3,6 +3,7 @@
  * See README.md for the specification. Pure TypeScript; the dialog lives in `@browserforge/ui`.
  */
 export type {
+  AlarmInfo,
   AlarmsLike,
   FetchLike,
   LicenseClient,
