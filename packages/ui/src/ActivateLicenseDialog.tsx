@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import {
   looksLikeLicenseKey,
   type LicenseClient,
@@ -14,6 +14,7 @@ import { TextInput } from "./TextInput.js";
 import { openExternal } from "./ProGate.js";
 import { useLicense } from "./useLicense.js";
 import { cx } from "./classNames.js";
+import { focusableElements, nextFocusTarget } from "./focusTrap.js";
 
 /** Lemon Squeezy's customer page where buyers can find their licence keys again. */
 export const DEFAULT_RESTORE_URL = "https://app.lemonsqueezy.com/my-orders";
@@ -111,6 +112,19 @@ export function ActivateLicenseDialog({
   const [busy, setBusy] = useState<Busy>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const titleId = useId();
+  const dialogRef = useRef<HTMLDivElement>(null);
+
+  // Modal focus management: move focus into the dialog on open (unless something inside,
+  // e.g. the autofocused key input, already has it) and hand it back to the opener on close.
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    if (!dialog) return;
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!dialog.contains(document.activeElement)) {
+      (focusableElements(dialog)[0] ?? dialog).focus();
+    }
+    return () => opener?.focus();
+  }, []);
 
   const summary = notice ? null : summarizeLicenseState(state);
 
@@ -177,6 +191,17 @@ export function ActivateLicenseDialog({
     if (event.key === "Escape") {
       event.stopPropagation();
       onClose();
+      return;
+    }
+    if (event.key !== "Tab" || !dialogRef.current) return;
+    const target = nextFocusTarget(
+      focusableElements(dialogRef.current),
+      document.activeElement,
+      event.shiftKey,
+    );
+    if (target) {
+      event.preventDefault();
+      target.focus();
     }
   }
 
@@ -194,9 +219,11 @@ export function ActivateLicenseDialog({
   return (
     <div className="bf-dialog-backdrop" onClick={onClose}>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
+        tabIndex={-1}
         className={cx("bf-dialog", className)}
         onClick={(event) => event.stopPropagation()}
         onKeyDown={handleKeyDown}
