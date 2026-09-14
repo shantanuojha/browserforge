@@ -9,12 +9,27 @@
 
 export type NodeId = string;
 
-export type NodeKind = "window" | "tab" | "group" | "note";
+/**
+ * Node kinds. There is one container kind, `window`: a node that holds tabs and is either
+ * *bound* to an open browser window (`liveWindowId` set) or *unbound* (closed). What the UI calls
+ * a "group" is simply an unbound container the user created and titled; a window the browser
+ * opened is a bound container with an empty title (shown as "Window"). Reopening an unbound
+ * container opens it as a browser window; closing a bound container's window leaves it unbound.
+ * Trees written before 0.1.4 used a separate `group` kind; `coerceNode` reads it as `window`.
+ */
+export type NodeKind = "window" | "tab" | "note";
+
+/** Kind that older trees, exports and op logs used for user groups; read as `window`. */
+export const LEGACY_GROUP_KIND = "group";
+
+/** Title shown for a container the user has not named (a window the browser opened). */
+export const DEFAULT_WINDOW_TITLE = "Window";
 
 export interface TreeNode {
   id: NodeId;
   parentId: NodeId | null;
   kind: NodeKind;
+  /** User-visible name. Empty on containers the browser created; see `displayTitle`. */
   title: string;
   url?: string | undefined;
   favIconUrl?: string | undefined;
@@ -150,7 +165,27 @@ export function ancestorsOf(tree: Tree, id: NodeId): TreeNode[] {
   return out;
 }
 
-/** Nearest ancestor (or self) of kind `window`. */
+/** A container: the one node kind that holds tabs and can be opened as a browser window. */
+export function isContainer(node: TreeNode): boolean {
+  return node.kind === "window";
+}
+
+/** A container that mirrors an open browser window right now. */
+export function isBound(node: TreeNode): boolean {
+  return node.kind === "window" && node.liveWindowId !== undefined;
+}
+
+/**
+ * Title to show for a node. Containers the browser created carry an empty title and read as
+ * "Window"; a tab without a title falls back to its url.
+ */
+export function displayTitle(node: Pick<TreeNode, "kind" | "title" | "url">): string {
+  if (node.title) return node.title;
+  if (node.kind === "window") return DEFAULT_WINDOW_TITLE;
+  return node.url || "Untitled";
+}
+
+/** Nearest ancestor (or self) that is a container (`kind: "window"`, bound or not). */
 export function windowNodeOf(tree: Tree, id: NodeId): TreeNode | undefined {
   let cur = tree.get(id);
   const seen = new Set<NodeId>();
@@ -170,6 +205,27 @@ export function findByLiveTabId(tree: Tree, tabId: number): TreeNode | undefined
 export function findWindowByLiveId(tree: Tree, windowId: number): TreeNode | undefined {
   for (const n of tree.values()) if (n.kind === "window" && n.liveWindowId === windowId) return n;
   return undefined;
+}
+
+/**
+ * Tab nodes a container's "Reopen all" / "Close all and save" act on: every tab in its subtree
+ * except those inside a nested container, which is a window (open or closed) of its own and is
+ * only acted on when the user picks it. Depth-first, tree order.
+ */
+export function containerTabs(tree: Tree, containerId: NodeId, index?: ChildIndex): TreeNode[] {
+  const idx = index ?? buildChildIndex(tree);
+  const out: TreeNode[] = [];
+  const seen = new Set<NodeId>();
+  const walk = (parentId: NodeId): void => {
+    for (const n of idx.get(parentId) ?? []) {
+      if (seen.has(n.id) || n.kind === "window") continue;
+      seen.add(n.id);
+      if (n.kind === "tab") out.push(n);
+      walk(n.id);
+    }
+  };
+  walk(containerId);
+  return out;
 }
 
 export interface FlatRow {
@@ -234,8 +290,8 @@ export interface DropDestination {
 /**
  * Where `draggedId` lands when dropped at `pos` relative to `targetId`; a `null` target appends
  * to the root. Tree placement is presentation only and independent of the browser's window/tab
- * structure, so any node (live window, live tab, saved node, group) may be nested under any other
- * or reordered among any siblings. The only refusals are structural: unknown ids, dropping a node
+ * structure, so any node (bound or unbound container, live tab, saved node) may be nested under
+ * any other or reordered among any siblings. The only refusals are structural: unknown ids, dropping a node
  * onto itself or into its own subtree, and nesting under a note (notes are leaves). "inside"
  * appends as the last child. Returns `null` when the drop is not allowed.
  */
@@ -467,14 +523,18 @@ export const ops = {
   },
 };
 
-/** Ensure a value parsed from JSON is a TreeNode; returns undefined otherwise. */
+/**
+ * Ensure a value parsed from JSON is a TreeNode; returns undefined otherwise. The pre-0.1.4
+ * `group` kind is read as `window` (an unbound container), so old snapshots, op logs, backups
+ * and exports load unchanged.
+ */
 export function coerceNode(value: unknown): TreeNode | undefined {
   if (typeof value !== "object" || value === null) return undefined;
   const v = value as Record<string, unknown>;
   if (typeof v.id !== "string" || !v.id) return undefined;
   if (!(v.parentId === null || typeof v.parentId === "string")) return undefined;
-  const kind = v.kind;
-  if (kind !== "window" && kind !== "tab" && kind !== "group" && kind !== "note") return undefined;
+  const kind = v.kind === LEGACY_GROUP_KIND ? "window" : v.kind;
+  if (kind !== "window" && kind !== "tab" && kind !== "note") return undefined;
   const now = Date.now();
   const node: TreeNode = {
     id: v.id,

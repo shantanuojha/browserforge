@@ -17,6 +17,7 @@ import {
 import {
   buildChildIndex,
   flattenTree,
+  isBound,
   resolveDrop,
   type DropDestination,
   type FlatRow,
@@ -46,10 +47,14 @@ export interface TreeActions {
   primary(id: NodeId): void;
   closeAndSave(id: NodeId): void;
   restore(id: NodeId): void;
-  /** Container action: reopen every saved tab beneath a window/group in place. */
+  /**
+   * Container action: reopen a container's closed tabs, into its window when it is open, as a
+   * new window otherwise.
+   */
   reopenAll(id: NodeId): void;
   deleteNode(id: NodeId): void;
   move(id: NodeId, parentId: NodeId | null, index: number): void;
+  /** A new group: an unbound container the user names. */
   addGroup(parentId: NodeId | null, index: number): void;
   addNote(parentId: NodeId, index: number): void;
 }
@@ -149,9 +154,9 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
 
   // -- drag & drop -----------------------------------------------------------------------------
 
-  // Placement is presentation only: every node kind may be nested under a group (or any non-note
-  // node) or reordered among any siblings. `resolveDrop` only refuses cycles and nesting under a
-  // note; whether the real browser tab follows is decided by the tracker on `actions.move`.
+  // Placement is presentation only: every node kind may be nested under a container (or any
+  // non-note node) or reordered among any siblings. `resolveDrop` only refuses cycles and nesting
+  // under a note; whether the real browser tab follows is decided by the tracker on `actions.move`.
   const dropTarget = useCallback(
     (draggedId: NodeId, targetId: NodeId, pos: DropPosition): DropDestination | null =>
       resolveDrop(tree, draggedId, targetId, pos, childIndex),
@@ -258,7 +263,7 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
     [actions, tree, drag?.id, dropTarget],
   );
 
-  // -- container actions (windows and groups share one definition) -----------------------------
+  // -- container actions (one definition for every container, open or closed) ------------------
 
   const containerHandlers = useMemo<ContainerActionHandlers>(
     () => ({
@@ -387,8 +392,8 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
 
     const container = actionsFor(n);
     if (container) {
-      // Windows and groups: the shared definition, section by section, plus the "New ..." entries
-      // and "Focus" for a live window.
+      // Containers: the shared definition, section by section, plus the "New ..." entries and
+      // "Focus" while the container's window is open.
       const entry = (a: ContainerAction): MenuEntry => ({
         label: a.label,
         shortcut: a.shortcut,
@@ -397,7 +402,7 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
         onSelect: a.run,
       });
       const items: MenuEntry[] = [];
-      if (n.kind === "window" && n.liveWindowId !== undefined) {
+      if (isBound(n)) {
         items.push({ label: "Focus", shortcut: "Enter", onSelect: () => actions.primary(n.id) });
       }
       items.push(...container.filter((a) => a.section === "open").map(entry));

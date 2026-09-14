@@ -26,7 +26,11 @@
 import {
   applyOp,
   childrenOf,
+  containerTabs,
   descendantIds,
+  displayTitle,
+  isBound,
+  isContainer,
   ops,
   type NodeId,
   type NodePatch,
@@ -47,8 +51,12 @@ export type HistoryStep =
   | { kind: "move"; id: NodeId; parentId: NodeId | null; index: number }
   /** `TabTracker.deleteNode`: subtree removal with window pruning, closes live tabs. */
   | { kind: "delete"; id: NodeId }
-  /** `TabTracker.reopenNodes`: these saved nodes become live in place. */
-  | { kind: "reopen"; ids: NodeId[] }
+  /**
+   * `TabTracker.reopenNodes`: these saved nodes become live in place. With `container` (the
+   * container the action was run on: a window closed as a whole, a group reopened as a window)
+   * they come back together as that container's browser window.
+   */
+  | { kind: "reopen"; ids: NodeId[]; container?: NodeId | undefined }
   /** `TabTracker.closeNodes`: the live tabs of exactly these nodes close and save. */
   | { kind: "close"; ids: NodeId[] };
 
@@ -63,7 +71,10 @@ export interface HistoryEntry {
 }
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-const quote = (title: string) => `"${title.length > 40 ? `${title.slice(0, 39)}…` : title}"`;
+const quote = (node: TreeNode) => {
+  const title = displayTitle(node);
+  return `"${title.length > 40 ? `${title.slice(0, 39)}…` : title}"`;
+};
 
 /** A node as it is re-added: same id and place, but saved (its browser tab is gone). */
 export function asSaved(node: TreeNode): TreeNode {
@@ -157,7 +168,10 @@ export function liveTabNodesIn(tree: Tree, id: NodeId): TreeNode[] {
   return out;
 }
 
-/** Saved tab nodes with a url at or beneath `id` (the ones a restore / reopen opens). */
+/**
+ * Saved tab nodes with a url at or beneath `id` (the ones restoring a tab or note opens). For a
+ * container use `containerTabs`: its Reopen all leaves nested containers alone.
+ */
 export function savedTabNodesIn(tree: Tree, id: NodeId): TreeNode[] {
   const out: TreeNode[] = [];
   const self = tree.get(id);
@@ -173,9 +187,9 @@ function describeRemoved(removed: readonly TreeNode[], rootId: NodeId): string {
   const tabs = removed.filter((n) => n.kind === "tab").length;
   if (!root) return "delete";
   if (root.kind === "tab") {
-    return tabs === 1 ? `delete ${quote(root.title)}` : `delete ${plural(tabs, "tab")}`;
+    return tabs === 1 ? `delete ${quote(root)}` : `delete ${plural(tabs, "tab")}`;
   }
-  const what = root.kind === "note" ? "note" : quote(root.title);
+  const what = root.kind === "note" ? "note" : quote(root);
   return tabs ? `delete ${what} (${plural(tabs, "tab")})` : `delete ${what}`;
 }
 
@@ -197,7 +211,7 @@ export const history = {
   rename(before: Tree, id: NodeId, title: string, ts = Date.now()): HistoryEntry | null {
     const node = before.get(id);
     if (!node || node.title === title) return null;
-    const label = `rename ${quote(node.title)}`;
+    const label = `rename ${quote(node)}`;
     return {
       label,
       done: past(label),
@@ -213,7 +227,7 @@ export const history = {
     const text = note.trim();
     const old = (node.note ?? "").trim();
     if (text === old) return null;
-    const label = `edit note on ${quote(node.title)}`;
+    const label = `edit note on ${quote(node)}`;
     return {
       label,
       done: past(label),
@@ -223,9 +237,9 @@ export const history = {
     };
   },
 
-  /** A group or note the user just created (response of `addNode`). */
+  /** A group (unbound container) or note the user just created (response of `addNode`). */
   create(node: TreeNode, index: number | undefined, ts = Date.now()): HistoryEntry {
-    const label = `new ${node.kind}`;
+    const label = `new ${node.kind === "window" ? "group" : node.kind}`;
     return {
       label,
       done: past(label),
@@ -249,7 +263,7 @@ export const history = {
     const undo: HistoryStep[] = [];
     if (pruned.length) undo.push({ kind: "ops", ops: readdOps(before, pruned) });
     undo.push({ kind: "move", id, parentId: node.parentId, index: siblingIndex(before, node) });
-    const label = `move ${quote(node.title)}`;
+    const label = `move ${quote(node)}`;
     return {
       label,
       done: past(label),
@@ -277,7 +291,10 @@ export const history = {
     };
   },
 
-  /** Close-and-save on a tab, window or group: the open tabs beneath it become saved in place. */
+  /**
+   * Close-and-save on a tab or container: the open tabs beneath it become saved in place. Closing
+   * a bound container closes its browser window, so the undo brings that window back as one.
+   */
   closeAndSave(before: Tree, id: NodeId, ts = Date.now()): HistoryEntry | null {
     const nodes = liveTabNodesIn(before, id);
     if (!nodes.length) return null;
@@ -285,32 +302,45 @@ export const history = {
     const root = before.get(id);
     const label =
       nodes.length === 1 && root?.kind === "tab"
-        ? `close ${quote(root.title)}`
+        ? `close ${quote(root)}`
         : `close ${plural(nodes.length, "tab")}`;
+    const reopen: HistoryStep =
+      root && isBound(root) ? { kind: "reopen", ids, container: id } : { kind: "reopen", ids };
     return {
       label,
       done: past(label),
-      undo: [{ kind: "reopen", ids }],
+      undo: [reopen],
       redo: [{ kind: "close", ids }],
       ts,
     };
   },
 
-  /** Restore / Reopen all on a saved node: its saved tabs open in place. */
+  /**
+   * Restore / Reopen all on a saved node: its saved tabs open in place. On an unbound container
+   * that means opening it as a browser window; the redo does the same, the undo closes those
+   * tabs again (and with them the window).
+   */
   reopen(before: Tree, id: NodeId, ts = Date.now()): HistoryEntry | null {
-    const nodes = savedTabNodesIn(before, id);
+    const root = before.get(id);
+    const nodes =
+      root && isContainer(root)
+        ? containerTabs(before, id).filter((n) => n.liveTabId === undefined && n.url)
+        : savedTabNodesIn(before, id);
     if (!nodes.length) return null;
     const ids = nodes.map((n) => n.id);
-    const root = before.get(id);
     const label =
       nodes.length === 1 && root?.kind === "tab"
-        ? `reopen ${quote(root.title)}`
+        ? `reopen ${quote(root)}`
         : `reopen ${plural(nodes.length, "tab")}`;
+    const redo: HistoryStep =
+      root && isContainer(root) && !isBound(root)
+        ? { kind: "reopen", ids, container: id }
+        : { kind: "reopen", ids };
     return {
       label,
       done: past(label),
       undo: [{ kind: "close", ids }],
-      redo: [{ kind: "reopen", ids }],
+      redo: [redo],
       ts,
     };
   },
@@ -425,9 +455,13 @@ function coerceStep(value: unknown): HistoryStep | undefined {
         ? { kind: "move", id: v.id, parentId: v.parentId as NodeId | null, index: v.index }
         : undefined;
     case "reopen":
+      if (!Array.isArray(v.ids) || !v.ids.every((i) => typeof i === "string")) return undefined;
+      return typeof v.container === "string"
+        ? { kind: "reopen", ids: v.ids as NodeId[], container: v.container }
+        : { kind: "reopen", ids: v.ids as NodeId[] };
     case "close":
       return Array.isArray(v.ids) && v.ids.every((i) => typeof i === "string")
-        ? { kind: v.kind, ids: v.ids as NodeId[] }
+        ? { kind: "close", ids: v.ids as NodeId[] }
         : undefined;
     default:
       return undefined;

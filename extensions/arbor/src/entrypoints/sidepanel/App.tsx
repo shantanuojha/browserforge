@@ -14,7 +14,7 @@ import { useTreeState } from "@/hooks/useTreeState";
 import { summarizeContainer } from "@/lib/container-actions";
 import { history } from "@/lib/history";
 import { msg } from "@/lib/messages";
-import { descendantIds, ops, type NodeId, type Tree } from "@/lib/model";
+import { descendantIds, displayTitle, ops, type NodeId, type Tree } from "@/lib/model";
 import { primaryActionFor } from "@/lib/primary-action";
 
 type View = "tree" | "recovery" | "io";
@@ -33,7 +33,7 @@ function deleteWarning(tree: Tree, id: NodeId): string {
   if (!node) return "";
   const nested = descendantIds(tree, id).length;
   const live = summarizeContainer(tree, node).liveTabs + (node.liveTabId !== undefined ? 1 : 0);
-  const what = `This removes "${node.title}"${nested ? ` and ${nested} nested node(s)` : ""}.`;
+  const what = `This removes "${displayTitle(node)}"${nested ? ` and ${nested} nested node(s)` : ""}.`;
   const open = live
     ? ` ${live} open tab${live === 1 ? " is" : "s are"} closed without being saved.`
     : "";
@@ -167,7 +167,7 @@ export function App() {
             push(entry);
             setToast(
               n
-                ? { text: `Reopened ${plural(n, "saved tab")}.`, undo: !!entry }
+                ? { text: `Reopened ${plural(n, "tab")}.`, undo: !!entry }
                 : { text: "Nothing to reopen." },
             );
           }),
@@ -187,10 +187,11 @@ export function App() {
             .send({ id, parentId, index })
             .then((pruned) => push(history.move(tree, id, parentId, index, pruned))),
         ),
+      // A group is a closed container with a name: the same node kind as a window.
       addGroup: (parentId, index) =>
         run(
           msg.addNode
-            .send({ parentId, index, kind: "group", title: "New group" })
+            .send({ parentId, index, kind: "window", title: "New group" })
             .then((node) => push(history.create(node, index))),
         ),
       addNote: (parentId, index) =>
@@ -297,7 +298,7 @@ export function App() {
             <Button
               size="sm"
               variant="secondary"
-              title="New group at the top level"
+              title="New group at the top level (a closed window you can name and open later)"
               onClick={() => actions.addGroup(null, 0)}
             >
               <Icon name="plus" /> Group

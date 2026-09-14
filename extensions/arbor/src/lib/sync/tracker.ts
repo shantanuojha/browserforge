@@ -1,9 +1,12 @@
 import type { HistoryStep } from "../history";
 import { newId } from "../ids";
+import { migrationOps } from "../migrate";
 import {
   buildChildIndex,
   childrenOf,
+  containerTabs,
   descendantIds,
+  displayTitle,
   findByLiveTabId,
   findWindowByLiveId,
   makeNode,
@@ -69,18 +72,29 @@ function sameUrl(a: string | undefined, b: string | undefined): boolean {
   return strip(a) === strip(b);
 }
 
+const errorText = (e: unknown) => (e instanceof Error ? e.message : String(e));
+
 /**
  * Mirrors live windows and tabs into the tree. Pure with respect to the browser: events are fed
  * through `handle*` methods and browser mutations go through the injected `TabsPort`.
  *
+ * Containers: there is one container kind, `window`. A container is *bound* while it mirrors an
+ * open browser window (`liveWindowId` set) and *unbound* otherwise; a user group is an unbound
+ * container with a title. "Reopen all" on an unbound container opens it as a new browser window
+ * (closed tabs open there, tabs still open elsewhere are moved in); on a bound one it reopens
+ * the closed tabs into that window at their tree positions. Nested containers are windows of
+ * their own and are never reopened by their parent.
+ *
  * Invariants it maintains:
  * - a live tab node has `liveTabId` and `liveWindowId`; the tracker creates it under the matching
- *   window node, but the user may drag it anywhere (see `isDetached`);
+ *   bound container, but the user may drag it anywhere (see `isDetached`);
  * - a closed tab becomes a saved node (live ids cleared) unless it was a blank new tab; a saved
  *   node the user reopens becomes live again where it sits (same parent, position and children);
- * - the depth-first order of the live tab nodes attached to a window node follows the browser's
- *   tab strip (detached tabs skipped) whenever the tracker itself changed the tree; user nesting
- *   is preserved otherwise.
+ * - the depth-first order of the live tab nodes attached to a bound container follows the
+ *   browser's tab strip (detached tabs and nested containers skipped) whenever the tracker itself
+ *   changed the tree; user nesting is preserved otherwise;
+ * - a container whose browser window closes stays in the tree, unbound, with its tabs saved in
+ *   place. Only an untitled, note-less container left without children is removed.
  */
 export class TabTracker {
   /** Browser tab order per window (ids in strip order). */
@@ -149,6 +163,7 @@ export class TabTracker {
 
   // -- tree helpers ---------------------------------------------------------------------------
 
+  /** The container bound to browser window `windowId`, created (untitled) on demand. */
   private windowNodeFor(windowId: number): TreeNode {
     const existing = findWindowByLiveId(this.tree, windowId);
     if (existing) return existing;
@@ -156,7 +171,7 @@ export class TabTracker {
       id: this.newId(),
       parentId: null,
       kind: "window",
-      title: "Window",
+      title: "",
       liveWindowId: windowId,
       ts: this.now(),
     });
@@ -165,34 +180,26 @@ export class TabTracker {
   }
 
   /**
-   * A live tab node whose nearest window ancestor is not the window node of the browser window
-   * it lives in: the user dragged it out of its window's subtree (into a root group, under a
-   * saved window, ...) while the browser tab stayed put. Such a node is detached from tab-strip
-   * ordering: it stays where the user put it, keeps receiving live updates (title, url, favicon,
-   * close) and is ignored when the strip order is mirrored into the window node. Dropping it back
-   * under the window node re-attaches it. Nothing but an explicit user move re-parents it.
+   * A live tab node whose nearest container is not the one bound to the browser window it lives
+   * in: the user dragged it out of its window's subtree (into a group, under a closed container,
+   * ...) while the browser tab stayed put. Such a node is detached from tab-strip ordering: it
+   * stays where the user put it, keeps receiving live updates (title, url, favicon, close) and is
+   * ignored when the strip order is mirrored into the window node. Dropping it back under the
+   * window node re-attaches it. Nothing but an explicit user move re-parents it.
    */
   private isDetached(node: TreeNode, windowNode: TreeNode): boolean {
     return node.kind === "tab" && windowNodeOf(this.tree, node.id)?.id !== windowNode.id;
   }
 
   /**
-   * Depth-first ids of the live tabs attached to a window node. Subtrees of nested window nodes
-   * are skipped: their tabs are ordered by their own window (or detached from this one).
+   * Depth-first ids of the live tabs attached to a container. Subtrees of nested containers are
+   * skipped: their tabs are ordered by their own window (or detached from this one).
    */
   private attachedOrderInTree(windowNode: TreeNode): number[] {
-    const index = buildChildIndex(this.tree);
     const out: number[] = [];
-    const seen = new Set<NodeId>();
-    const walk = (parentId: NodeId): void => {
-      for (const n of index.get(parentId) ?? []) {
-        if (n.kind === "window" || seen.has(n.id)) continue;
-        seen.add(n.id);
-        if (n.kind === "tab" && n.liveTabId !== undefined) out.push(n.liveTabId);
-        walk(n.id);
-      }
-    };
-    walk(windowNode.id);
+    for (const n of containerTabs(this.tree, windowNode.id)) {
+      if (n.liveTabId !== undefined) out.push(n.liveTabId);
+    }
     return out;
   }
 
@@ -234,7 +241,7 @@ export class TabTracker {
         appendAtEnd = true; // a tab we hold no node for yet: keep the previous behaviour
         break;
       }
-      // A root-level tab node has no window ancestor, so it is detached as well.
+      // A root-level tab node has no container ancestor, so it is detached as well.
       if (prev.id === excludeId || prev.parentId === null || this.isDetached(prev, windowNode)) {
         continue;
       }
@@ -247,7 +254,7 @@ export class TabTracker {
     };
   }
 
-  // -- empty window pruning -------------------------------------------------------------------
+  // -- empty container pruning ----------------------------------------------------------------
 
   /** Tabs the real window `windowId` still holds, minus the ones known to be closing. */
   private realTabsRemaining(windowId: number, closing?: ReadonlySet<number>): number {
@@ -256,12 +263,13 @@ export class TabTracker {
   }
 
   /**
-   * Whether a window node has outlived its purpose: it has no children of any kind (a note or
-   * group beneath it keeps it) and, when it still mirrors a browser window, that window has no
-   * tabs left (a window showing only a new-tab page is still a window, so its node stays).
+   * Whether a container has outlived its purpose: the browser created it (no title), the user
+   * left nothing on it (no note, no children of any kind) and, when it still mirrors a browser
+   * window, that window has no tabs left (a window showing only a new-tab page is still a window,
+   * so its node stays). Containers the user named or annotated are theirs and are never removed.
    */
-  private isPrunableWindow(node: TreeNode, closing?: ReadonlySet<number>): boolean {
-    if (node.kind !== "window") return false;
+  private isPrunableContainer(node: TreeNode, closing?: ReadonlySet<number>): boolean {
+    if (node.kind !== "window" || node.title || node.note) return false;
     if (childrenOf(this.tree, node.id).length > 0) return false;
     if (node.liveWindowId !== undefined && this.realTabsRemaining(node.liveWindowId, closing) > 0) {
       return false;
@@ -270,9 +278,8 @@ export class TabTracker {
   }
 
   /**
-   * Remove window nodes left without children. Only `kind: "window"` nodes are ever removed
-   * (user-created groups and notes are never pruned); the check cascades to a parent window when
-   * an emptied window was nested in one. Without `candidates` every window node is examined
+   * Remove untitled containers left without children. The check cascades to a parent container
+   * when an emptied one was nested in it. Without `candidates` every container is examined
    * (startup / rebuild sweep). `closing` names browser tabs about to be closed by the caller so
    * a live window whose last tab is being deleted is pruned together with the node, not later
    * from the resulting events. Returns the removed nodes, innermost first.
@@ -294,7 +301,7 @@ export class TabTracker {
       if (seen.has(id)) continue;
       seen.add(id);
       const node = this.tree.get(id);
-      if (!node || !this.isPrunableWindow(node, closing)) continue;
+      if (!node || !this.isPrunableContainer(node, closing)) continue;
       this.store.append([ops.remove(id)]);
       removed.push(node);
       if (node.parentId !== null) {
@@ -305,7 +312,7 @@ export class TabTracker {
     return removed;
   }
 
-  /** Window nodes to re-examine after `parentId` lost a child: the nearest window at or above it. */
+  /** Containers to re-examine after `parentId` lost a child: the nearest one at or above it. */
   private windowCandidates(parentId: NodeId | null): NodeId[] {
     if (parentId === null) return [];
     const win = windowNodeOf(this.tree, parentId);
@@ -365,11 +372,11 @@ export class TabTracker {
   }
 
   /**
-   * Bind a saved node to a live tab where the node sits. Nothing is moved: inside a live window's
-   * subtree the tab was opened at the strip index matching the node (see `stripIndexFor`);
-   * anywhere else (root group, saved window...) the node becomes a detached live tab and keeps its
-   * parent, position and children. The window node is created on demand so the tab has a window
-   * node to be attached to or detached from.
+   * Bind a saved node to a live tab where the node sits. Nothing is moved: inside a bound
+   * container's subtree the tab was opened at the strip index matching the node (see
+   * `stripIndexFor`); anywhere else (unbound container, root) the node becomes a detached live
+   * tab and keeps its parent, position and children. The window node is created on demand so the
+   * tab has a window node to be attached to or detached from.
    */
   private adoptNode(node: TreeNode, tab: LiveTab): void {
     this.windowNodeFor(tab.windowId);
@@ -381,7 +388,7 @@ export class TabTracker {
   }
 
   /**
-   * Strip index at which the tab for saved `nodeId` (inside live `windowNode`'s subtree) must
+   * Strip index at which the tab for saved `nodeId` (inside bound `windowNode`'s subtree) must
    * open so the window's attached depth-first order keeps matching the strip: right after the
    * nearest attached predecessor still in the strip, else right before the nearest attached
    * successor, else at the end (`undefined`).
@@ -391,23 +398,13 @@ export class TabTracker {
     windowNode: TreeNode,
     windowId: number,
   ): number | undefined {
-    const index = buildChildIndex(this.tree);
     const before: number[] = [];
     const after: number[] = [];
     let passed = false;
-    const seen = new Set<NodeId>();
-    const walk = (parentId: NodeId): void => {
-      for (const n of index.get(parentId) ?? []) {
-        if (n.kind === "window" || seen.has(n.id)) continue;
-        seen.add(n.id);
-        if (n.id === nodeId) passed = true;
-        else if (n.kind === "tab" && n.liveTabId !== undefined) {
-          (passed ? after : before).push(n.liveTabId);
-        }
-        walk(n.id);
-      }
-    };
-    walk(windowNode.id);
+    for (const n of containerTabs(this.tree, windowNode.id)) {
+      if (n.id === nodeId) passed = true;
+      else if (n.liveTabId !== undefined) (passed ? after : before).push(n.liveTabId);
+    }
     const strip = this.orderOf(windowId);
     const pred = before.reverse().find((id) => strip.includes(id));
     if (pred !== undefined) return strip.indexOf(pred) + 1;
@@ -420,6 +417,17 @@ export class TabTracker {
   /** Tabs in popup/devtools/app windows are not part of the tree. Unknown windows are trusted. */
   private ignoresWindow(windowId: number): boolean {
     return this.knownWindows.get(windowId) === false;
+  }
+
+  /**
+   * Whether a container's window is one the tracker currently sees open. A binding to a window
+   * we know nothing about (its close event never reached us) is stale: the container is treated
+   * as closed, and reopening it starts from a clean binding.
+   */
+  private isOpenContainer(node: TreeNode): boolean {
+    if (node.kind !== "window" || node.liveWindowId === undefined) return false;
+    const id = node.liveWindowId;
+    return this.knownWindows.get(id) === true || this.windowTabs.has(id);
   }
 
   handleTabCreated(tab: LiveTab): void {
@@ -511,6 +519,7 @@ export class TabTracker {
 
   handleTabReplaced(addedTabId: number, removedTabId: number): void {
     const record = this.tabs.get(removedTabId);
+    const node = findByLiveTabId(this.tree, removedTabId);
     if (record) {
       const order = this.orderOf(record.windowId);
       const i = order.indexOf(removedTabId);
@@ -520,8 +529,12 @@ export class TabTracker {
       if (this.activeTabs.get(record.windowId) === removedTabId) {
         this.activeTabs.set(record.windowId, addedTabId);
       }
+    } else if (node?.liveWindowId !== undefined) {
+      // No record (the swap happened while we were not looking): keep the books consistent so
+      // the node is not mistaken for a closed tab later.
+      const order = this.orderOf(node.liveWindowId);
+      this.insertTabRecord({ id: addedTabId, windowId: node.liveWindowId, index: order.length });
     }
-    const node = findByLiveTabId(this.tree, removedTabId);
     if (node) this.store.append([ops.update(node.id, { liveTabId: addedTabId })]);
   }
 
@@ -543,7 +556,7 @@ export class TabTracker {
         // Queue adoptions so the tabs.onCreated events reuse the saved children by url.
         const used = new Set<NodeId>();
         for (const url of urls) {
-          const target = this.savedDescendantByUrl(nodeId, url, used, only);
+          const target = this.savedTabByUrl(nodeId, url, used, only);
           if (target) {
             used.add(target.id);
             this.adoptTabs.push({ nodeId: target.id, url, windowId: win.id, ts: this.now() });
@@ -555,6 +568,11 @@ export class TabTracker {
     this.windowNodeFor(win.id);
   }
 
+  /**
+   * The browser window is gone: its tab nodes (wherever the user put them) become saved in place
+   * and its container stays in the tree, unbound, so the user can reopen it later. Only an
+   * untitled container left without anything under it is removed.
+   */
   handleWindowRemoved(windowId: number): void {
     this.knownWindows.delete(windowId);
     const order = this.windowTabs.get(windowId) ?? [];
@@ -577,7 +595,13 @@ export class TabTracker {
     if (windowNode) this.pruneEmptyWindows([windowNode.id]);
   }
 
+  /**
+   * Only windows the tree mirrors count as "focused": a popup, devtools or app window taking
+   * focus must not become the target of the next restore (its tabs are ignored, so a tab opened
+   * there would never be mirrored). `undefined` (no Chrome window focused) is kept as is.
+   */
   handleWindowFocusChanged(windowId: number | undefined): void {
+    if (windowId !== undefined && this.ignoresWindow(windowId)) return;
     this.focusedWindowId = windowId;
   }
 
@@ -625,6 +649,7 @@ export class TabTracker {
       nodesSaved: 0,
       nodesDropped: 0,
       windowsPruned: 0,
+      migrated: 0,
     };
     this.windowTabs.clear();
     this.tabs.clear();
@@ -632,6 +657,11 @@ export class TabTracker {
     this.knownWindows.clear();
     this.adoptTabs = [];
     this.adoptWindow = null;
+
+    // Trees written by older versions are brought up to date first, as ordinary logged ops.
+    const migration = migrationOps(this.tree);
+    if (migration.length) this.store.append(migration);
+    report.migrated = migration.length;
 
     for (const w of windows) this.knownWindows.set(w.id, isTrackableWindow(w));
     const trackable = windows.filter(isTrackableWindow);
@@ -651,15 +681,14 @@ export class TabTracker {
     const windowNodes = [...tree.values()].filter((n) => n.kind === "window");
     const tabNodes = [...tree.values()].filter((n) => n.kind === "tab");
     /**
-     * Tab nodes that belong to a window node: its descendants plus any tab node anywhere in the
-     * tree that still carries the window's live id. Drag-and-drop lets a live tab sit outside its
-     * window's subtree (in a root group, under a saved window...) while the browser tab stays in
+     * Tab nodes that belong to a container: the tabs of its own subtree (nested containers are
+     * windows of their own and are left out) plus any tab node anywhere in the tree that still
+     * carries the container's live window id. Drag-and-drop lets a live tab sit outside its
+     * window's subtree (in a group, under a closed container...) while the browser tab stays in
      * the window; those nodes must be re-matched too or the rebuild duplicates them.
      */
     const tabNodesOf = (win: TreeNode): TreeNode[] => {
-      const out = descendantIds(tree, win.id, index)
-        .map((id) => tree.get(id))
-        .filter((n): n is TreeNode => n !== undefined && n.kind === "tab");
+      const out = containerTabs(tree, win.id, index);
       if (win.liveWindowId === undefined) return out;
       const seen = new Set(out.map((n) => n.id));
       for (const n of tabNodes) {
@@ -694,17 +723,36 @@ export class TabTracker {
           idsValid = true;
         }
       }
-      // 2. URL overlap with a window node (session restore gives new ids).
+      // 2. URL overlap with a container (session restore gives new ids). Ties go to the container
+      //    that was bound when we last looked, then to one whose tabs were live, then to an
+      //    untitled (browser-made) one, so a user's group is not claimed by a window that merely
+      //    shows the same pages.
       if (!match && wTabs.some((t) => !isBlankUrl(t.url))) {
-        let best: { node: TreeNode; score: number } | undefined;
+        let best: { node: TreeNode; rank: number[] } | undefined;
+        const better = (a: number[], b: number[]) => {
+          for (let i = 0; i < a.length; i++) {
+            if ((a[i] ?? 0) !== (b[i] ?? 0)) return (a[i] ?? 0) > (b[i] ?? 0);
+          }
+          return false;
+        };
         for (const n of windowNodes) {
           if (usedWindowNodes.has(n.id)) continue;
-          const urls = tabNodesOf(n).map((k) => k.url);
+          const kids = tabNodesOf(n);
+          const urls = kids.map((k) => k.url);
           const score = wTabs.filter((t) => urls.some((u) => sameUrl(u, t.url))).length;
-          if (score > 0 && (!best || score > best.score)) best = { node: n, score };
+          if (score === 0) continue;
+          const rank = [
+            score,
+            n.liveWindowId !== undefined ? 1 : 0,
+            kids.some((k) => k.liveTabId !== undefined) ? 1 : 0,
+            n.title ? 0 : 1,
+          ];
+          if (!best || better(rank, best.rank)) best = { node: n, rank };
         }
         const meaningful = wTabs.filter((t) => !isBlankUrl(t.url)).length;
-        if (best && best.score >= Math.max(1, Math.ceil(meaningful / 2))) match = best.node;
+        if (best && (best.rank[0] ?? 0) >= Math.max(1, Math.ceil(meaningful / 2))) {
+          match = best.node;
+        }
       }
       if (match) {
         usedWindowNodes.add(match.id);
@@ -770,14 +818,15 @@ export class TabTracker {
       cleanup.push(op);
     }
     if (cleanup.length) this.store.append(cleanup);
-    // Sweep: window nodes that ended up childless (including ones older versions left behind)
-    // go, unless their browser window is open with at least one tab. Logged as ordinary ops.
+    // Sweep: untitled containers that ended up childless (including ones older versions left
+    // behind) go, unless their browser window is open with at least one tab. Logged as ops.
     report.windowsPruned = this.pruneEmptyWindows().length;
     return report;
   }
 
   // -- user actions ---------------------------------------------------------------------------
 
+  /** Live tab ids at or beneath a node, nested containers included (their windows close too). */
   liveTabIdsIn(nodeId: NodeId): number[] {
     const tree = this.tree;
     const ids: number[] = [];
@@ -835,26 +884,23 @@ export class TabTracker {
     for (const t of this.tabs.values()) toClose.add(t.id);
     toClose.delete(keepAlive.id);
     if (toClose.size) await this.port.removeTabs([...toClose]);
-    // Windows other than the keep-alive one close with their tabs; drop empty window nodes.
+    // Windows other than the keep-alive one close with their tabs; drop empty untitled containers.
     this.pruneEmptyWindows();
     return toClose.size;
   }
 
-  private savedDescendantByUrl(
-    rootId: NodeId,
+  /** First unused closed tab of a container (nested containers excluded) with this url. */
+  private savedTabByUrl(
+    containerId: NodeId,
     url: string,
     used: Set<NodeId>,
     only?: ReadonlySet<NodeId>,
   ): TreeNode | undefined {
-    const tree = this.tree;
-    for (const id of descendantIds(tree, rootId)) {
-      const n = tree.get(id);
+    for (const n of containerTabs(this.tree, containerId)) {
       if (
-        n &&
-        n.kind === "tab" &&
         n.liveTabId === undefined &&
-        !used.has(id) &&
-        (!only || only.has(id)) &&
+        !used.has(n.id) &&
+        (!only || only.has(n.id)) &&
         sameUrl(n.url, url)
       ) {
         return n;
@@ -867,12 +913,11 @@ export class TabTracker {
    * Reopen a saved node in place: the node itself becomes live again with the same parent,
    * position and children.
    *
-   * - A tab node under a live window opens in that window at the strip index matching its place
-   *   in the tree. Anywhere else (root group, saved window...) it opens in the focused window and
-   *   becomes a detached live tab. Its saved children stay saved.
-   * - A saved window node reopens as a new browser window whose tabs are its saved descendants;
-   *   a live one is focused.
-   * - A group or note reopens every saved tab beneath it (see `reopenAll`).
+   * - A tab node under a bound container opens in that window at the strip index matching its
+   *   place in the tree. Anywhere else (unbound container, root) it opens in the focused window
+   *   and becomes a detached live tab. Its saved children stay saved.
+   * - An unbound container opens as a new browser window (see `reopenAll`); a bound one is focused.
+   * - A note has nothing to reopen.
    */
   async restore(nodeId: NodeId): Promise<void> {
     const node = this.tree.get(nodeId);
@@ -882,53 +927,104 @@ export class TabTracker {
       await this.reopenTab(node, true);
       return;
     }
-    if (node.kind === "window" && node.liveWindowId !== undefined) return this.focus(nodeId);
+    if (this.isOpenContainer(node)) return this.focus(nodeId);
     await this.reopenAll(nodeId);
   }
 
   /**
-   * "Reopen all" on a container: every saved tab beneath it becomes live in place. A saved window
-   * node reopens as one new browser window holding all of them; under a live window or a group
-   * the tabs open one by one (each `tabs.create` is awaited so the pending restores match their
-   * `onCreated` events in order even when urls repeat) and land where their nodes sit.
+   * A tab node that still claims a browser tab the tracker does not know: its close event never
+   * reached us (or a matching rebuild re-marked it live from stale data). It is closed for every
+   * practical purpose, so it is treated as saved rather than skipped.
+   */
+  private isStaleLive(node: TreeNode): boolean {
+    return node.kind === "tab" && node.liveTabId !== undefined && !this.tabs.has(node.liveTabId);
+  }
+
+  /**
+   * "Reopen all" on a container. The tabs it acts on are every tab node in its own subtree, no
+   * matter how they got there (created in it, dragged in while open or closed, imported), with
+   * nested containers left alone: each of those is a window of its own with its own Reopen.
+   *
+   * - Unbound container: opens a new browser window holding its closed tabs in tree order,
+   *   moves in the tabs that are open elsewhere, and binds the container to that window.
+   * - Bound container: its closed tabs open into that window at their tree positions; each
+   *   `tabs.create` is awaited so the pending restores match their `onCreated` events in order
+   *   even when urls repeat. One tab that cannot be opened does not stop the others; the error
+   *   is reported after the rest were tried.
+   *
+   * Returns how many tabs were opened or moved in.
    */
   async reopenAll(nodeId: NodeId): Promise<number> {
     const node = this.tree.get(nodeId);
     if (!node) return 0;
-    if (node.kind === "window" && node.liveWindowId === undefined) return this.reopenWindow(node);
+    if (node.kind !== "window") {
+      // Not a container (a note): reopen whatever saved tabs sit beneath it, in place.
+      const saved = descendantIds(this.tree, nodeId)
+        .map((id) => this.tree.get(id))
+        .filter((n): n is TreeNode => !!n && n.kind === "tab" && n.liveTabId === undefined);
+      return this.reopenTabsInPlace(saved);
+    }
+    if (!this.isOpenContainer(node)) return this.reopenAsWindow(node);
+    this.unmarkStaleLive(containerTabs(this.tree, nodeId));
+    return this.reopenTabsInPlace(containerTabs(this.tree, nodeId));
+  }
+
+  /** Clear stale live ids so the nodes count as closed (see `isStaleLive`). */
+  private unmarkStaleLive(nodes: readonly TreeNode[]): void {
+    const batch = nodes
+      .filter((n) => this.isStaleLive(n))
+      .map((n) => ops.update(n.id, { liveTabId: undefined, liveWindowId: undefined }));
+    if (batch.length) this.store.append(batch);
+  }
+
+  /** Open the closed tabs among `nodes` one by one where they sit; the rest are left alone. */
+  private async reopenTabsInPlace(nodes: readonly TreeNode[]): Promise<number> {
     let opened = 0;
-    for (const id of descendantIds(this.tree, nodeId)) {
-      const n = this.tree.get(id);
-      if (n && n.kind === "tab" && n.liveTabId === undefined && n.url) {
-        await this.reopenTab(n, false);
-        opened++;
+    const failures: unknown[] = [];
+    for (const n of nodes) {
+      const current = this.tree.get(n.id);
+      if (!current || current.kind !== "tab" || current.liveTabId !== undefined || !current.url) {
+        continue;
       }
+      try {
+        await this.reopenTab(current, false);
+        opened++;
+      } catch (e) {
+        failures.push(e);
+      }
+    }
+    if (failures.length) {
+      throw new Error(
+        `${failures.length} of ${opened + failures.length} tabs could not be opened: ${errorText(failures[0])}`,
+      );
     }
     return opened;
   }
 
   /**
-   * Reopen a saved window node as a new browser window; its saved descendants (or just the ones
-   * in `only`) become its tabs.
+   * Open an unbound container as a new browser window. Its closed tabs (or just the ones in
+   * `only`) open there in tree order and are adopted by their nodes; tabs of the container that
+   * are open in other windows are moved in afterwards so the window matches the tree. The
+   * container is bound to the new window. Nested containers are not touched.
    */
-  private async reopenWindow(node: TreeNode, only?: ReadonlySet<NodeId>): Promise<number> {
+  private async reopenAsWindow(node: TreeNode, only?: ReadonlySet<NodeId>): Promise<number> {
     const nodeId = node.id;
-    const urls = descendantIds(this.tree, nodeId)
-      .map((id) => this.tree.get(id))
-      .filter(
-        (n): n is TreeNode =>
-          !!n &&
-          n.kind === "tab" &&
-          n.liveTabId === undefined &&
-          !!n.url &&
-          (!only || only.has(n.id)),
-      )
-      .map((n) => n.url as string);
-    if (!urls.length) return 0;
+    // A binding to a window we no longer see is stale; start from a closed container.
+    if (node.liveWindowId !== undefined) {
+      this.store.append([ops.update(nodeId, { liveWindowId: undefined })]);
+    }
+    const pick = (n: TreeNode) => !!n.url && (!only || only.has(n.id));
+    this.unmarkStaleLive(containerTabs(this.tree, nodeId).filter(pick));
+    const tabsOf = () => containerTabs(this.tree, nodeId).filter(pick);
+    const closed = tabsOf().filter((n) => n.liveTabId === undefined);
+    const elsewhere = tabsOf().filter((n) => n.liveTabId !== undefined);
+    if (!closed.length && !elsewhere.length) return 0;
+    const urls = closed.map((n) => n.url as string);
+    const seed = urls.length ? undefined : (elsewhere[0]?.liveTabId as number);
     this.adoptWindow = { nodeId, urls, only };
     let created: { window: LiveWindow; tabs: LiveTab[] };
     try {
-      created = await this.port.createWindow(urls);
+      created = await this.port.createWindow(urls, seed);
     } finally {
       this.adoptWindow = null;
     }
@@ -940,7 +1036,7 @@ export class TabTracker {
     const used = new Set<NodeId>();
     for (const t of tabs) {
       const url = t.pendingUrl || t.url;
-      const target = url ? this.savedDescendantByUrl(nodeId, url, used, only) : undefined;
+      const target = url ? this.savedTabByUrl(nodeId, url, used, only) : undefined;
       if (target) {
         used.add(target.id);
         this.finishTabAdoption(target.id, t);
@@ -948,7 +1044,31 @@ export class TabTracker {
     }
     this.adoptTabs = this.adoptTabs.filter((a) => a.windowId !== win.id);
     this.foldDuplicateWindowNodes(nodeId, win.id);
-    return urls.length;
+    const moved = await this.gatherLiveTabs(nodeId, win.id);
+    return urls.length + moved + (seed === undefined ? 0 : 1);
+  }
+
+  /**
+   * Move the container's live tabs that sit in other browser windows into `windowId`, each at
+   * the strip index its tree position calls for. The resulting attach events only update
+   * `liveWindowId`: the nodes already sit where the user put them.
+   */
+  private async gatherLiveTabs(containerId: NodeId, windowId: number): Promise<number> {
+    const desired = this.attachedOrderInTree(this.tree.get(containerId) as TreeNode);
+    const present = new Set(this.windowTabs.get(windowId) ?? []);
+    let moved = 0;
+    for (const [pos, tabId] of desired.entries()) {
+      if (present.has(tabId) || !this.tabs.has(tabId)) continue;
+      const index = desired.slice(0, pos).filter((id) => present.has(id)).length;
+      try {
+        await this.port.moveTab(tabId, windowId, index);
+        present.add(tabId);
+        moved++;
+      } catch {
+        // The tab vanished meanwhile; its close event will save the node.
+      }
+    }
+    return moved;
   }
 
   /** Open a browser tab for saved tab `node` so that `node` itself becomes live in place. */
@@ -974,8 +1094,9 @@ export class TabTracker {
   }
 
   /**
-   * `tabs.onCreated` may reach us before `windows.onCreated` while a saved window reopens; the
-   * tabs then conjure a second node for the new window. Fold it into the reopened node.
+   * `tabs.onCreated` may reach us before `windows.onCreated` while a container reopens as a
+   * window; the tabs then conjure a second node for the new window. Fold it into the reopened
+   * container.
    */
   private foldDuplicateWindowNodes(keepId: NodeId, windowId: number): void {
     for (const dup of [...this.tree.values()]) {
@@ -1010,10 +1131,10 @@ export class TabTracker {
 
   /**
    * Delete a node and its subtree from the tree, closing any live tabs beneath it without saving
-   * them. The tree is changed first so the resulting tab events do not re-save the nodes. A window
-   * node emptied by the delete is pruned in the same step (the browser window is about to close
-   * when its last tab goes). Returns every removed node, parents before children, so the caller
-   * can put them back (undo) in one batch of adds.
+   * them. The tree is changed first so the resulting tab events do not re-save the nodes. An
+   * untitled container emptied by the delete is pruned in the same step (the browser window is
+   * about to close when its last tab goes). Returns every removed node, parents before children,
+   * so the caller can put them back (undo) in one batch of adds.
    */
   async deleteNode(nodeId: NodeId): Promise<TreeNode[]> {
     const before = this.tree;
@@ -1031,11 +1152,12 @@ export class TabTracker {
   }
 
   /**
-   * Move a node from the UI. When a live tab lands in a different live window, or in a new
-   * position among its window's attached live tabs, the browser tab follows. Dropping it outside
-   * any live window's subtree detaches it from strip ordering and leaves the browser alone.
-   * A saved window left childless by the move is pruned; the pruned nodes are returned
-   * (outermost first) so an undo can restore them before moving the node back.
+   * Move a node from the UI. When a live tab lands in a different bound container, or in a new
+   * position among its window's attached live tabs, the browser tab follows. Dropping it under
+   * an unbound container (or at the root) is a tree-only move: the browser tab stays where it is
+   * and the node is detached from strip ordering. An untitled container left childless by the
+   * move is pruned; the pruned nodes are returned (outermost first) so an undo can restore them
+   * before moving the node back.
    */
   async moveNode(nodeId: NodeId, parentId: NodeId | null, index: number): Promise<TreeNode[]> {
     const before = this.tree.get(nodeId);
@@ -1075,42 +1197,40 @@ export class TabTracker {
   // -- undo / redo ----------------------------------------------------------------------------
 
   /**
-   * Reopen exactly these saved tab nodes in place (undo of close-and-save, redo of a reopen).
-   * Nodes whose nearest window node is a saved window come back together as that window (one new
-   * browser window, the node live again); the rest open one by one where they sit, like
-   * `restore` does. Nodes that are not saved tabs with a url are skipped. Returns the count.
+   * Reopen exactly these saved tab nodes (undo of close-and-save, redo of a reopen). With
+   * `container` (the container the original action was run on, when it was closed as a whole or
+   * reopened as a window) the container comes back as one browser window holding those tabs;
+   * nested containers among them come back as their own windows. Otherwise the tabs open one by
+   * one where they sit, like `restore` does. Nodes that are not saved tabs with a url are
+   * skipped. Returns the count.
    */
-  async reopenNodes(ids: readonly NodeId[]): Promise<number> {
-    const byWindow = new Map<NodeId | null, TreeNode[]>();
+  async reopenNodes(ids: readonly NodeId[], container?: NodeId): Promise<number> {
+    const only = new Set(ids);
+    let opened = 0;
+    const reopenedAs = new Set<NodeId>();
+    const asWindow = async (id: NodeId): Promise<void> => {
+      const c = this.tree.get(id);
+      if (!c || c.kind !== "window" || this.isOpenContainer(c) || reopenedAs.has(id)) return;
+      reopenedAs.add(id);
+      opened += await this.reopenAsWindow(c, only);
+    };
+    if (container) await asWindow(container);
+    const rest: TreeNode[] = [];
     for (const id of ids) {
       const n = this.tree.get(id);
       if (!n || n.kind !== "tab" || n.liveTabId !== undefined || !n.url) continue;
-      const win = windowNodeOf(this.tree, id);
-      const key = win && win.liveWindowId === undefined ? win.id : null;
-      const list = byWindow.get(key);
-      if (list) list.push(n);
-      else byWindow.set(key, [n]);
+      const c = container ? windowNodeOf(this.tree, id) : undefined;
+      if (c && !this.isOpenContainer(c) && !reopenedAs.has(c.id)) await asWindow(c.id);
+      if (this.tree.get(id)?.liveTabId === undefined) rest.push(n);
     }
-    let opened = 0;
-    for (const [winId, nodes] of byWindow) {
-      const win = winId === null ? undefined : this.tree.get(winId);
-      if (win && win.liveWindowId === undefined) {
-        opened += await this.reopenWindow(win, new Set(nodes.map((n) => n.id)));
-        continue;
-      }
-      for (const n of nodes) {
-        const current = this.tree.get(n.id);
-        if (!current || current.liveTabId !== undefined) continue;
-        await this.reopenTab(current, false);
-        opened++;
-      }
-    }
+    opened += await this.reopenTabsInPlace(rest);
     return opened;
   }
 
   /**
    * Close the browser tabs of exactly these nodes (undo of a reopen, redo of close-and-save).
-   * The resulting events turn the nodes into saved nodes in place. Returns the count.
+   * The resulting events turn the nodes into saved nodes in place; a window emptied this way
+   * closes, and its container stays in the tree unbound. Returns the count.
    */
   async closeNodes(ids: readonly NodeId[]): Promise<number> {
     const tabIds: number[] = [];
@@ -1136,7 +1256,7 @@ export class TabTracker {
         const node = this.tree.get(step.id);
         if (!node) return;
         if (childrenOf(this.tree, step.id).length) {
-          throw new Error(`"${node.title}" is no longer empty, so it was not removed`);
+          throw new Error(`"${displayTitle(node)}" is no longer empty, so it was not removed`);
         }
         this.store.append([ops.remove(step.id)]);
         return;
@@ -1149,7 +1269,7 @@ export class TabTracker {
         await this.deleteNode(step.id);
         return;
       case "reopen":
-        await this.reopenNodes(step.ids);
+        await this.reopenNodes(step.ids, step.container);
         return;
       case "close":
         await this.closeNodes(step.ids);

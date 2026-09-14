@@ -24,9 +24,8 @@ function PreviewCard({ preview }: { preview: ImportPreview }) {
   return (
     <div className="preview">
       <div className="preview__counts">
-        <span className="preview__count">{c.windows} windows</span>
+        <span className="preview__count">{c.windows} windows or groups</span>
         <span className="preview__count">{c.tabs} tabs</span>
-        <span className="preview__count">{c.groups} groups</span>
         <span className="preview__count">{c.notes} notes</span>
         <span className="preview__count">{c.total} total</span>
       </div>

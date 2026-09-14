@@ -162,12 +162,19 @@ export class FakeBrowser implements TabsPort {
     return { ...tab, url: opts.url };
   }
 
-  async createWindow(urls: string[]) {
+  async createWindow(urls: string[], moveTabId?: number) {
     const w = this.addWindow();
     if (!this.tabsBeforeWindow) this.tracker.handleWindowCreated(w);
     const tabs = urls.map((u) => this.addTab(w.id, u, ""));
     for (const t of tabs) this.tracker.handleTabCreated({ ...t, pendingUrl: t.url, url: "" });
     if (this.tabsBeforeWindow) this.tracker.handleWindowCreated(w);
+    if (!urls.length && moveTabId !== undefined) {
+      // `windows.create({ tabId })`: the existing tab is detached from its window and attached
+      // to the new one, with the same events Chrome fires for a drag between windows.
+      this.moveTabToWindow(moveTabId, w.id, 0);
+      const moved = this.tabs.find((t) => t.id === moveTabId);
+      if (moved) tabs.push(moved);
+    }
     return { window: w, tabs };
   }
 
@@ -222,8 +229,14 @@ export async function drop(
 export const dropInside = (ctx: Ctx, draggedId: NodeId, targetId: NodeId) =>
   drop(ctx, draggedId, targetId, "inside");
 
+/** A user group: an unbound container with a title (the same kind as a window). */
 export function addRootGroup(ctx: Ctx, id: NodeId): void {
-  ctx.store.append([ops.add(makeNode({ id, parentId: null, kind: "group", title: id, ts: 1 }))]);
+  ctx.store.append([ops.add(makeNode({ id, parentId: null, kind: "window", title: id, ts: 1 }))]);
+}
+
+/** A group nested under `parentId`, appended last. */
+export function addGroup(ctx: Ctx, id: NodeId, parentId: NodeId, title = id): void {
+  ctx.store.append([ops.add(makeNode({ id, parentId, kind: "window", title, ts: 1 }))]);
 }
 
 /** A saved tab node (e.g. imported or left behind by a closed tab) at the end of `parentId`. */
@@ -247,7 +260,14 @@ export function titlesUnder(ctx: Ctx, parentId: NodeId | undefined): string[] {
 export const nodeOf = (ctx: Ctx, tab: LiveTab) => findByLiveTabId(ctx.store.getTree(), tab.id);
 export const winNodeOf = (ctx: Ctx, w: LiveWindow) => findWindowByLiveId(ctx.store.getTree(), w.id);
 
-/** Ids of every window node in the tree. */
+/** Ids of every container in the tree (windows and groups alike). */
 export function windowNodeIds(ctx: Ctx): NodeId[] {
   return [...ctx.store.getTree().values()].filter((n) => n.kind === "window").map((n) => n.id);
+}
+
+/** Ids of the containers bound to an open browser window. */
+export function boundNodeIds(ctx: Ctx): NodeId[] {
+  return [...ctx.store.getTree().values()]
+    .filter((n) => n.kind === "window" && n.liveWindowId !== undefined)
+    .map((n) => n.id);
 }

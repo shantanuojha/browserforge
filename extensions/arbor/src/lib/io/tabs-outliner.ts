@@ -21,7 +21,13 @@ const str = (v: unknown): string | undefined => (typeof v === "string" && v ? v 
 
 const CHILD_KEYS = ["children", "subnodes", "nodes", "items", "childs", "tabs"] as const;
 
-function kindOf(type: string | undefined, hasUrl: boolean, hasNote: boolean): NodeKind {
+/**
+ * What the source node was. Windows and groups both become containers (`kind: "window"`); the
+ * distinction only decides the default title (a window stays untitled, a group reads "Group").
+ */
+type Role = "window" | "group" | "tab" | "note";
+
+function roleOf(type: string | undefined, hasUrl: boolean, hasNote: boolean): Role {
   const t = (type ?? "").toLowerCase();
   if (/^(saved)?(win|window)/.test(t)) return "window";
   if (/^(saved)?tab/.test(t) || t === "page") return "tab";
@@ -31,6 +37,8 @@ function kindOf(type: string | undefined, hasUrl: boolean, hasNote: boolean): No
   if (hasNote) return "note";
   return "group";
 }
+
+const kindOf = (role: Role): NodeKind => (role === "group" ? "window" : role);
 
 function looksLikeNode(v: unknown): v is Obj {
   if (!isObj(v)) return false;
@@ -104,12 +112,14 @@ class Parser {
     const url = str(data.url) ?? str(o.url) ?? str(data.pendingUrl);
     const noteText = str(data.note) ?? str(o.note) ?? str(data.text) ?? str(o.text);
     const customTitle = str(marks.customTitle) ?? str(o.customTitle);
-    const kind = kindOf(str(o.type), url !== undefined, noteText !== undefined);
+    const role = roleOf(str(o.type), url !== undefined, noteText !== undefined);
+    const kind = kindOf(role);
     let title = customTitle ?? str(data.title) ?? str(o.title) ?? "";
     if (!title && kind === "note") title = noteText ?? "";
-    if (!title)
-      title =
-        kind === "window" ? "Window" : (hostOf(url) ?? (kind === "group" ? "Group" : "Untitled"));
+    // An unnamed window stays untitled (Arbor shows "Window"); an unnamed group reads "Group".
+    if (!title && role !== "window") {
+      title = role === "group" ? "Group" : (hostOf(url) ?? "Untitled");
+    }
     const favIconUrl = str(data.favIconUrl) ?? str(o.favIconUrl);
     const collapsed = o.colapsed === true || o.collapsed === true || data.collapsed === true;
     const node: ImportedNode = {
@@ -156,7 +166,7 @@ export function parseTabsOutliner(input: string | unknown): ImportPreview {
   // Tabs Outliner wraps everything in a single session/root node; unwrap it when it is untitled.
   if (
     roots.length === 1 &&
-    roots[0]?.kind === "group" &&
+    roots[0]?.kind === "window" &&
     roots[0].children.length &&
     /^(group|session|root)$/i.test(roots[0].title)
   ) {

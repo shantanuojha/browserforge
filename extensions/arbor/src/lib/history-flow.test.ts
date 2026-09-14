@@ -110,9 +110,9 @@ describe("undo / redo flows", () => {
     expect(tree.get(wNode.id)?.liveWindowId).toBeUndefined(); // the browser window is gone
     expect(tree.get(aNode.id)).toMatchObject({ parentId: wNode.id, title: "A" });
     expect(tree.get(aNode.id)?.liveTabId).toBeUndefined();
-    // The restored saved window can be reopened like any other.
+    // The restored closed container can be reopened like any other: as a browser window.
     await tracker.restore(wNode.id);
-    expect(store.getTree().get(wNode.id)?.liveWindowId).toBeDefined();
+    expect(store.getTree().get(wNode.id)?.liveWindowId).toBe(fb.windows[0]?.id);
     expect(store.getTree().get(aNode.id)?.liveTabId).toBeDefined();
   });
 
@@ -146,12 +146,12 @@ describe("undo / redo flows", () => {
     expect(titlesUnder(ctx, "g")).toEqual(["B"]);
   });
 
-  it("move out of a saved window (pruned) -> undo: the window is back and the tab inside it", async () => {
+  it("move out of a closed untitled window (pruned) -> undo: the window is back and the tab inside it", async () => {
     const ctx = await realistic();
     const { store, tracker } = ctx;
     addRootGroup(ctx, "g");
     store.append([
-      ops.add(makeNode({ id: "sw", parentId: null, kind: "window", title: "W", ts: 1 })),
+      ops.add(makeNode({ id: "sw", parentId: null, kind: "window", title: "", ts: 1 })),
     ]);
     addSavedTab(ctx, "s", "sw", "https://s.test/", "S");
     const before = store.getTree();
@@ -232,7 +232,7 @@ describe("undo / redo flows", () => {
     );
   });
 
-  it("reopen a group -> undo: closed and saved back in place; redo reopens", async () => {
+  it("reopen a group -> it opens as a window; undo closes that window, nodes saved in place; redo reopens it", async () => {
     const ctx = await realistic();
     const { store, fb, tracker } = ctx;
     const w = fb.openWindow();
@@ -246,24 +246,60 @@ describe("undo / redo flows", () => {
     const entry = history.reopen(before, "g") as HistoryEntry;
     expect(entry.label).toBe("reopen 3 tabs");
     expect(await tracker.reopenAll("g")).toBe(3);
-    for (const id of ["s", "c", "t"]) expect(store.getTree().get(id)?.liveTabId).toBeDefined();
-    expect(fb.stripOrder(w.id).length).toBe(4);
+    // One new browser window, bound to the group, holding S, C, T in tree order.
+    expect(fb.windows.length).toBe(2);
+    const gWin = store.getTree().get("g")?.liveWindowId;
+    expect(gWin).toBe(fb.windows[1]?.id);
+    const liveIds = ["s", "c", "t"].map((id) => store.getTree().get(id)?.liveTabId);
+    expect(liveIds.every((id) => id !== undefined)).toBe(true);
+    expect(fb.stripOrder(gWin ?? -1)).toEqual(liveIds);
+    expect(fb.stripOrder(w.id).length).toBe(1); // the other window is untouched
 
     await run(ctx, entry.undo);
+    // The tabs closed, the window went with them; the group stays, unbound, with its nodes.
+    expect(fb.windows.map((x) => x.id)).toEqual([w.id]);
+    expect(store.getTree().get("g")?.liveWindowId).toBeUndefined();
     for (const id of ["s", "c", "t"]) expect(store.getTree().get(id)?.liveTabId).toBeUndefined();
-    expect(fb.stripOrder(w.id).length).toBe(1);
     expect(shape(store.getTree())).toEqual(shape(before));
     expect(titlesUnder(ctx, winNodeOf(ctx, w)?.id)).toEqual(["A"]);
 
     await run(ctx, entry.redo);
+    expect(fb.windows.length).toBe(2);
+    expect(store.getTree().get("g")?.liveWindowId).toBe(fb.windows[1]?.id);
     for (const id of ["s", "c", "t"]) expect(store.getTree().get(id)?.liveTabId).toBeDefined();
     expect(titlesUnder(ctx, "g")).toEqual(["S", "T"]);
+    expect(titlesUnder(ctx, "s")).toEqual(["C"]);
+  });
+
+  it("close a window -> undo brings it back as one window; close a single tab of a group -> undo reopens it where it was", async () => {
+    const ctx = await realistic();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    const b = fb.openTab(w.id, "https://b.test/", "B");
+    addRootGroup(ctx, "g");
+    const bNode = nodeOf(ctx, b) as TreeNode;
+    await tracker.moveNode(bNode.id, "g", 0); // B open in W, filed under the group
+    const before = store.getTree();
+
+    // Close & save on the group only closes B; the undo reopens B in the focused window, still
+    // filed under the group, exactly as it was (no new window for a group whose tab merely sat
+    // elsewhere).
+    const closeB = history.closeAndSave(before, "g") as HistoryEntry;
+    expect(closeB.undo).toEqual([{ kind: "reopen", ids: [bNode.id] }]);
+    expect(await tracker.closeAndSave("g")).toBe(1);
+    await run(ctx, closeB.undo);
+    expect(fb.windows.map((x) => x.id)).toEqual([w.id]);
+    expect(store.getTree().get(bNode.id)).toMatchObject({ parentId: "g", liveWindowId: w.id });
+    expect(fb.stripOrder(w.id).length).toBe(2);
+    expect(store.getTree().get("g")?.liveWindowId).toBeUndefined();
+    void a;
   });
 
   it("new group / rename / note -> undo and redo; an emptied-then-filled group is not removed", async () => {
     const ctx = await realistic();
     const { store, tracker } = ctx;
-    const grp = makeNode({ id: "g", parentId: null, kind: "group", title: "New group", ts: 1 });
+    const grp = makeNode({ id: "g", parentId: null, kind: "window", title: "New group", ts: 1 });
     store.append([ops.add(grp, 0)]);
     const created = history.create(store.getTree().get("g") as TreeNode, 0);
     const renamed = history.rename(store.getTree(), "g", "Research") as HistoryEntry;

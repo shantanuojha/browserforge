@@ -2,6 +2,7 @@ import {
   buildChildIndex,
   coerceNode,
   createTree,
+  DEFAULT_WINDOW_TITLE,
   serializeNodes,
   type Tree,
   type TreeNode,
@@ -9,7 +10,15 @@ import {
 import { makePreview, type ImportedNode, type ImportPreview } from "./imported";
 
 export const ARBOR_FORMAT = "arbor-tree" as const;
-export const ARBOR_FORMAT_VERSION = 1 as const;
+/**
+ * Schema versions of the export file:
+ * - 1 (0.1.0 to 0.1.3): node kinds `window | tab | group | note`; windows opened by the browser
+ *   were titled "Window".
+ * - 2 (0.1.4+): one container kind, `window`, bound or not; a group is an unbound container with
+ *   a title; browser-made windows carry an empty title. Version 1 files are still read: `group`
+ *   becomes `window` (see `coerceNode`), so old exports and backups import unchanged.
+ */
+export const ARBOR_FORMAT_VERSION = 2 as const;
 
 export interface ArborExport {
   format: typeof ARBOR_FORMAT;
@@ -46,8 +55,9 @@ export function isArborExport(value: unknown): value is { nodes: unknown[] } {
 }
 
 /**
- * Parse our own export into an importable tree. Nodes whose parent is missing are lifted to the
- * root instead of being dropped; the number of such repairs is reported in `warnings`.
+ * Parse our own export (any schema version) into an importable tree. Nodes whose parent is
+ * missing are lifted to the root instead of being dropped; the number of such repairs is
+ * reported in `warnings`.
  */
 export function parseArborExport(input: string | unknown): ImportPreview {
   let value: unknown = input;
@@ -57,8 +67,12 @@ export function parseArborExport(input: string | unknown): ImportPreview {
   let skipped = 0;
   for (const raw of value.nodes) {
     const n = coerceNode(raw);
-    if (n) nodes.push(n);
-    else skipped++;
+    if (!n) {
+      skipped++;
+      continue;
+    }
+    // Version 1 titled browser-made windows "Window"; that is the empty title now.
+    nodes.push(n.kind === "window" && n.title === DEFAULT_WINDOW_TITLE ? { ...n, title: "" } : n);
   }
   const ids = new Set(nodes.map((n) => n.id));
   let lifted = 0;

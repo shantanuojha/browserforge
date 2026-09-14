@@ -225,7 +225,7 @@ describe("LogTreeStore (memory backend)", () => {
     const store = new MemoryTreeStore();
     await store.open();
     await seed(store, 1);
-    await store.replaceTree([node("r", null, "group"), node("c", "r")]);
+    await store.replaceTree([node("r", null, "window"), node("c", "r")]);
     expect([...store.getTree().keys()].sort()).toEqual(["c", "r"]);
     await expect(store.replaceTree([node("x", "nope")])).rejects.toThrow(/inconsistent/);
   });

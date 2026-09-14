@@ -28,20 +28,24 @@ export const msg = {
   getStartupInfo: defineMessage<void, StartupInfo>("getStartupInfo"),
   /** Generic edits from the UI: notes, titles, collapse, delete. */
   applyOps: defineMessage<OpBody[], Op[]>("applyOps"),
-  /** Returns the window nodes pruned because the move left them empty (outermost first). */
+  /** Returns the containers pruned because the move left them empty (outermost first). */
   moveNode: defineMessage<{ id: NodeId; parentId: NodeId | null; index: number }, TreeNode[]>(
     "moveNode",
   ),
   focusNode: defineMessage<{ id: NodeId }, void>("focusNode"),
   restoreNode: defineMessage<{ id: NodeId }, void>("restoreNode"),
-  /** Container action: reopen every saved tab beneath a window/group in place. Returns the count. */
+  /**
+   * Container action: reopen a container's closed tabs (into its window when open, as a new
+   * window otherwise). Returns how many tabs were opened or moved in.
+   */
   reopenAll: defineMessage<{ id: NodeId }, number>("reopenAll"),
   closeAndSave: defineMessage<{ id: NodeId }, number>("closeAndSave"),
   closeAllAndSave: defineMessage<void, number>("closeAllAndSave"),
-  /** Returns every node removed (subtree plus pruned windows), parents before children. */
+  /** Returns every node removed (subtree plus pruned containers), parents before children. */
   deleteNode: defineMessage<{ id: NodeId }, TreeNode[]>("deleteNode"),
+  /** A new group (`window`, unbound) or note. */
   addNode: defineMessage<
-    { parentId: NodeId | null; index?: number; kind: "group" | "note"; title: string },
+    { parentId: NodeId | null; index?: number; kind: "window" | "note"; title: string },
     TreeNode
   >("addNode"),
   /** One undo/redo step, run through the tracker like the user action it reverses. */

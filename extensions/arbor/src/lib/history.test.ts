@@ -38,14 +38,14 @@ const tab = (id: NodeId, parentId: NodeId | null, live?: number) =>
 const shape = (tree: Tree) =>
   serializeNodes(tree).map((n) => [n.id, n.parentId, n.order, n.title, n.note ?? null]);
 
-/** Window W with A, B, C; root group G with saved S (child C2) and T. */
+/** Open window W with A, B, C; root group G (an unbound container) with saved S (child C2), T. */
 function fixture(): Tree {
   return applyOps(createTree(), [
     ops.add(node("w", null, "window", { liveWindowId: 1 })),
     ops.add(tab("a", "w", 10)),
     ops.add(tab("b", "w", 11)),
     ops.add(tab("c", "w", 12)),
-    ops.add(node("g", null, "group", { note: "keep" })),
+    ops.add(node("g", null, "window", { note: "keep" })),
     ops.add(tab("s", "g")),
     ops.add(tab("c2", "s")),
     ops.add(tab("t", "g")),
@@ -106,7 +106,7 @@ describe("inverseOps", () => {
 describe("readdOps", () => {
   it("re-adds a pruned window before its tab, at their old positions, with live ids stripped", () => {
     const before = applyOps(createTree(), [
-      ops.add(node("g", null, "group")),
+      ops.add(node("g", null, "window")),
       ops.add(node("w", null, "window", { liveWindowId: 5 })),
       ops.add(tab("a", "w", 50)),
     ]);
@@ -152,9 +152,10 @@ describe("entry builders", () => {
   });
 
   it("create: undo removes the new group only while empty, redo adds it back in place", () => {
-    const grp = node("g2", null, "group");
+    const grp = node("g2", null, "window"); // a group is an unbound container
     const e = history.create(grp, 0);
     expect(e.label).toBe("new group");
+    expect(history.create(node("n", null, "note"), 0).label).toBe("new note");
     expect(e.undo).toEqual([{ kind: "removeEmpty", id: "g2" }]);
     expect(e.redo).toEqual([{ kind: "ops", ops: [ops.add(grp, 0)] }]);
   });
@@ -167,8 +168,8 @@ describe("entry builders", () => {
     expect(e.redo).toEqual([{ kind: "move", id: "c", parentId: "g", index: 0 }]);
     // Moving the last tab out of a saved window pruned it: undo restores the window first.
     const saved = applyOps(createTree(), [
-      ops.add(node("g", null, "group")),
-      ops.add(node("sw", null, "window")),
+      ops.add(node("g", null, "window")),
+      ops.add(node("sw", null, "window", { title: "" })),
       ops.add(tab("x", "sw")),
     ]);
     const pruned = [saved.get("sw") as TreeNode];
@@ -197,6 +198,11 @@ describe("entry builders", () => {
     expect(history.remove(before, s, "s")?.label).toBe("delete 2 tabs");
     expect(history.remove(before, [node("n", "g", "note")], "n")?.label).toBe("delete note");
     expect(history.remove(before, [], "a")).toBeNull();
+    // A browser-made window has no title of its own; labels say "Window".
+    const auto = applyOps(before, [ops.update("w", { title: "" })]);
+    const w2 = ["w", "a", "b", "c"].map((id) => auto.get(id) as TreeNode);
+    expect(history.remove(auto, w2, "w")?.label).toBe('delete "Window" (3 tabs)');
+    expect(history.rename(auto, "w", "Work")?.label).toBe('rename "Window"');
   });
 
   it("closeAndSave: undo reopens exactly the tabs that were open, redo closes them again", () => {
@@ -204,9 +210,15 @@ describe("entry builders", () => {
     const e = history.closeAndSave(before, "w") as HistoryEntry;
     expect(e.label).toBe("close 3 tabs");
     expect(e.done).toBe("Closed and saved 3 tabs");
-    expect(e.undo).toEqual([{ kind: "reopen", ids: ["a", "b", "c"] }]);
+    // Closing an open window as a whole: the undo brings that window back as one.
+    expect(e.undo).toEqual([{ kind: "reopen", ids: ["a", "b", "c"], container: "w" }]);
     expect(e.redo).toEqual([{ kind: "close", ids: ["a", "b", "c"] }]);
-    expect(history.closeAndSave(before, "a")?.label).toBe('close "A"');
+    // A single tab, or a group whose open tabs sit in other windows: reopened where they sit.
+    const one = history.closeAndSave(before, "a") as HistoryEntry;
+    expect(one.label).toBe('close "A"');
+    expect(one.undo).toEqual([{ kind: "reopen", ids: ["a"] }]);
+    const withLive = applyOps(before, [ops.move("b", "g", 0)]);
+    expect(history.closeAndSave(withLive, "g")?.undo).toEqual([{ kind: "reopen", ids: ["b"] }]);
     // A group with only saved tabs has nothing to close.
     expect(history.closeAndSave(before, "g")).toBeNull();
   });
@@ -216,11 +228,25 @@ describe("entry builders", () => {
     const e = history.reopen(before, "g") as HistoryEntry;
     expect(e.label).toBe("reopen 3 tabs");
     expect(e.undo).toEqual([{ kind: "close", ids: ["s", "c2", "t"] }]);
-    expect(e.redo).toEqual([{ kind: "reopen", ids: ["s", "c2", "t"] }]);
-    expect(history.reopen(before, "s")?.label).toBe("reopen 2 tabs"); // S and its saved child
+    // A closed container reopens as a window; the redo names it so it comes back the same way.
+    expect(e.redo).toEqual([{ kind: "reopen", ids: ["s", "c2", "t"], container: "g" }]);
+    const single = history.reopen(before, "s") as HistoryEntry;
+    expect(single.label).toBe("reopen 2 tabs"); // S and its saved child
+    expect(single.redo).toEqual([{ kind: "reopen", ids: ["s", "c2"] }]);
     expect(history.reopen(before, "t")?.label).toBe('reopen "T"');
     // Nothing saved beneath a live window: nothing to record.
     expect(history.reopen(before, "w")).toBeNull();
+    // A closed tab inside an open window reopens in place; no container in the step.
+    const withClosed = applyOps(before, [ops.update("b", { liveTabId: null, liveWindowId: null })]);
+    expect(history.reopen(withClosed, "w")?.redo).toEqual([{ kind: "reopen", ids: ["b"] }]);
+    // Nested containers are windows of their own: their tabs are not part of the parent's reopen.
+    const nested = applyOps(before, [
+      ops.add(node("inner", "g", "window")),
+      ops.add(tab("deep", "inner")),
+    ]);
+    expect(history.reopen(nested, "g")?.redo).toEqual([
+      { kind: "reopen", ids: ["s", "c2", "t"], container: "g" },
+    ]);
   });
 });
 
@@ -263,11 +289,15 @@ describe("HistoryStack", () => {
 
   it("round-trips through JSON and drops malformed entries", () => {
     const s = new HistoryStack();
-    s.push(history.create(node("g", null, "group"), 0));
+    s.push(history.create(node("g", null, "window"), 0));
     s.push(history.remove(fixture(), [fixture().get("a") as TreeNode], "a") as HistoryEntry);
+    s.push(history.reopen(fixture(), "g") as HistoryEntry); // carries `container`
     const raw = JSON.parse(JSON.stringify(s.toJSON())) as unknown;
     const back = HistoryStack.fromJSON(raw);
     expect(back.toJSON()).toEqual(s.toJSON());
+    expect(back.peekUndo()?.redo).toEqual([
+      { kind: "reopen", ids: ["s", "c2", "t"], container: "g" },
+    ]);
     const dirty = HistoryStack.fromJSON({
       undo: [
         {

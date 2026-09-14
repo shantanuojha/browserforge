@@ -43,9 +43,9 @@ const FIXTURE = [
 ];
 
 describe("parseTabsOutliner", () => {
-  it("recognises windows, tabs, nested tabs, notes and groups", () => {
+  it("recognises windows, tabs, nested tabs, notes and groups; windows and groups both become containers", () => {
     const preview = parseTabsOutliner(JSON.stringify(FIXTURE));
-    expect(preview.counts).toEqual({ windows: 2, tabs: 5, groups: 1, notes: 1, total: 9 });
+    expect(preview.counts).toEqual({ windows: 3, tabs: 5, notes: 1, total: 9 });
     const [work, saved, reading] = preview.roots;
     expect(work).toMatchObject({ kind: "window", title: "Work" });
     expect(work?.children.map((c) => c.title)).toEqual(["A", "B", "Remember to review"]);
@@ -55,13 +55,15 @@ describe("parseTabsOutliner", () => {
     });
     expect(work?.children[1]?.children[0]).toMatchObject({ kind: "tab", title: "B child" });
     expect(work?.children[2]).toMatchObject({ kind: "note", title: "Remember to review" });
-    expect(saved).toMatchObject({ kind: "window", title: "Window" });
+    // An unnamed Tabs Outliner window stays untitled (Arbor shows it as "Window").
+    expect(saved).toMatchObject({ kind: "window", title: "" });
     expect(saved?.children[0]).toMatchObject({
       kind: "tab",
       title: "old.test",
       url: "https://old.test/",
     });
-    expect(reading).toMatchObject({ kind: "group", title: "Reading" });
+    // A Tabs Outliner group is the same thing: a closed container with a name.
+    expect(reading).toMatchObject({ kind: "window", title: "Reading" });
     expect(reading?.children[0]).toMatchObject({ kind: "tab", title: "C" });
     expect(preview.sample).toContain("A");
     expect(preview.warnings.some((w) => /not recognised/.test(w))).toBe(true);
@@ -87,11 +89,20 @@ describe("parseTabsOutliner", () => {
         { text: "a note" },
       ],
     });
-    expect(preview.counts).toEqual({ windows: 1, tabs: 1, groups: 1, notes: 1, total: 4 });
+    expect(preview.counts).toEqual({ windows: 2, tabs: 1, notes: 1, total: 4 });
     expect(preview.roots[0]?.title).toBe("My tree");
     // An untitled session/root wrapper is unwrapped.
     const wrapped = parseTabsOutliner([{ type: "session" }, [[{ url: "https://y.test/" }]]]);
     expect(wrapped.roots.map((r) => r.kind)).toEqual(["tab"]);
+    // An unnamed group is titled "Group" (it is the user's; a plain window stays untitled).
+    const unnamed = parseTabsOutliner([
+      [{ type: "folder" }, [[{ url: "https://y.test/" }]]],
+      [{ type: "win" }, [[{ url: "https://z.test/" }]]],
+    ]);
+    expect(unnamed.roots.map((r) => [r.kind, r.title])).toEqual([
+      ["window", "Group"],
+      ["window", ""],
+    ]);
   });
 
   it("reports when nothing is recognised and rejects non-JSON", () => {
@@ -123,7 +134,9 @@ describe("materialize", () => {
     const preview = parseTabsOutliner(JSON.stringify(FIXTURE));
     const nodes = materialize(preview.roots, { newId, now: () => 5, wrapTitle: "Imported" });
     expect(nodes.length).toBe(10);
-    expect(nodes[0]).toMatchObject({ kind: "group", title: "Imported", parentId: null });
+    // The wrapper is a group: a closed container with a name, never bound to a window.
+    expect(nodes[0]).toMatchObject({ kind: "window", title: "Imported", parentId: null });
+    expect(nodes[0]?.liveWindowId).toBeUndefined();
     const tree = createTree(nodes);
     expect(validateTree(tree)).toEqual([]);
     expect(nodes.every((x) => x.liveTabId === undefined && x.liveWindowId === undefined)).toBe(
@@ -144,19 +157,19 @@ describe("materialize", () => {
   });
 
   it("can import at the root", () => {
-    const nodes = materialize([{ kind: "group", title: "G", children: [] }], { wrapTitle: null });
+    const nodes = materialize([{ kind: "window", title: "G", children: [] }], { wrapTitle: null });
     expect(nodes.length).toBe(1);
     expect(nodes[0]?.parentId).toBeNull();
   });
 });
 
 describe("Arbor JSON export/import", () => {
-  it("round-trips and strips live ids", () => {
+  it("round-trips the current format (version 2) and strips live ids", () => {
     const w = makeNode({
       id: "w",
       parentId: null,
       kind: "window",
-      title: "W",
+      title: "", // a window the browser opened: untitled
       liveWindowId: 3,
       ts: 1,
     });
@@ -171,26 +184,85 @@ describe("Arbor JSON export/import", () => {
       note: "n",
       ts: 1,
     });
-    const tree = applyOps(createTree(), [ops.add(w), ops.add(t)]);
+    const g = makeNode({ id: "g", parentId: null, kind: "window", title: "Reading", ts: 1 });
+    const s = makeNode({ id: "s", parentId: "g", kind: "tab", title: "S", url: "https://s.test/" });
+    const tree = applyOps(createTree(), [ops.add(w), ops.add(t), ops.add(g), ops.add(s)]);
     const exported = createExport(tree, 123);
     expect(exported).toMatchObject({
       format: "arbor-tree",
-      version: 1,
+      version: 2,
       exportedAt: 123,
-      nodeCount: 2,
+      nodeCount: 4,
     });
     expect(
       exported.nodes.every((x) => x.liveTabId === undefined && x.liveWindowId === undefined),
     ).toBe(true);
+    expect(exported.nodes.map((x) => [x.id, x.kind, x.title])).toEqual([
+      ["w", "window", ""],
+      ["t", "tab", "T"],
+      ["g", "window", "Reading"],
+      ["s", "tab", "S"],
+    ]);
 
     const preview = parseArborExport(JSON.stringify(exported));
-    expect(preview.counts).toEqual({ windows: 1, tabs: 1, groups: 0, notes: 0, total: 2 });
+    expect(preview.counts).toEqual({ windows: 2, tabs: 2, notes: 0, total: 4 });
+    expect(preview.roots.map((r) => [r.kind, r.title])).toEqual([
+      ["window", ""],
+      ["window", "Reading"],
+    ]);
     expect(preview.roots[0]?.children[0]).toMatchObject({
       title: "T",
       url: "https://t.test/",
       note: "n",
     });
     expect(preview.warnings).toEqual([]);
+    // Materialised, the export reproduces the same shape, all closed.
+    n = 0;
+    const nodes = materialize(preview.roots, { newId, now: () => 5, wrapTitle: null });
+    expect(nodes.map((x) => [x.kind, x.title, x.url ?? null])).toEqual([
+      ["window", "", null],
+      ["tab", "T", "https://t.test/"],
+      ["window", "Reading", null],
+      ["tab", "S", "https://s.test/"],
+    ]);
+    expect(nodes.every((x) => x.liveTabId === undefined && x.liveWindowId === undefined)).toBe(
+      true,
+    );
+  });
+
+  it("reads a version 1 export: groups become closed containers, 'Window' titles become empty", () => {
+    const v1 = {
+      format: "arbor-tree",
+      version: 1,
+      exportedAt: 1,
+      nodeCount: 5,
+      nodes: [
+        { id: "w", parentId: null, kind: "window", title: "Window", order: 0 },
+        { id: "t", parentId: "w", kind: "tab", title: "T", url: "https://t.test/", order: 0 },
+        { id: "g", parentId: null, kind: "group", title: "Reading", order: 1 },
+        { id: "s", parentId: "g", kind: "tab", title: "S", url: "https://s.test/", order: 0 },
+        { id: "named", parentId: null, kind: "window", title: "Work", order: 2 },
+      ],
+    };
+    const preview = parseArborExport(JSON.stringify(v1));
+    expect(preview.warnings).toEqual([]);
+    expect(preview.counts).toEqual({ windows: 3, tabs: 2, notes: 0, total: 5 });
+    expect(preview.roots.map((r) => [r.kind, r.title])).toEqual([
+      ["window", ""],
+      ["window", "Reading"],
+      ["window", "Work"],
+    ]);
+    expect(preview.roots[1]?.children[0]).toMatchObject({ kind: "tab", url: "https://s.test/" });
+    // Re-exported, it is written in the current format.
+    n = 0;
+    const tree = applyOps(
+      createTree(),
+      materialize(preview.roots, { newId, now: () => 5, wrapTitle: null }).map((x) => ops.add(x)),
+    );
+    const again = createExport(tree, 2);
+    expect(again.version).toBe(2);
+    expect(again.nodes.every((x) => x.kind !== ("group" as string))).toBe(true);
+    expect(childrenOf(tree, again.nodes[2]?.id ?? "").map((c) => c.title)).toEqual(["S"]);
   });
 
   it("lifts orphans and skips junk with warnings", () => {

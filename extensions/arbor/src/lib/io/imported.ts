@@ -1,7 +1,11 @@
 import { newId as defaultNewId } from "../ids";
 import { makeNode, type NodeKind, type TreeNode } from "../model";
 
-/** Browser-agnostic intermediate tree produced by every importer before it touches the store. */
+/**
+ * Browser-agnostic intermediate tree produced by every importer before it touches the store.
+ * Windows and groups of the source both become containers (`kind: "window"`, imported closed);
+ * an empty title marks a container the source did not name (shown as "Window").
+ */
 export interface ImportedNode {
   kind: NodeKind;
   title: string;
@@ -13,9 +17,9 @@ export interface ImportedNode {
 }
 
 export interface ImportCounts {
+  /** Containers: the source's windows and groups alike. */
   windows: number;
   tabs: number;
-  groups: number;
   notes: number;
   total: number;
 }
@@ -30,12 +34,11 @@ export interface ImportPreview {
 }
 
 export function countImported(roots: readonly ImportedNode[]): ImportCounts {
-  const counts: ImportCounts = { windows: 0, tabs: 0, groups: 0, notes: 0, total: 0 };
+  const counts: ImportCounts = { windows: 0, tabs: 0, notes: 0, total: 0 };
   const walk = (n: ImportedNode): void => {
     counts.total++;
     if (n.kind === "window") counts.windows++;
     else if (n.kind === "tab") counts.tabs++;
-    else if (n.kind === "group") counts.groups++;
     else counts.notes++;
     n.children.forEach(walk);
   };
@@ -63,7 +66,10 @@ export function makePreview(
 }
 
 export interface MaterializeOptions {
-  /** Title of the group node the import is wrapped in. Pass null to import at the root. */
+  /**
+   * Title of the container (a closed, named one: a group) the import is wrapped in. Pass null
+   * to import at the root.
+   */
   wrapTitle?: string | null | undefined;
   newId?: (() => string) | undefined;
   now?: (() => number) | undefined;
@@ -86,7 +92,7 @@ export function materialize(
     const wrapper = makeNode({
       id: newId(),
       parentId: null,
-      kind: "group",
+      kind: "window",
       title: options.wrapTitle ?? `Imported ${new Date(ts).toLocaleString()}`,
       ts,
     });

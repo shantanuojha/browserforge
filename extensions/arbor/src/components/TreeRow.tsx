@@ -9,7 +9,15 @@ import {
   type MouseEvent,
 } from "react";
 import { pinnedContainerAction, type ContainerAction } from "@/lib/container-actions";
-import type { DropPosition, FlatRow, NodeId, TreeNode } from "@/lib/model";
+import {
+  DEFAULT_WINDOW_TITLE,
+  displayTitle,
+  isBound,
+  type DropPosition,
+  type FlatRow,
+  type NodeId,
+  type TreeNode,
+} from "@/lib/model";
 import { Icon } from "./Icon";
 
 export type { DropPosition };
@@ -45,14 +53,13 @@ export interface TreeRowProps {
   dragging: boolean;
   dropPosition: DropPosition | null;
   childCount: number;
-  /** Shared window/group actions (see `containerActions`); `null` for tab and note rows. */
+  /** Shared container actions (see `containerActions`); `null` for tab and note rows. */
   containerActions: ContainerAction[] | null;
   faviconFallback: ((url: string) => string) | null;
   cb: RowCallbacks;
 }
 
 const isLiveTab = (n: TreeNode) => n.kind === "tab" && n.liveTabId !== undefined;
-const isLiveWindow = (n: TreeNode) => n.kind === "window" && n.liveWindowId !== undefined;
 
 function Favicon({
   node,
@@ -77,10 +84,12 @@ function Favicon({
 
 function TitleEditor({
   value,
+  placeholder,
   onCommit,
   onCancel,
 }: {
   value: string;
+  placeholder?: string | undefined;
   onCommit: (v: string) => void;
   onCancel: () => void;
 }) {
@@ -100,6 +109,7 @@ function TitleEditor({
       ref={ref}
       className="row__title-input"
       value={text}
+      placeholder={placeholder}
       onChange={(e) => setText(e.target.value)}
       onBlur={commit}
       onKeyDown={(e) => {
@@ -169,8 +179,9 @@ export const TreeRow = memo(function TreeRow({
   cb,
 }: TreeRowProps) {
   const { node, depth, hasChildren } = row;
-  const live = isLiveTab(node) || isLiveWindow(node);
-  const saved = (node.kind === "tab" || node.kind === "window") && !live;
+  const container = node.kind === "window";
+  const live = isLiveTab(node) || isBound(node);
+  const saved = (node.kind === "tab" || container) && !live;
   const indent = depth * 14;
 
   const classes = [
@@ -193,15 +204,16 @@ export const TreeRow = memo(function TreeRow({
   const onDoubleClick = (e: MouseEvent) => {
     e.stopPropagation();
     if (node.kind === "tab") cb.onPrimary(node.id);
-    else if (node.kind === "window" && live) cb.onPrimary(node.id);
+    else if (container && live) cb.onPrimary(node.id);
     else cb.onStartRename(node.id);
   };
   const onKeyDownInEditor = (e: KeyboardEvent) => e.stopPropagation();
 
-  // Tab rows only; window and group rows get their buttons from `containerActions`.
+  // Tab rows only; container rows get their buttons from `containerActions`.
   const canRestore = saved && !!node.url;
-  // A closed window/group keeps its Reopen button visible; the rest appear on hover/selection.
+  // A closed container keeps its Reopen button visible; the rest appear on hover/selection.
   const pinned = containerActions ? pinnedContainerAction(containerActions) : undefined;
+  const title = displayTitle(node);
 
   return (
     <div
@@ -252,24 +264,26 @@ export const TreeRow = memo(function TreeRow({
 
         {node.kind === "tab" ? (
           <Favicon node={node} fallback={faviconFallback} />
+        ) : container ? (
+          <span className="row__icon row__icon--window">
+            <Icon name="window" size={10} />
+          </span>
         ) : (
-          <span className={node.kind === "window" ? "row__icon row__icon--window" : "row__icon"}>
-            <Icon
-              name={node.kind === "window" ? "window" : node.kind === "group" ? "folder" : "note"}
-              size={10}
-            />
+          <span className="row__icon">
+            <Icon name="note" size={10} />
           </span>
         )}
 
         {renaming ? (
           <TitleEditor
             value={node.title}
+            placeholder={container ? DEFAULT_WINDOW_TITLE : undefined}
             onCommit={(t) => cb.onRename(node.id, t)}
             onCancel={cb.onCancelEdit}
           />
         ) : (
-          <span className="row__title" title={node.url ?? node.title}>
-            {node.title || node.url || "Untitled"}
+          <span className="row__title" title={node.url ?? title}>
+            {title}
           </span>
         )}
 
@@ -278,9 +292,7 @@ export const TreeRow = memo(function TreeRow({
             <Icon name="note" size={11} />
           </span>
         ) : null}
-        {node.kind === "window" || node.kind === "group" ? (
-          <span className="row__meta">{childCount}</span>
-        ) : null}
+        {container ? <span className="row__meta">{childCount}</span> : null}
         {live && node.kind === "tab" ? <span className="row__live" title="Open tab" /> : null}
 
         {pinned ? (

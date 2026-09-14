@@ -28,7 +28,14 @@ export interface TabsPort {
     index?: number | undefined;
     active?: boolean | undefined;
   }): Promise<LiveTab>;
-  createWindow(urls: string[]): Promise<{ window: LiveWindow; tabs: LiveTab[] }>;
+  /**
+   * Open a new window holding `urls`. When `urls` is empty, `moveTabId` (an open tab elsewhere)
+   * is moved into the new window instead, so a window can be built out of open tabs alone.
+   */
+  createWindow(
+    urls: string[],
+    moveTabId?: number | undefined,
+  ): Promise<{ window: LiveWindow; tabs: LiveTab[] }>;
   removeTabs(ids: number[]): Promise<void>;
   focusTab(tabId: number, windowId: number): Promise<void>;
   moveTab(tabId: number, windowId: number, index: number): Promise<void>;
@@ -43,8 +50,10 @@ export interface RebuildReport {
   tabsCreated: number;
   nodesSaved: number;
   nodesDropped: number;
-  /** Childless window nodes removed by the startup sweep. */
+  /** Childless, untitled, closed containers removed by the startup sweep. */
   windowsPruned: number;
+  /** Ops logged to bring a tree written by an older version up to date (see `migrate.ts`). */
+  migrated: number;
 }
 
 /** URLs that carry no information worth keeping when the tab closes. */

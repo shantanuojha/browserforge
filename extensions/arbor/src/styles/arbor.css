@@ -333,8 +333,7 @@ body {
   text-overflow: ellipsis;
   font-size: 12.5px;
 }
-.row--window .row__title,
-.row--group .row__title {
+.row--window .row__title {
   font-weight: 600;
 }
 .row--note .row__title {

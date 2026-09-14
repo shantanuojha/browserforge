@@ -1,36 +1,47 @@
 /**
- * The one definition of what a *container* row (a window node, live or saved, or a user group)
- * can do. Both the hover buttons on a tree row and its context menu render from the list this
- * module produces, so a Window row and a Group row are guaranteed to offer the same actions with
- * the same labels, icons, disabled states and handlers.
+ * The one definition of what a *container* row can do. A container is a `window` node, bound to
+ * an open browser window or not; what the UI calls a group is an unbound container the user
+ * named. Both the hover buttons on a tree row and its context menu render from the list this
+ * module produces, so every container offers the same actions with the same icons, disabled
+ * states and handlers, and only the labels reflect whether its window is open right now.
  *
  * Pure: no DOM, no `browser.*`. The handlers are injected; the UI decides how to run them.
  */
 
 import {
   buildChildIndex,
+  containerTabs,
   descendantIds,
+  isBound,
   type ChildIndex,
   type NodeId,
   type Tree,
   type TreeNode,
 } from "./model";
 
-export type ContainerNode = TreeNode & { kind: "window" | "group" };
+export type ContainerNode = TreeNode & { kind: "window" };
 
 export function isContainer(node: TreeNode): node is ContainerNode {
-  return node.kind === "window" || node.kind === "group";
+  return node.kind === "window";
 }
 
 export interface ContainerSummary {
-  /** Saved tab nodes beneath the container that have a url (the ones "Reopen all" opens). */
+  /**
+   * Closed tab nodes with a url in the container's own subtree (nested containers left out):
+   * the ones "Reopen all" opens.
+   */
   savedTabs: number;
-  /** Live tab nodes beneath the container (the ones "Close all and save" closes). */
+  /**
+   * Open tab nodes anywhere beneath the container, nested containers included: the ones "Close
+   * all and save" closes (a nested container's window closes with its parent's).
+   */
   liveTabs: number;
+  /** Open tabs of the container's own subtree that sit in another browser window (or in none). */
+  liveElsewhere: number;
   /** Direct children, of any kind. */
   children: number;
-  isWindow: boolean;
-  isLiveWindow: boolean;
+  /** The container mirrors an open browser window. */
+  bound: boolean;
 }
 
 export function summarizeContainer(
@@ -39,19 +50,25 @@ export function summarizeContainer(
   index: ChildIndex = buildChildIndex(tree),
 ): ContainerSummary {
   let savedTabs = 0;
+  let liveElsewhere = 0;
+  for (const n of containerTabs(tree, node.id, index)) {
+    if (n.liveTabId === undefined) {
+      if (n.url) savedTabs++;
+    } else if (node.liveWindowId === undefined || n.liveWindowId !== node.liveWindowId) {
+      liveElsewhere++;
+    }
+  }
   let liveTabs = 0;
   for (const id of descendantIds(tree, node.id, index)) {
     const n = tree.get(id);
-    if (!n || n.kind !== "tab") continue;
-    if (n.liveTabId !== undefined) liveTabs++;
-    else if (n.url) savedTabs++;
+    if (n?.kind === "tab" && n.liveTabId !== undefined) liveTabs++;
   }
   return {
     savedTabs,
     liveTabs,
+    liveElsewhere,
     children: index.get(node.id)?.length ?? 0,
-    isWindow: node.kind === "window",
-    isLiveWindow: node.kind === "window" && node.liveWindowId !== undefined,
+    bound: isBound(node),
   };
 }
 
@@ -92,6 +109,10 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 /**
  * Actions for a container node, in menu order. Disabled entries are still returned so a menu
  * can show them greyed out; row buttons typically hide them (`inRow && !disabled`).
+ *
+ * "Reopen all" on a bound container opens its closed tabs into that window; on an unbound one it
+ * opens a new window holding its closed tabs and gathers in the ones open elsewhere, so it is
+ * available as soon as the container holds any tab at all.
  */
 export function containerActions(
   tree: Tree,
@@ -101,16 +122,24 @@ export function containerActions(
 ): ContainerAction[] {
   const s = summarizeContainer(tree, node, index);
   const id = node.id;
-  const reopenLabel = s.isWindow && !s.isLiveWindow ? "Reopen window" : "Reopen all";
-  const closeLabel = s.isLiveWindow ? "Close window and save" : "Close all and save";
+  const reopenLabel = s.bound ? "Reopen all" : "Open as window";
+  const reopenCounts = s.bound
+    ? [s.savedTabs ? plural(s.savedTabs, "saved tab") : ""]
+    : [
+        s.savedTabs ? plural(s.savedTabs, "saved tab") : "",
+        s.liveElsewhere ? plural(s.liveElsewhere, "open tab") : "",
+      ];
+  const reopenDetail = reopenCounts.filter(Boolean).join(", ");
+  const canReopen = s.savedTabs > 0 || (!s.bound && s.liveElsewhere > 0);
+  const closeLabel = s.bound ? "Close window and save" : "Close all and save";
   return [
     {
       id: "reopen",
-      label: s.savedTabs ? `${reopenLabel} (${plural(s.savedTabs, "saved tab")})` : reopenLabel,
+      label: reopenDetail ? `${reopenLabel} (${reopenDetail})` : reopenLabel,
       icon: "restore",
       section: "open",
-      shortcut: s.isLiveWindow ? undefined : "Enter",
-      disabled: s.savedTabs === 0,
+      shortcut: s.bound ? undefined : "Enter",
+      disabled: !canReopen,
       inRow: true,
       run: () => handlers.reopenAll(id),
     },

@@ -5,10 +5,15 @@ import {
   childrenOf,
   coerceNode,
   coerceOp,
+  containerTabs,
   createTree,
   descendantIds,
+  displayTitle,
   flattenTree,
+  isBound,
+  isContainer,
   isSelfOrAncestor,
+  LEGACY_GROUP_KIND,
   makeNode,
   OpError,
   ops,
@@ -153,12 +158,13 @@ describe("move", () => {
 });
 
 /**
- * Placement in the tree is presentation only (Tabs Outliner semantics): live windows, live tabs,
- * saved nodes and groups can all be nested under a group or reordered among any siblings.
+ * Placement in the tree is presentation only (Tabs Outliner semantics): open windows, live tabs,
+ * saved nodes and groups (unbound containers) can all be nested under a group or reordered among
+ * any siblings.
  */
 describe("move into groups (tree placement is independent of browser structure)", () => {
-  // WORK (group, empty)
-  // Window (live 7)
+  // WORK (group: unbound container, empty)
+  // Window (bound container, live 7)
   //   t1 (live tab 11)
   //   t2 (live tab 12)
   //   saved (saved tab)
@@ -166,13 +172,13 @@ describe("move into groups (tree placement is independent of browser structure)"
   //   inner (group)
   function grouped(): Tree {
     return applyOps(createTree(), [
-      ops.add(node("WORK", null, "group")),
+      ops.add(node("WORK", null, "window")),
       ops.add(node("win", null, "window", { windowId: 7 })),
       ops.add(node("t1", "win", "tab", { tabId: 11, windowId: 7 })),
       ops.add(node("t2", "win", "tab", { tabId: 12, windowId: 7 })),
       ops.add(node("saved", "win")),
-      ops.add(node("other", null, "group")),
-      ops.add(node("inner", "other", "group")),
+      ops.add(node("other", null, "window")),
+      ops.add(node("inner", "other", "window")),
     ]);
   }
 
@@ -230,7 +236,7 @@ describe("move into groups (tree placement is independent of browser structure)"
 
 describe("resolveDrop", () => {
   // WORK (group, empty)
-  // win (live window)
+  // win (bound container)
   //   t1 (live tab)
   //   t2 (live tab)
   //   memo (note)
@@ -238,13 +244,13 @@ describe("resolveDrop", () => {
   //   inner (group)
   function grouped(): Tree {
     return applyOps(createTree(), [
-      ops.add(node("WORK", null, "group")),
+      ops.add(node("WORK", null, "window")),
       ops.add(node("win", null, "window", { windowId: 7 })),
       ops.add(node("t1", "win", "tab", { tabId: 11, windowId: 7 })),
       ops.add(node("t2", "win", "tab", { tabId: 12, windowId: 7 })),
       ops.add(node("memo", "win", "note")),
-      ops.add(node("other", null, "group")),
-      ops.add(node("inner", "other", "group")),
+      ops.add(node("other", null, "window")),
+      ops.add(node("inner", "other", "window")),
     ]);
   }
 
@@ -354,9 +360,41 @@ describe("queries", () => {
     expect(isSelfOrAncestor(t, "b1", "w1")).toBe(false);
   });
 
-  it("windowNodeOf finds the nearest window ancestor", () => {
+  it("windowNodeOf finds the nearest container, bound or not", () => {
     expect(windowNodeOf(fixture(), "b1")?.id).toBe("w1");
     expect(windowNodeOf(fixture(), "w2")?.id).toBe("w2");
+    const nested = applyOps(fixture(), [ops.add(node("g", "w1", "window")), ops.move("b", "g", 0)]);
+    expect(windowNodeOf(nested, "b1")?.id).toBe("g"); // the group, not the window around it
+  });
+
+  it("isContainer / isBound: one container kind, two states", () => {
+    expect(isContainer(node("w", null, "window"))).toBe(true);
+    expect(isContainer(node("t", null))).toBe(false);
+    expect(isBound(node("w", null, "window", { windowId: 3 }))).toBe(true);
+    expect(isBound(node("g", null, "window"))).toBe(false);
+    expect(isBound(node("t", null, "tab", { tabId: 1, windowId: 3 }))).toBe(false);
+  });
+
+  it("displayTitle shows 'Window' for an untitled container and the url for an untitled tab", () => {
+    expect(displayTitle({ kind: "window", title: "" })).toBe("Window");
+    expect(displayTitle({ kind: "window", title: "Research" })).toBe("Research");
+    expect(displayTitle({ kind: "tab", title: "", url: "https://a.test/" })).toBe(
+      "https://a.test/",
+    );
+    expect(displayTitle({ kind: "tab", title: "" })).toBe("Untitled");
+    expect(displayTitle({ kind: "note", title: "memo" })).toBe("memo");
+  });
+
+  it("containerTabs lists a container's own tabs in tree order, skipping nested containers", () => {
+    // w1: a, b > [b1, inner > [deep]], c ; inner is a nested container (its own window).
+    const t = applyOps(fixture(), [
+      ops.add(node("inner", "b", "window")),
+      ops.add(node("deep", "inner")),
+      ops.add(node("memo", "w1", "note")),
+    ]);
+    expect(ids(containerTabs(t, "w1"))).toEqual(["a", "b", "b1", "c"]);
+    expect(ids(containerTabs(t, "inner"))).toEqual(["deep"]);
+    expect(ids(containerTabs(t, "w2"))).toEqual([]);
   });
 
   it("flattenTree respects collapsed nodes", () => {
@@ -404,6 +442,20 @@ describe("coercion", () => {
     expect(n).toMatchObject({ id: "a", parentId: null, kind: "tab", title: "", url: "https://x" });
     expect(coerceNode({ id: "a", parentId: null, kind: "bogus" })).toBeUndefined();
     expect(coerceNode(null)).toBeUndefined();
+  });
+
+  it("coerceNode reads the pre-0.1.4 group kind as an unbound container", () => {
+    const g = coerceNode({ id: "g", parentId: null, kind: LEGACY_GROUP_KIND, title: "Reading" });
+    expect(g).toMatchObject({ id: "g", kind: "window", title: "Reading" });
+    expect(g?.liveWindowId).toBeUndefined();
+    // ...including inside a persisted op.
+    const op = coerceOp({
+      seq: 1,
+      ts: 1,
+      type: "add",
+      node: { id: "g", parentId: null, kind: "group", title: "Reading" },
+    });
+    expect(op?.type === "add" && op.node.kind).toBe("window");
   });
 
   it("coerceOp round-trips every op type", () => {

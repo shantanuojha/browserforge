@@ -47,8 +47,10 @@ export const browserTabsPort: TabsPort = {
     if (!live) throw new Error("tabs.create returned a tab without an id");
     return live;
   },
-  async createWindow(urls) {
-    const win = await browser.windows.create({ url: urls, focused: true });
+  async createWindow(urls, moveTabId) {
+    const win = urls.length
+      ? await browser.windows.create({ url: urls, focused: true })
+      : await browser.windows.create({ tabId: moveTabId, focused: true });
     const live = win ? toLiveWindow(win) : undefined;
     if (!live) throw new Error("windows.create returned no window");
     const tabs = (win?.tabs ?? []).map(toLiveTab).filter(defined);

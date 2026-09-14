@@ -94,7 +94,7 @@ async function dragIntoNewRootGroup(
   groupId: NodeId,
 ): Promise<void> {
   ctx.store.append([
-    ops.add(makeNode({ id: groupId, parentId: null, kind: "group", title: "Group", ts: 1 })),
+    ops.add(makeNode({ id: groupId, parentId: null, kind: "window", title: "Group", ts: 1 })),
   ]);
   const dest = resolveDrop(ctx.store.getTree(), draggedId, groupId, "inside");
   if (!dest) throw new Error("drop refused");

@@ -17,9 +17,10 @@ import {
 import { TabTracker } from "./tracker";
 
 /**
- * Window nodes exist to hold tabs. Once nothing is left under one it is removed automatically
- * (logged as an ordinary remove op), unless its browser window is still open with at least one
- * tab. Groups and notes are the user's and are never pruned; a window holding one stays too.
+ * A container the browser created (untitled) exists to hold tabs. Once nothing is left under one
+ * it is removed automatically (logged as an ordinary remove op), unless its browser window is
+ * still open with at least one tab. Containers the user named (groups, renamed windows) and notes
+ * are the user's and are never pruned; an untitled container holding one stays too.
  */
 describe("empty window pruning", () => {
   /** Chrome closes a window with its last tab; every test here wants that behaviour. */
@@ -101,14 +102,14 @@ describe("empty window pruning", () => {
     expect(store.getTree().get(wNode.id)).toMatchObject({ liveWindowId: w.id });
   });
 
-  it("never prunes groups or notes, and keeps a window that still holds one", async () => {
+  it("never prunes groups or notes, and keeps an untitled window that still holds one", async () => {
     const ctx = await realistic();
     const { store, tracker } = ctx;
-    // Saved window with a note and an empty group beneath it, plus one saved tab.
+    // Closed untitled window with a note and an empty group beneath it, plus one saved tab.
     store.append([
-      ops.add(makeNode({ id: "w", parentId: null, kind: "window", title: "W", ts: 1 })),
+      ops.add(makeNode({ id: "w", parentId: null, kind: "window", title: "", ts: 1 })),
       ops.add(makeNode({ id: "memo", parentId: "w", kind: "note", title: "memo", ts: 1 })),
-      ops.add(makeNode({ id: "g", parentId: "w", kind: "group", title: "G", ts: 1 })),
+      ops.add(makeNode({ id: "g", parentId: "w", kind: "window", title: "G", ts: 1 })),
     ]);
     addSavedTab(ctx, "s", "w", "https://s.test/", "S");
     expect((await tracker.deleteNode("s")).map((n) => n.id)).toEqual(["s"]);
@@ -125,12 +126,12 @@ describe("empty window pruning", () => {
     expect(store.getTree().has("root-group")).toBe(true);
   });
 
-  it("move-out: dragging the last tab out of a saved window prunes it; out of a live window does not", async () => {
+  it("move-out: dragging the last tab out of a closed untitled window prunes it; out of a live window does not", async () => {
     const ctx = await realistic();
     const { store, fb, tracker } = ctx;
     addRootGroup(ctx, "g");
     store.append([
-      ops.add(makeNode({ id: "saved-w", parentId: null, kind: "window", title: "W", ts: 1 })),
+      ops.add(makeNode({ id: "saved-w", parentId: null, kind: "window", title: "", ts: 1 })),
     ]);
     addSavedTab(ctx, "s", "saved-w", "https://s.test/", "S");
     const pruned = await tracker.moveNode("s", "g", 0);
@@ -165,24 +166,57 @@ describe("empty window pruning", () => {
     expect(store.getTree().size).toBe(0);
   });
 
-  it("cascades through nested windows and stops at a group", async () => {
+  it("cascades through nested untitled windows and stops at a named container", async () => {
     const ctx = await realistic();
     const { store, tracker } = ctx;
     store.append([
-      ops.add(makeNode({ id: "outer", parentId: null, kind: "window", title: "Outer", ts: 1 })),
-      ops.add(makeNode({ id: "inner", parentId: "outer", kind: "window", title: "Inner", ts: 1 })),
+      ops.add(makeNode({ id: "outer", parentId: null, kind: "window", title: "", ts: 1 })),
+      ops.add(makeNode({ id: "inner", parentId: "outer", kind: "window", title: "", ts: 1 })),
     ]);
     addSavedTab(ctx, "s", "inner", "https://s.test/", "S");
     expect((await tracker.deleteNode("s")).map((n) => n.id)).toEqual(["outer", "inner", "s"]);
     expect(store.getTree().size).toBe(0);
 
     addRootGroup(ctx, "g");
-    store.append([
-      ops.add(makeNode({ id: "w", parentId: "g", kind: "window", title: "W", ts: 1 })),
-    ]);
+    store.append([ops.add(makeNode({ id: "w", parentId: "g", kind: "window", title: "", ts: 1 }))]);
     addSavedTab(ctx, "t", "w", "https://t.test/", "T");
     expect((await tracker.deleteNode("t")).map((n) => n.id)).toEqual(["w", "t"]);
     expect([...store.getTree().keys()]).toEqual(["g"]);
+  });
+
+  it("a container the user named is never pruned: it survives emptying and its window closing", async () => {
+    const ctx = await realistic();
+    const { store, fb, tracker } = ctx;
+    // A renamed live window loses its last tab: the browser window closes, the node stays.
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    const wNode = winNodeOf(ctx, w) as TreeNode;
+    const aNode = nodeOf(ctx, a) as TreeNode;
+    store.append([ops.update(wNode.id, { title: "Work" })]);
+    expect((await tracker.deleteNode(aNode.id)).map((n) => n.id)).toEqual([aNode.id]);
+    expect(fb.windows).toEqual([]);
+    expect(store.getTree().get(wNode.id)).toMatchObject({ kind: "window", title: "Work" });
+    expect(store.getTree().get(wNode.id)?.liveWindowId).toBeUndefined();
+    // Emptying a group by moving its last tab out leaves the group in place.
+    addRootGroup(ctx, "g");
+    addSavedTab(ctx, "s", "g", "https://s.test/", "S");
+    expect(await tracker.moveNode("s", wNode.id, 0)).toEqual([]);
+    expect(store.getTree().has("g")).toBe(true);
+    // The sweep leaves both alone as well.
+    const { report } = await restartWorker(ctx);
+    expect(report.windowsPruned).toBe(0);
+    expect([...store.getTree().keys()].sort()).toEqual([wNode.id, "g", "s"].sort());
+  });
+
+  it("an untitled window with a note of its own is kept", async () => {
+    const ctx = await realistic();
+    const { store, fb } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    const wNode = winNodeOf(ctx, w) as TreeNode;
+    store.append([ops.update(wNode.id, { note: "keep this one" })]);
+    await ctx.tracker.deleteNode(nodeOf(ctx, a)?.id ?? "");
+    expect(store.getTree().get(wNode.id)).toMatchObject({ note: "keep this one" });
   });
 
   it("deleting a live window node closes its tabs and leaves nothing behind", async () => {
@@ -193,14 +227,15 @@ describe("empty window pruning", () => {
     const b = fb.openTab(w.id, "https://b.test/", "B", { openerTabId: a.id });
     const wNode = winNodeOf(ctx, w) as TreeNode;
     const removed = await tracker.deleteNode(wNode.id);
-    expect(removed.map((n) => n.title)).toEqual(["Window", "A", "B"]);
+    expect(removed.map((n) => n.title)).toEqual(["", "A", "B"]); // browser windows are untitled
     expect(fb.removed.sort()).toEqual([a.id, b.id].sort());
     expect(store.getTree().size).toBe(0); // the tab events did not re-save anything
   });
 
   it("startup sweep removes childless window nodes left by older versions, logged as ops", async () => {
-    // A tree persisted by an older version: an empty saved window, an empty window still
-    // claiming a browser window id that no longer exists, and a saved window with content.
+    // A tree persisted by an older version (windows titled "Window"): an empty saved window, an
+    // empty window still claiming a browser window id that no longer exists, and a saved window
+    // with content. The title migration runs first, so they count as untitled.
     const store = new MemoryTreeStore();
     await store.open();
     store.append([
@@ -235,12 +270,13 @@ describe("empty window pruning", () => {
     const tracker = new TabTracker(store, fb, { newId, now: () => 1 });
     fb.tracker = tracker;
     const report = await tracker.rebuild();
+    expect(report.migrated).toBe(3); // three "Window" titles became empty
     expect(report.windowsPruned).toBe(2);
     expect(report.windowsCreated).toBe(1);
     const tree = store.getTree();
     expect(tree.has("empty")).toBe(false);
     expect(tree.has("stale")).toBe(false);
-    expect(tree.get("kept")).toBeDefined();
+    expect(tree.get("kept")).toMatchObject({ title: "" });
     expect(tree.get("kept")?.liveWindowId).toBeUndefined();
     // The live window created for the browser's open window is untouched.
     const live = [...tree.values()].filter((n) => n.kind === "window" && n.liveWindowId === w.id);
@@ -253,8 +289,8 @@ describe("empty window pruning", () => {
       .map((o) => o.id)
       .sort();
     expect(removes).toEqual(["empty", "stale"]);
-    // Running the sweep again finds nothing more to do.
-    expect((await tracker.rebuild()).windowsPruned).toBe(0);
+    // Running the sweep again finds nothing more to do: the migration is idempotent too.
+    expect(await tracker.rebuild()).toMatchObject({ windowsPruned: 0, migrated: 0 });
   });
 
   it("startup sweep keeps a live window whose only tab node was moved into a group", async () => {
