@@ -1,4 +1,4 @@
-import { err, ok, systemClock } from "@browserforge/shared";
+import { err, ok, systemClock, type Clock } from "@browserforge/shared";
 import { classifyApiError, createLicenseApi, licenseError, type LicenseResponse } from "./api.js";
 import { browserFamily, buildInstanceName, randomInstanceSuffix } from "./instance.js";
 import {
@@ -19,6 +19,7 @@ import {
 import { normalizeKey } from "./mask.js";
 import { DEFAULT_REVALIDATE_EVERY_MS, scheduleRevalidation } from "./revalidation.js";
 import type {
+  AlarmsLike,
   FetchLike,
   LicenseApi,
   LicenseClient,
@@ -27,6 +28,7 @@ import type {
   LicenseResult,
   LicenseState,
   LicenseStorage,
+  ScheduleRevalidationOptions,
   ValidateOptions,
 } from "./types.js";
 
@@ -85,34 +87,123 @@ const defaultFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
 
 /* ------------------------------------------------------------------------------------------ */
 
-export function createLicenseClient(options: LicenseClientOptions): LicenseClient {
-  const { productName } = options;
-  const now = options.now ?? systemClock;
-  const gracePeriodMs = options.gracePeriodMs ?? DEFAULT_GRACE_PERIOD_MS;
-  const revalidateEveryMs = options.revalidateEveryMs ?? DEFAULT_REVALIDATE_EVERY_MS;
-  const api: LicenseApi =
-    options.api ?? createLicenseApi(options.fetch ?? defaultFetch, options.apiBaseUrl);
-  const repository = createLicenseRepository(options.storage, productName);
-  const allowedVariants = new Set(options.allowedVariantIds ?? []);
-  const listeners = new Set<(state: LicenseState) => void>();
+class LemonSqueezyLicenseClient implements LicenseClient {
+  readonly productName: string;
+  readonly alarmName: string;
 
-  const derive = (stored: StoredLicense | undefined): LicenseState =>
-    deriveLicenseState(stored, now(), gracePeriodMs);
+  private readonly api: LicenseApi;
+  private readonly repository: LicenseRepository;
+  private readonly now: Clock;
+  private readonly gracePeriodMs: number;
+  private readonly revalidateEveryMs: number;
+  private readonly allowedVariants: ReadonlySet<number>;
+  private readonly userAgent: string | undefined;
+  private readonly listeners = new Set<(state: LicenseState) => void>();
 
-  function variantAllowed(meta: LicenseResponse["meta"]): boolean {
-    if (allowedVariants.size === 0) return true;
+  constructor(options: LicenseClientOptions) {
+    this.productName = options.productName;
+    this.alarmName = revalidationAlarmName(options.productName);
+    this.api = options.api ?? createLicenseApi(options.fetch ?? defaultFetch, options.apiBaseUrl);
+    this.repository = createLicenseRepository(options.storage, options.productName);
+    this.now = options.now ?? systemClock;
+    this.gracePeriodMs = options.gracePeriodMs ?? DEFAULT_GRACE_PERIOD_MS;
+    this.revalidateEveryMs = options.revalidateEveryMs ?? DEFAULT_REVALIDATE_EVERY_MS;
+    this.allowedVariants = new Set(options.allowedVariantIds ?? []);
+    this.userAgent = options.userAgent;
+  }
+
+  async activate(input: string): Promise<LicenseResult<LicenseState>> {
+    const key = normalizeKey(input);
+    if (key.length === 0) return err(licenseError("invalid_key"));
+    const stored = await this.repository.load();
+    if (stored && stored.kind !== "free" && stored.key === key) {
+      const revalidated = await this.revalidateOwnInstance(stored);
+      if (revalidated) return revalidated;
+      // The instance is gone or the key changed state: fall through to a fresh activation.
+    }
+    return this.activateFresh(key);
+  }
+
+  async validate(opts: ValidateOptions = {}): Promise<LicenseState> {
+    const stored = await this.repository.load();
+    if (!stored || stored.kind === "free") return this.derive(stored);
+    if (!opts.force && !this.isStale(stored)) return this.derive(stored);
+    const res = await this.api.validate({
+      license_key: stored.key,
+      instance_id: stored.instanceId,
+    });
+    if (!res.ok) return this.recordTransportFailure(stored);
+    return this.commit(this.recordVerdict(stored, res.value.body));
+  }
+
+  async deactivate(): Promise<LicenseResult<void>> {
+    const stored = await this.repository.load();
+    if (!stored || stored.kind === "free") return err(licenseError("not_activated"));
+    const res = await this.api.deactivate({
+      license_key: stored.key,
+      instance_id: stored.instanceId,
+    });
+    if (!res.ok) return err(res.error);
+    const { body } = res.value;
+    const code = classifyApiError(body.error, body.license_key?.status);
+    if (!deactivationSucceeded(body, code)) return err(licenseError(code, body.error ?? undefined));
+    await this.commit({ v: 1, kind: "free", reason: "deactivated" });
+    return ok(undefined);
+  }
+
+  async getState(): Promise<LicenseState> {
+    return this.derive(await this.repository.load());
+  }
+
+  async isPro(): Promise<boolean> {
+    return isProState(await this.getState());
+  }
+
+  onChange(listener: (state: LicenseState) => void): () => void {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
+  }
+
+  async getInstanceName(): Promise<string> {
+    const suffix = await this.repository.instanceSuffix();
+    const userAgent = this.userAgent ?? globalThis.navigator?.userAgent;
+    return buildInstanceName(this.productName, browserFamily(userAgent), suffix);
+  }
+
+  async hasStoredKey(): Promise<boolean> {
+    const stored = await this.repository.load();
+    return stored !== undefined && stored.kind !== "free";
+  }
+
+  scheduleRevalidation(alarms: AlarmsLike, options?: ScheduleRevalidationOptions): () => void {
+    return scheduleRevalidation(alarms, this, {
+      revalidateEveryMs: this.revalidateEveryMs,
+      ...options,
+    });
+  }
+
+  /* ---- internals ------------------------------------------------------------------------- */
+
+  private derive(stored: StoredLicense | undefined): LicenseState {
+    return deriveLicenseState(stored, this.now(), this.gracePeriodMs);
+  }
+
+  private variantAllowed(meta: LicenseResponse["meta"]): boolean {
+    if (this.allowedVariants.size === 0) return true;
     const variantId = meta?.variant_id;
-    return variantId !== undefined && allowedVariants.has(variantId);
+    return variantId !== undefined && this.allowedVariants.has(variantId);
   }
 
   /** `valid: true` for an active key of an allowed variant. */
-  function isValidAnswer(body: LicenseResponse): boolean {
+  private isValidAnswer(body: LicenseResponse): boolean {
     const status = body.license_key?.status ?? "active";
-    return body.valid === true && status === "active" && variantAllowed(body.meta);
+    return body.valid === true && status === "active" && this.variantAllowed(body.meta);
   }
 
-  function notify(state: LicenseState): void {
-    for (const listener of listeners) {
+  private notify(state: LicenseState): void {
+    for (const listener of this.listeners) {
       try {
         listener(state);
       } catch {
@@ -122,17 +213,11 @@ export function createLicenseClient(options: LicenseClientOptions): LicenseClien
   }
 
   /** Persists `record`, derives the resulting state and tells subscribers. */
-  async function commit(record: StoredLicense | undefined): Promise<LicenseState> {
-    await repository.save(record);
-    const state = derive(record);
-    notify(state);
+  private async commit(record: StoredLicense | undefined): Promise<LicenseState> {
+    await this.repository.save(record);
+    const state = this.derive(record);
+    this.notify(state);
     return state;
-  }
-
-  async function getInstanceName(): Promise<string> {
-    const suffix = await repository.instanceSuffix();
-    const userAgent = options.userAgent ?? globalThis.navigator?.userAgent;
-    return buildInstanceName(productName, browserFamily(userAgent), suffix);
   }
 
   /**
@@ -140,113 +225,55 @@ export function createLicenseClient(options: LicenseClientOptions): LicenseClien
    * re-validate the instance we hold instead of consuming a second activation seat.
    * Resolves to `null` when the server no longer accepts that instance.
    */
-  async function revalidateOwnInstance(
+  private async revalidateOwnInstance(
     stored: StoredKeyed,
   ): Promise<LicenseResult<LicenseState> | null> {
-    const check = await api.validate({ license_key: stored.key, instance_id: stored.instanceId });
+    const check = await this.api.validate({
+      license_key: stored.key,
+      instance_id: stored.instanceId,
+    });
     if (!check.ok) return check;
-    if (!isValidAnswer(check.value.body)) return null;
-    return ok(await commit(activatedRecord(stored, check.value.body, now())));
+    if (!this.isValidAnswer(check.value.body)) return null;
+    return ok(await this.commit(activatedRecord(stored, check.value.body, this.now())));
   }
 
-  async function activateFresh(key: string): Promise<LicenseResult<LicenseState>> {
-    const instanceName = await getInstanceName();
-    const res = await api.activate({ license_key: key, instance_name: instanceName });
+  private async activateFresh(key: string): Promise<LicenseResult<LicenseState>> {
+    const instanceName = await this.getInstanceName();
+    const res = await this.api.activate({ license_key: key, instance_name: instanceName });
     if (!res.ok) return res;
     const { body } = res.value;
     if (!body.activated || !body.instance) return err(activationError(body));
-    if (!variantAllowed(body.meta)) {
+    if (!this.variantAllowed(body.meta)) {
       // Release the seat we just consumed; the key is for a different product.
-      await api.deactivate({ license_key: key, instance_id: body.instance.id });
+      await this.api.deactivate({ license_key: key, instance_id: body.instance.id });
       return err(licenseError("wrong_product"));
     }
     const identity: LicenseIdentity = { key, instanceId: body.instance.id, instanceName };
-    return ok(await commit(activatedRecord(identity, body, now())));
-  }
-
-  async function activate(input: string): Promise<LicenseResult<LicenseState>> {
-    const key = normalizeKey(input);
-    if (key.length === 0) return err(licenseError("invalid_key"));
-    const stored = await repository.load();
-    if (stored && stored.kind !== "free" && stored.key === key) {
-      const revalidated = await revalidateOwnInstance(stored);
-      if (revalidated) return revalidated;
-      // The instance is gone or the key changed state: fall through to a fresh activation.
-    }
-    return activateFresh(key);
+    return ok(await this.commit(activatedRecord(identity, body, this.now())));
   }
 
   /** Whether a non-forced `validate()` should hit the network for this record. */
-  function isStale(stored: StoredKeyed): boolean {
+  private isStale(stored: StoredKeyed): boolean {
     if (stored.kind === "invalid") return false;
-    const fresh = now() - stored.lastValidatedAt < revalidateEveryMs;
+    const fresh = this.now() - stored.lastValidatedAt < this.revalidateEveryMs;
     return !(fresh && stored.lastFailedAt === undefined);
   }
 
   /** Transport failure: keep whatever we knew, but remember that we could not confirm it. */
-  function recordTransportFailure(stored: StoredKeyed): Promise<LicenseState> {
-    if (stored.kind === "invalid") return Promise.resolve(derive(stored));
-    return commit({ ...stored, lastFailedAt: now() });
+  private recordTransportFailure(stored: StoredKeyed): Promise<LicenseState> {
+    if (stored.kind === "invalid") return Promise.resolve(this.derive(stored));
+    return this.commit({ ...stored, lastFailedAt: this.now() });
   }
 
-  function recordVerdict(stored: StoredKeyed, body: LicenseResponse): StoredLicense {
-    const at = now();
+  private recordVerdict(stored: StoredKeyed, body: LicenseResponse): StoredLicense {
+    const at = this.now();
     const status = body.license_key?.status ?? "active";
     if (!body.valid || status !== "active") return invalidRecord(stored, rejectionReason(body), at);
-    if (!variantAllowed(body.meta)) return invalidRecord(stored, "wrong_product", at);
+    if (!this.variantAllowed(body.meta)) return invalidRecord(stored, "wrong_product", at);
     return activatedRecord(stored, body, at);
   }
+}
 
-  async function validate(opts: ValidateOptions = {}): Promise<LicenseState> {
-    const stored = await repository.load();
-    if (!stored || stored.kind === "free") return derive(stored);
-    if (!opts.force && !isStale(stored)) return derive(stored);
-    const res = await api.validate({ license_key: stored.key, instance_id: stored.instanceId });
-    if (!res.ok) return recordTransportFailure(stored);
-    return commit(recordVerdict(stored, res.value.body));
-  }
-
-  async function deactivate(): Promise<LicenseResult<void>> {
-    const stored = await repository.load();
-    if (!stored || stored.kind === "free") return err(licenseError("not_activated"));
-    const res = await api.deactivate({ license_key: stored.key, instance_id: stored.instanceId });
-    if (!res.ok) return err(res.error);
-    const { body } = res.value;
-    const code = classifyApiError(body.error, body.license_key?.status);
-    if (!deactivationSucceeded(body, code)) return err(licenseError(code, body.error ?? undefined));
-    await commit({ v: 1, kind: "free", reason: "deactivated" });
-    return ok(undefined);
-  }
-
-  async function getState(): Promise<LicenseState> {
-    return derive(await repository.load());
-  }
-
-  async function hasStoredKey(): Promise<boolean> {
-    const stored = await repository.load();
-    return stored !== undefined && stored.kind !== "free";
-  }
-
-  function onChange(listener: (state: LicenseState) => void): () => void {
-    listeners.add(listener);
-    return () => {
-      listeners.delete(listener);
-    };
-  }
-
-  const client: LicenseClient = {
-    productName,
-    alarmName: revalidationAlarmName(productName),
-    activate,
-    validate,
-    deactivate,
-    getState,
-    isPro: async () => isProState(await getState()),
-    onChange,
-    getInstanceName,
-    hasStoredKey,
-    scheduleRevalidation: (alarms, scheduleOptions) =>
-      scheduleRevalidation(alarms, client, { revalidateEveryMs, ...scheduleOptions }),
-  };
-  return client;
+export function createLicenseClient(options: LicenseClientOptions): LicenseClient {
+  return new LemonSqueezyLicenseClient(options);
 }

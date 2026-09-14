@@ -66,97 +66,110 @@ export interface BackgroundService {
   onSettingsChanged(next: Settings | null, previous: Settings | null): Promise<void>;
 }
 
-export function createBackgroundService(deps: BackgroundDeps): BackgroundService {
-  const state = initialState();
-  const recorder = createActivityRecorder(deps.logStore, deps.clock);
-  const deployer = createRuleDeployer(deps.dnr, recorder);
-  let rebuildChain: Promise<void> = Promise.resolve();
+class RerouteBackground implements BackgroundService {
+  readonly state: BackgroundState = initialState();
+  readonly recorder: ActivityRecorder;
+  readonly deployer: RuleDeployer;
+  readonly fallback: RedirectFallback;
+  readonly mirror: SyncMirror;
+  readonly copyCleanLink: (request: CopyCleanLinkRequest) => Promise<void>;
 
-  async function loadState(): Promise<void> {
+  private rebuildChain: Promise<void> = Promise.resolve();
+
+  constructor(private readonly deps: BackgroundDeps) {
+    this.recorder = createActivityRecorder(deps.logStore, deps.clock);
+    this.deployer = createRuleDeployer(deps.dnr, this.recorder);
+    const ready = this.rebuild();
+    this.fallback = createRedirectFallback({
+      tabs: deps.tabs,
+      recorder: this.recorder,
+      clock: deps.clock,
+      ready,
+      view: () => this.state,
+    });
+    this.mirror = createSyncMirror({
+      store: deps.syncStore,
+      isPro: deps.isPro,
+      saveLocalRules: (rules) => deps.rulesStore.setValue(rules),
+      recorder: this.recorder,
+      origin: deps.syncOrigin,
+      view: () => ({ rules: this.state.rules, syncEnabled: this.state.settings.syncEnabled }),
+    });
+    this.copyCleanLink = createCopyCleanLink({
+      messenger: deps.tabs,
+      recorder: this.recorder,
+      loadTrackingRules: deps.loadTrackingRules,
+      isTrackingEnabled: () => this.state.settings.trackingEnabled,
+    });
+  }
+
+  rebuild(): Promise<void> {
+    const run = () => this.doRebuild();
+    this.rebuildChain = this.rebuildChain.then(run, run);
+    return this.rebuildChain;
+  }
+
+  whenIdle(): Promise<void> {
+    return this.rebuildChain;
+  }
+
+  async getStatus(): Promise<StatusResponse> {
+    await this.rebuildChain;
+    return toStatusResponse(this.state);
+  }
+
+  async onRulesChanged(): Promise<void> {
+    await this.rebuild();
+    this.mirror.scheduleWrite();
+  }
+
+  onAllowlistChanged(): Promise<void> {
+    return this.rebuild();
+  }
+
+  async onSettingsChanged(next: Settings | null, previous: Settings | null): Promise<void> {
+    await this.rebuild();
+    if (syncJustEnabled(next, previous)) await this.mirror.join();
+    else this.mirror.scheduleWrite();
+  }
+
+  private async loadState(): Promise<void> {
     const [rules, allowlist, settings] = await Promise.all([
-      deps.rulesStore.getValue(),
-      deps.allowlistStore.getValue(),
-      deps.settingsStore.getValue(),
+      this.deps.rulesStore.getValue(),
+      this.deps.allowlistStore.getValue(),
+      this.deps.settingsStore.getValue(),
     ]);
-    state.rules = rules;
-    state.enabledRules = rules.filter((r) => r.enabled);
-    state.allowlist = allowlist;
-    state.settings = withSettingsDefaults(settings);
+    this.state.rules = rules;
+    this.state.enabledRules = rules.filter((r) => r.enabled);
+    this.state.allowlist = allowlist;
+    this.state.settings = withSettingsDefaults(settings);
   }
 
-  async function applyTrackingToggle(): Promise<void> {
+  private async applyTrackingToggle(): Promise<void> {
     try {
-      await deployer.setTrackingEnabled(state.settings.trackingEnabled);
+      await this.deployer.setTrackingEnabled(this.state.settings.trackingEnabled);
     } catch (e) {
-      state.lastError = `Tracking ruleset toggle failed: ${errorMessage(e)}`;
+      this.state.lastError = `Tracking ruleset toggle failed: ${errorMessage(e)}`;
     }
   }
 
-  async function doRebuild(): Promise<void> {
+  private async doRebuild(): Promise<void> {
     try {
-      await loadState();
-      const deployment = await deployer.deploy(state.rules, state.allowlist);
-      state.jsOnlyRuleIds = deployment.jsOnlyRuleIds;
-      state.jsOnlyReasons = deployment.jsOnlyReasons;
-      state.dnrRuleCount = deployment.dnrRuleCount;
-      state.lastError = null;
-      state.lastRebuildAt = deps.clock();
-      await applyTrackingToggle();
+      await this.loadState();
+      const deployment = await this.deployer.deploy(this.state.rules, this.state.allowlist);
+      this.state.jsOnlyRuleIds = deployment.jsOnlyRuleIds;
+      this.state.jsOnlyReasons = deployment.jsOnlyReasons;
+      this.state.dnrRuleCount = deployment.dnrRuleCount;
+      this.state.lastError = null;
+      this.state.lastRebuildAt = this.deps.clock();
+      await this.applyTrackingToggle();
     } catch (e) {
-      state.lastError = errorMessage(e);
-      await recorder.recordError(`Rebuild failed: ${state.lastError}`);
+      this.state.lastError = errorMessage(e);
+      await this.recorder.recordError(`Rebuild failed: ${this.state.lastError}`);
     }
   }
+}
 
-  function rebuild(): Promise<void> {
-    rebuildChain = rebuildChain.then(doRebuild, doRebuild);
-    return rebuildChain;
-  }
-
-  const ready = rebuild();
-
-  const fallback = createRedirectFallback({
-    tabs: deps.tabs,
-    recorder,
-    clock: deps.clock,
-    ready,
-    view: () => state,
-  });
-
-  const mirror = createSyncMirror({
-    store: deps.syncStore,
-    isPro: deps.isPro,
-    saveLocalRules: (rules) => deps.rulesStore.setValue(rules),
-    recorder,
-    origin: deps.syncOrigin,
-    view: () => ({ rules: state.rules, syncEnabled: state.settings.syncEnabled }),
-  });
-
-  const copyCleanLink = createCopyCleanLink({
-    messenger: deps.tabs,
-    recorder,
-    loadTrackingRules: deps.loadTrackingRules,
-    isTrackingEnabled: () => state.settings.trackingEnabled,
-  });
-
-  return {
-    state,
-    fallback,
-    mirror,
-    deployer,
-    recorder,
-    copyCleanLink,
-    rebuild,
-    whenIdle: () => rebuildChain,
-    getStatus: async () => {
-      await rebuildChain;
-      return toStatusResponse(state);
-    },
-    onRulesChanged: () => rebuild().then(() => mirror.scheduleWrite()),
-    onAllowlistChanged: rebuild,
-    onSettingsChanged: (next, previous) =>
-      rebuild().then(() =>
-        syncJustEnabled(next, previous) ? mirror.join() : mirror.scheduleWrite(),
-      ),
-  };
+export function createBackgroundService(deps: BackgroundDeps): BackgroundService {
+  return new RerouteBackground(deps);
 }

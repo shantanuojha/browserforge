@@ -162,18 +162,27 @@ interface Coverage {
   equivalent: Set<number>[];
 }
 
-function addTransitiveCoverage(covered: Set<number>[]): void {
-  for (let changed = true; changed;) {
-    changed = false;
-    for (const set of covered) {
-      for (const i of [...set]) {
-        for (const k of covered[i]!) {
-          if (set.has(k)) continue;
-          set.add(k);
-          changed = true;
-        }
-      }
+/** Adds every member of `source` to `target`; true when `target` grew. */
+function absorb(target: Set<number>, source: ReadonlySet<number>): boolean {
+  const before = target.size;
+  for (const value of source) target.add(value);
+  return target.size > before;
+}
+
+/** One pass: every set also covers whatever its members cover. True when anything changed. */
+function propagateCoverageOnce(covered: Set<number>[]): boolean {
+  let changed = false;
+  for (const set of covered) {
+    for (const i of [...set]) {
+      if (absorb(set, covered[i]!)) changed = true;
     }
+  }
+  return changed;
+}
+
+function addTransitiveCoverage(covered: Set<number>[]): void {
+  while (propagateCoverageOnce(covered)) {
+    // keep going until the closure is stable
   }
 }
 

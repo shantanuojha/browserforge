@@ -30,6 +30,10 @@ export function randomInstanceSuffix(): string {
   return out;
 }
 
-export function buildInstanceName(productName: string, family: BrowserFamily, suffix: string) {
+export function buildInstanceName(
+  productName: string,
+  family: BrowserFamily,
+  suffix: string,
+): string {
   return `${productName}@${family}-${suffix}`;
 }

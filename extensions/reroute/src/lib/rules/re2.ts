@@ -73,20 +73,14 @@ function jsParseError(source: string): string | null {
   }
 }
 
-export function checkRE2Compatible(source: string): RE2CheckResult {
-  if (source.length === 0) return reject("empty pattern");
-  // DNR requires ASCII-only regex filters.
-  if (hasNonAscii(source)) return reject("non-ASCII character");
-  // Must at least parse as a JS regex (we use it in the JS fallback too).
-  const parseError = jsParseError(source);
-  if (parseError !== null) return reject(`invalid regex: ${parseError}`);
-
+/** Walks the pattern once and returns the first construct RE2 would read differently, or null. */
+function firstSyntaxProblem(source: string): string | null {
   let inClass = false;
   for (let i = 0; i < source.length; i++) {
     const ch = source[i];
     if (ch === "\\") {
       const problem = escapeProblem(source[i + 1], inClass);
-      if (problem) return reject(problem);
+      if (problem) return problem;
       i++;
       continue;
     }
@@ -97,18 +91,29 @@ export function checkRE2Compatible(source: string): RE2CheckResult {
     if (ch === "[") {
       // A leading "]" inside a class is literal in JS ("[]" is an empty class);
       // RE2 treats it differently, so just reject the ambiguity.
-      if (source[i + 1] === "]") return reject("empty character class");
+      if (source[i + 1] === "]") return "empty character class";
       inClass = true;
       continue;
     }
     if (ch === "(" && source[i + 1] === "?") {
       const problem = groupProblem(source.slice(i + 2, i + 4));
-      if (problem) return reject(problem);
+      if (problem) return problem;
       continue;
     }
-    if (isPossessiveQuantifier(source, i)) return reject("possessive quantifier");
+    if (isPossessiveQuantifier(source, i)) return "possessive quantifier";
   }
-  return { ok: true };
+  return null;
+}
+
+export function checkRE2Compatible(source: string): RE2CheckResult {
+  if (source.length === 0) return reject("empty pattern");
+  // DNR requires ASCII-only regex filters.
+  if (hasNonAscii(source)) return reject("non-ASCII character");
+  // Must at least parse as a JS regex (we use it in the JS fallback too).
+  const parseError = jsParseError(source);
+  if (parseError !== null) return reject(`invalid regex: ${parseError}`);
+  const problem = firstSyntaxProblem(source);
+  return problem === null ? { ok: true } : reject(problem);
 }
 
 export function isRE2Compatible(source: string): boolean {

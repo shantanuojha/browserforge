@@ -148,32 +148,48 @@ function parseStringItem(raw: string, storeId: string | undefined): ItemOutcome 
   return { entry: withStore({ pattern, listType: "white" }, storeId) };
 }
 
-function parseObjectItem(
-  raw: Record<string, unknown>,
-  item: RawItem,
-  format: ImportFormat,
-  tally: ImportTally,
-): ItemOutcome {
+/** The host expression under any of the field names the supported formats use. */
+function expressionOf(raw: Record<string, unknown>): string | null {
   const expression = raw.expression ?? raw.domain ?? raw.pattern ?? raw.host;
-  if (typeof expression !== "string" || expression.trim() === "") {
-    return { skip: "Missing expression/domain" };
-  }
+  return typeof expression === "string" && expression.trim() !== "" ? expression : null;
+}
+
+/** Our pattern for an expression, or the reason it cannot be imported. */
+function patternOf(
+  expression: string,
+  format: ImportFormat,
+): { pattern: string } | { skip: string } {
   if (format !== "cookiesweep" && isCadInternalExpression(expression)) {
     return { skip: "Cookie AutoDelete internal default entry" };
   }
   const pattern =
     format === "cookiesweep" ? normalizePattern(expression) : convertCadExpression(expression);
   if (!isValidPattern(pattern)) return { skip: `Invalid pattern "${expression}"` };
+  return { pattern };
+}
 
-  let listType = parseListType(raw.listType ?? raw.list ?? raw.type);
-  if (!listType) {
-    tally.unknownListTypes += 1;
-    listType = "white";
-  }
+function listTypeOf(raw: Record<string, unknown>, tally: ImportTally): ListType {
+  const listType = parseListType(raw.listType ?? raw.list ?? raw.type);
+  if (listType) return listType;
+  tally.unknownListTypes += 1;
+  return "white";
+}
+
+function parseObjectItem(
+  raw: Record<string, unknown>,
+  item: RawItem,
+  format: ImportFormat,
+  tally: ImportTally,
+): ItemOutcome {
+  const expression = expressionOf(raw);
+  if (expression === null) return { skip: "Missing expression/domain" };
+  const converted = patternOf(expression, format);
+  if ("skip" in converted) return converted;
+
+  const listType = listTypeOf(raw, tally);
   if (Array.isArray(raw.cookieNames) && raw.cookieNames.length > 0) tally.cookieNameEntries += 1;
-
   const storeId = parseStoreId(raw.storeId ?? raw.cookieStoreId) ?? item.storeId;
-  return { entry: withStore({ pattern, listType }, storeId) };
+  return { entry: withStore({ pattern: converted.pattern, listType }, storeId) };
 }
 
 function parseItem(item: RawItem, format: ImportFormat, tally: ImportTally): ItemOutcome {

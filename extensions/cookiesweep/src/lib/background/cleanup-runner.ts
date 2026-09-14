@@ -56,44 +56,22 @@ interface StoreCookies {
   cookieDomains: Record<string, string[]>;
 }
 
-export function createCleanupRunner(deps: CleanupRunnerDeps): CleanupRunner {
-  /** Lists every store's cookies; a store the browser rejects is dropped from memory. */
-  async function listStoreCookies(
-    stores: readonly CookieStoreInfo[],
-    remembered: ReadonlySet<string>,
-  ): Promise<StoreCookies> {
-    const out: StoreCookies = { cookiesByStore: {}, cookieDomains: {} };
-    for (const store of stores) {
-      try {
-        const cookies = await listCookies(deps.api, store.id);
-        out.cookiesByStore[store.id] = cookies;
-        out.cookieDomains[store.id] = planningDomains(cookies);
-      } catch (error) {
-        deps.logger.warn("cookies.getAll failed for store", store.id, error);
-        if (remembered.has(store.id)) await deps.registry.forget(store.id);
-      }
-    }
-    return out;
-  }
+class CookieCleanupRunner implements CleanupRunner {
+  constructor(private readonly deps: CleanupRunnerDeps) {}
 
-  async function record(trigger: CleanupTrigger, results: readonly ExecuteResult[]) {
-    const entries = toActivityEntries(trigger, results, deps.clock());
-    if (entries.length > 0) await deps.activity.append(entries);
-  }
-
-  async function runCleanup(
+  async runCleanup(
     trigger: CleanupTrigger,
     options: RunOptions = {},
   ): Promise<CleanupSummary | null> {
-    const settings = await deps.loadSettings();
+    const settings = await this.deps.loadSettings();
     if (!settings.enabled && !options.force) {
-      deps.logger.debug("paused; skipping", trigger);
+      this.deps.logger.debug("paused; skipping", trigger);
       return null;
     }
 
-    const { stores, remembered } = await deps.registry.resolve();
-    const openTabHosts = openTabUrlsByStore(await deps.listTabs(), stores);
-    const { cookiesByStore, cookieDomains } = await listStoreCookies(stores, remembered);
+    const { stores, remembered } = await this.deps.registry.resolve();
+    const openTabHosts = openTabUrlsByStore(await this.deps.listTabs(), stores);
+    const { cookiesByStore, cookieDomains } = await this.listStoreCookies(stores, remembered);
 
     const plan = planCleanup({
       openTabHosts,
@@ -104,36 +82,62 @@ export function createCleanupRunner(deps: CleanupRunnerDeps): CleanupRunner {
       startupScope: settings.cleanOnStartup ? "full" : "grey-only",
     });
     const results = await executePlan(
-      deps.api,
+      this.deps.api,
       plan,
       { cleanSiteData: settings.cleanSiteData },
       cookiesByStore,
     );
-    await record(trigger, results);
+    await this.record(trigger, results);
 
     const summary = summarizeResults(results);
-    deps.logger.info(
+    this.deps.logger.info(
       `${trigger}: removed ${summary.cookiesRemoved} cookie(s) from ${summary.domains.length} domain(s)`,
     );
-    deps.notifier.sweepFinished(summary, settings);
+    this.deps.notifier.sweepFinished(summary, settings);
     return summary;
   }
 
-  async function cleanSite(host: string, tabId?: number): Promise<CleanupSummary> {
-    const settings = await deps.loadSettings();
-    const storeId = await deps.storeIdForTab(tabId);
-    const cookies = await listCookies(deps.api, storeId);
+  async cleanSite(host: string, tabId?: number): Promise<CleanupSummary> {
+    const settings = await this.deps.loadSettings();
+    const storeId = await this.deps.storeIdForTab(tabId);
+    const cookies = await listCookies(this.deps.api, storeId);
     const domains = domainsForSite(planningDomains(cookies), host);
     const result = await cleanDomainsInStore(
-      deps.api,
+      this.deps.api,
       { storeId, domains, cookies },
       { cleanSiteData: settings.cleanSiteData, extraHosts: [host] },
     );
-    await record("manual", [result]);
-    deps.logger.info(`manual: cleaned ${host} (${result.cookiesRemoved} cookie(s))`);
-    deps.notifier.siteCleaned();
+    await this.record("manual", [result]);
+    this.deps.logger.info(`manual: cleaned ${host} (${result.cookiesRemoved} cookie(s))`);
+    this.deps.notifier.siteCleaned();
     return summarizeResults([result]);
   }
 
-  return { runCleanup, cleanSite };
+  /** Lists every store's cookies; a remembered store the browser rejects is forgotten. */
+  private async listStoreCookies(
+    stores: readonly CookieStoreInfo[],
+    remembered: ReadonlySet<string>,
+  ): Promise<StoreCookies> {
+    const out: StoreCookies = { cookiesByStore: {}, cookieDomains: {} };
+    for (const store of stores) {
+      try {
+        const cookies = await listCookies(this.deps.api, store.id);
+        out.cookiesByStore[store.id] = cookies;
+        out.cookieDomains[store.id] = planningDomains(cookies);
+      } catch (error) {
+        this.deps.logger.warn("cookies.getAll failed for store", store.id, error);
+        if (remembered.has(store.id)) await this.deps.registry.forget(store.id);
+      }
+    }
+    return out;
+  }
+
+  private async record(trigger: CleanupTrigger, results: readonly ExecuteResult[]) {
+    const entries = toActivityEntries(trigger, results, this.deps.clock());
+    if (entries.length > 0) await this.deps.activity.append(entries);
+  }
+}
+
+export function createCleanupRunner(deps: CleanupRunnerDeps): CleanupRunner {
+  return new CookieCleanupRunner(deps);
 }

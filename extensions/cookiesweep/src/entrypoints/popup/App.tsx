@@ -86,6 +86,54 @@ function SiteSummary({
   );
 }
 
+interface SiteActionsProps {
+  hasSite: boolean;
+  listedEntry: ListEntry | undefined;
+  /** Settings are still loading or a cleanup is running. */
+  disabled: boolean;
+  busy: boolean;
+  onAdd: (type: ListType) => void;
+  onRemove: () => void;
+  onClean: () => void;
+}
+
+function SiteActions({
+  hasSite,
+  listedEntry,
+  disabled,
+  busy,
+  onAdd,
+  onRemove,
+  onClean,
+}: SiteActionsProps) {
+  return (
+    <div className="cs-popup__actions">
+      {listedEntry ? (
+        <Button className="cs-span2" variant="secondary" disabled={disabled} onClick={onRemove}>
+          Remove from {LIST_LABEL[listedEntry.listType]}
+        </Button>
+      ) : (
+        <>
+          <Button disabled={!hasSite || disabled} onClick={() => onAdd("white")}>
+            Add to whitelist
+          </Button>
+          <Button variant="secondary" disabled={!hasSite || disabled} onClick={() => onAdd("grey")}>
+            Add to greylist
+          </Button>
+        </>
+      )}
+      <Button
+        className="cs-span2 cs-danger"
+        variant="secondary"
+        disabled={!hasSite || busy}
+        onClick={onClean}
+      >
+        {busy ? "Cleaning..." : "Clean this site now"}
+      </Button>
+    </div>
+  );
+}
+
 export function App() {
   const { settings, loading, patch } = useSettings();
   const { site, refresh } = useSiteInfo();
@@ -119,11 +167,11 @@ export function App() {
     setMessage(null);
     const response = await sendMessage(cleanSiteMessage(host, site));
     setBusy(false);
-    if (response.ok) {
-      setMessage(describeSiteClean(response.summary?.cookiesRemoved ?? 0, host, settings));
-    } else {
-      setMessage(`Cleanup failed: ${response.error}`);
-    }
+    setMessage(
+      response.ok
+        ? describeSiteClean(response.summary?.cookiesRemoved ?? 0, host, settings)
+        : `Cleanup failed: ${response.error}`,
+    );
     await refresh();
   };
 
@@ -148,39 +196,15 @@ export function App() {
           listType={listType}
         />
 
-        <div className="cs-popup__actions">
-          {listedEntry ? (
-            <Button
-              className="cs-span2"
-              variant="secondary"
-              disabled={loading || busy}
-              onClick={removeFromList}
-            >
-              Remove from {LIST_LABEL[listedEntry.listType]}
-            </Button>
-          ) : (
-            <>
-              <Button disabled={!host || loading || busy} onClick={() => addTo("white")}>
-                Add to whitelist
-              </Button>
-              <Button
-                variant="secondary"
-                disabled={!host || loading || busy}
-                onClick={() => addTo("grey")}
-              >
-                Add to greylist
-              </Button>
-            </>
-          )}
-          <Button
-            className="cs-span2 cs-danger"
-            variant="secondary"
-            disabled={!host || busy}
-            onClick={cleanSite}
-          >
-            {busy ? "Cleaning..." : "Clean this site now"}
-          </Button>
-        </div>
+        <SiteActions
+          hasSite={host !== null}
+          listedEntry={listedEntry}
+          disabled={loading || busy}
+          busy={busy}
+          onAdd={(type) => void addTo(type)}
+          onRemove={() => void removeFromList()}
+          onClean={() => void cleanSite()}
+        />
 
         {message ? (
           <div className="cs-callout" role="status">
