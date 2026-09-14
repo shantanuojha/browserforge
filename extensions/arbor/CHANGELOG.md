@@ -2,6 +2,36 @@
 
 User-facing changes per Chrome Web Store release. Dates are release dates.
 
+## 0.1.5 — 2026-09-15
+
+### Fixed
+
+- **Tabs Outliner import keeps your tree.** The data Tabs Outliner stores (and the `.tree` files it
+  exports) list every node with its position rather than nesting them. Arbor read that list as a flat
+  set of unrelated items, so every window imported empty with its tabs beside it. The import now
+  rebuilds the full window and tab hierarchy, including nested groups and notes; a node whose parent
+  is missing from the file is kept at the top level instead of being lost.
+- **No duplicate windows after a rebuild.** A window opened moments before Arbor rebuilt its tree
+  (at browser start, on install, from Recovery or a replace import) could appear twice: once open and
+  once as a closed copy of the same tabs. Tabs that were still loading are now recognised, so the
+  window is matched instead of recreated.
+- **Escape cancels a rename or note edit; Enter commits it once.** Pressing Escape after typing used
+  to save the typed text anyway, and Enter (Ctrl+Enter in a note) saved it twice, leaving two
+  identical Undo steps. Each edit now finishes exactly once: Escape discards, Enter commits.
+- **Importing an Arbor export never drops nodes silently.** A hand-edited or concatenated export with
+  duplicate ids or a parent loop used to lose nodes from the preview without any warning. Duplicates
+  are now skipped with a warning and looped nodes are lifted to the top level and counted in the
+  "missing parent" warning.
+- **Options number fields no longer jump while typing.** Clearing the snapshot or backup interval
+  and typing a new value used to snap to the minimum on the first keystroke, so typing "10" gave
+  "110" or "50". The field now keeps what you type and only clamps to the allowed range when you
+  leave it.
+- **No "0 nodes" flash when the side panel opens.** The panel briefly showed "0 nodes, 0 open" and
+  "No windows or tabs yet." before the tree arrived, which could read as lost data after a browser
+  restart. It now shows a short loading state instead.
+- Recovery snapshots written just before an import or restore now include changes made while the
+  previous snapshot was being saved.
+
 ## 0.1.4 — 2026-09-15
 
 ### Changed
