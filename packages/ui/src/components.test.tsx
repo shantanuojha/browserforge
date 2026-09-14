@@ -1,10 +1,7 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
+﻿import { afterEach, describe, expect, it, vi } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
-import {
-  createLicenseClient,
-  type LicenseState,
-  type LicenseStorage,
-} from "@browserforge/licensing";
+import { createLicenseClient, type LicenseState } from "@browserforge/licensing";
+import { createMemoryStorage } from "@browserforge/licensing/testing";
 import {
   ActivateLicenseDialog,
   Badge,
@@ -23,29 +20,12 @@ import {
   Toggle,
   cx,
   hasRestorableKey,
+  licenseDetailItems,
   nextFocusTarget,
   openExternal,
   summarizeLicenseState,
   useLicense,
 } from "./index";
-
-function memoryStorage(): LicenseStorage {
-  const data = new Map<string, unknown>();
-  return {
-    async get(keys) {
-      const out: Record<string, unknown> = {};
-      for (const k of typeof keys === "string" ? [keys] : keys)
-        if (data.has(k)) out[k] = data.get(k);
-      return out;
-    },
-    async set(items) {
-      for (const [k, v] of Object.entries(items)) data.set(k, v);
-    },
-    async remove(keys) {
-      for (const k of typeof keys === "string" ? [keys] : keys) data.delete(k);
-    },
-  };
-}
 
 describe("@browserforge/ui", () => {
   it("renders a Button with variant/size classes", () => {
@@ -223,7 +203,7 @@ describe("EmptyState / Section / KeyValueList", () => {
     const html = renderToStaticMarkup(
       <KeyValueList
         items={[
-          { key: "Key", value: "XXXX-…-1234", mono: true },
+          { key: "Key", value: "XXXX-â€¦-1234", mono: true },
           { key: "Email", value: "a@b.c" },
         ]}
       />,
@@ -285,7 +265,7 @@ describe("ProGate", () => {
 describe("ActivateLicenseDialog", () => {
   const client = createLicenseClient({
     productName: "arbor",
-    storage: memoryStorage(),
+    storage: createMemoryStorage(),
     fetch: async () => new Response("{}", { status: 500 }),
   });
 
@@ -315,7 +295,7 @@ describe("ActivateLicenseDialog", () => {
   it("summarises licence states for banners", () => {
     const pro: LicenseState = {
       kind: "pro",
-      key: "XXXX-…-1234",
+      key: "XXXX-â€¦-1234",
       instanceId: "i",
       instanceName: "arbor@chrome-abc123",
       lastValidatedAt: 0,
@@ -330,6 +310,27 @@ describe("ActivateLicenseDialog", () => {
     });
     expect(summarizeLicenseState({ kind: "free", reason: "grace_expired" })?.tone).toBe("warning");
     expect(summarizeLicenseState({ kind: "free", reason: "deactivated" })?.tone).toBe("info");
+  });
+
+  it("lists licence details for pro and grace states only", () => {
+    const pro: LicenseState = {
+      kind: "pro",
+      key: "XXXX-…-1234",
+      instanceId: "i",
+      instanceName: "arbor@chrome-abc123",
+      lastValidatedAt: 0,
+      email: "pat@example.com",
+    };
+    expect(licenseDetailItems(pro).map((item) => item.key)).toEqual([
+      "Licence key",
+      "Email",
+      "Expires",
+      "Last checked",
+      "This browser",
+    ]);
+    expect(licenseDetailItems(pro).find((item) => item.key === "Expires")?.value).toBe("Never");
+    expect(licenseDetailItems({ kind: "free" })).toEqual([]);
+    expect(licenseDetailItems(null)).toEqual([]);
   });
 
   it("knows when Restore purchase can re-validate a stored key", () => {
@@ -373,7 +374,7 @@ describe("focus trap", () => {
 
 describe("useLicense", () => {
   it("starts unresolved and not pro before effects run", () => {
-    const client = createLicenseClient({ productName: "arbor", storage: memoryStorage() });
+    const client = createLicenseClient({ productName: "arbor", storage: createMemoryStorage() });
     function Probe() {
       const { state, isPro } = useLicense(client);
       return <span data-pro={String(isPro)}>{state ? state.kind : "loading"}</span>;

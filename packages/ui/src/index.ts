@@ -14,12 +14,17 @@ export { ProGate, openExternal, type ProGateProps } from "./ProGate.js";
 export {
   ActivateLicenseDialog,
   DEFAULT_RESTORE_URL,
+  type ActivateLicenseDialogProps,
+} from "./ActivateLicenseDialog.js";
+export {
   formatDate,
   hasRestorableKey,
+  licenseDetailItems,
   summarizeLicenseState,
-  type ActivateLicenseDialogProps,
   type LicenseSummary,
-} from "./ActivateLicenseDialog.js";
+} from "./licenseSummary.js";
 export { useLicense, type UseLicenseResult } from "./useLicense.js";
+export { useLicenseActions, type LicenseActions, type LicenseNotice } from "./useLicenseActions.js";
+export { useModalFocus, type ModalFocus } from "./useModalFocus.js";
 export { FOCUSABLE_SELECTOR, focusableElements, nextFocusTarget } from "./focusTrap.js";
-export { cx } from "./classNames.js";
+export { cx, isRenderable } from "./classNames.js";

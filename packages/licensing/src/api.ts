@@ -1,56 +1,20 @@
-import { z } from "zod";
-import type { FetchLike, LicenseError, LicenseErrorCode, LicenseResult } from "./types.js";
-import { err, ok } from "@browserforge/shared";
+import { err, errorMessage, ok } from "@browserforge/shared";
+import { LicenseResponseSchema, isLicenseVerdict } from "./api-schema.js";
+import type {
+  ApiCallResult,
+  FetchLike,
+  LicenseApi,
+  LicenseEndpoint,
+  LicenseError,
+  LicenseErrorCode,
+  LicenseResult,
+} from "./types.js";
+
+export { LicenseResponseSchema, isLicenseVerdict } from "./api-schema.js";
+export type { LicenseKeyStatus, LicenseResponse } from "./api-schema.js";
 
 /** The only network origin this package ever talks to. */
 export const LEMON_SQUEEZY_API = "https://api.lemonsqueezy.com/v1/licenses";
-
-export type LicenseKeyStatus = "inactive" | "active" | "expired" | "disabled";
-
-const LicenseKeySchema = z.object({
-  id: z.number().optional(),
-  status: z.string().optional(),
-  key: z.string().optional(),
-  activation_limit: z.number().nullable().optional(),
-  activation_usage: z.number().optional(),
-  created_at: z.string().nullable().optional(),
-  expires_at: z.string().nullable().optional(),
-});
-
-const InstanceSchema = z.object({
-  id: z.string(),
-  name: z.string().optional(),
-  created_at: z.string().nullable().optional(),
-});
-
-const MetaSchema = z.object({
-  store_id: z.number().optional(),
-  product_id: z.number().optional(),
-  variant_id: z.number().optional(),
-  variant_name: z.string().nullable().optional(),
-  product_name: z.string().nullable().optional(),
-  customer_email: z.string().nullable().optional(),
-  customer_name: z.string().nullable().optional(),
-});
-
-export const LicenseResponseSchema = z.object({
-  activated: z.boolean().optional(),
-  valid: z.boolean().optional(),
-  deactivated: z.boolean().optional(),
-  error: z.string().nullable().optional(),
-  license_key: LicenseKeySchema.nullable().optional(),
-  instance: InstanceSchema.nullable().optional(),
-  meta: MetaSchema.nullable().optional(),
-});
-
-export type LicenseResponse = z.infer<typeof LicenseResponseSchema>;
-
-export type LicenseEndpoint = "activate" | "validate" | "deactivate";
-
-export interface ApiCallResult {
-  readonly httpStatus: number;
-  readonly body: LicenseResponse;
-}
 
 const MESSAGES: Record<LicenseErrorCode, string> = {
   invalid_key: "That licence key was not found. Check for typos and try again.",
@@ -91,59 +55,69 @@ export function parseExpiresAt(value: string | null | undefined): number | undef
   return Number.isFinite(ms) ? ms : undefined;
 }
 
-/**
- * POSTs to one of the three licence endpoints. Distinguishes transport/parse failures
- * (`network` / `bad_response`) from application-level answers, which are returned even
- * for HTTP 4xx because Lemon Squeezy uses 400/404 for "activation limit" and "not found".
- */
-export async function callLicenseApi(
+interface HttpJson {
+  status: number;
+  json: unknown;
+}
+
+/** Transport layer: POSTs JSON and parses JSON back. Only `network`/`bad_response` can fail here. */
+async function postJson(
   fetchImpl: FetchLike,
-  baseUrl: string,
-  endpoint: LicenseEndpoint,
+  url: string,
   body: Record<string, string>,
-): Promise<LicenseResult<ApiCallResult>> {
+): Promise<LicenseResult<HttpJson>> {
   let response: Response;
   try {
-    response = await fetchImpl(`${baseUrl}/${endpoint}`, {
+    response = await fetchImpl(url, {
       method: "POST",
       headers: { Accept: "application/json", "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
   } catch (cause) {
-    return err(licenseError("network", cause instanceof Error ? cause.message : String(cause)));
+    return err(licenseError("network", errorMessage(cause)));
   }
-
   // 5xx and 429 (Lemon Squeezy throttles at 60 req/min) say nothing about the licence itself.
   if (response.status >= 500 || response.status === 429) {
     return err(licenseError("network", `HTTP ${response.status}`));
   }
-
-  let json: unknown;
   try {
-    json = await response.json();
+    return ok({ status: response.status, json: await response.json() });
   } catch {
     return err(licenseError("bad_response", `HTTP ${response.status}: non-JSON body`));
   }
-
-  const parsed = LicenseResponseSchema.safeParse(json);
-  if (!parsed.success) {
-    return err(licenseError("bad_response", parsed.error.message));
-  }
-  // Every field in the schema is optional, so a Laravel validation error (`{ message, errors }`),
-  // a proxy page or an empty `{}` also parses. Only a body that actually answers the question
-  // counts as an application-level verdict; anything else must not demote a stored licence.
-  if (!isLicenseVerdict(parsed.data)) {
-    return err(licenseError("bad_response", `HTTP ${response.status}: no ${endpoint} result`));
-  }
-  return ok({ httpStatus: response.status, body: parsed.data });
 }
 
-/** True when the body carries an activate/validate/deactivate verdict or an explicit `error`. */
-export function isLicenseVerdict(body: LicenseResponse): boolean {
-  return (
-    typeof body.activated === "boolean" ||
-    typeof body.valid === "boolean" ||
-    typeof body.deactivated === "boolean" ||
-    typeof body.error === "string"
-  );
+/**
+ * Turns a parsed body into an application-level answer. Every field in the schema is optional,
+ * so a Laravel validation error (`{ message, errors }`), a proxy page or an empty `{}` also
+ * parses; only a body that actually answers the question counts as a verdict, because anything
+ * else must not demote a stored licence.
+ */
+function toVerdict(http: HttpJson, endpoint: LicenseEndpoint): LicenseResult<ApiCallResult> {
+  const parsed = LicenseResponseSchema.safeParse(http.json);
+  if (!parsed.success) return err(licenseError("bad_response", parsed.error.message));
+  if (!isLicenseVerdict(parsed.data)) {
+    return err(licenseError("bad_response", `HTTP ${http.status}: no ${endpoint} result`));
+  }
+  return ok({ httpStatus: http.status, body: parsed.data });
+}
+
+/**
+ * Production adapter over `fetch`. Distinguishes transport/parse failures (`network` /
+ * `bad_response`) from application-level answers, which are returned even for HTTP 4xx because
+ * Lemon Squeezy uses 400/404 for "activation limit" and "not found".
+ */
+export function createLicenseApi(fetchImpl: FetchLike, baseUrl = LEMON_SQUEEZY_API): LicenseApi {
+  const call = async (
+    endpoint: LicenseEndpoint,
+    body: Record<string, string>,
+  ): Promise<LicenseResult<ApiCallResult>> => {
+    const http = await postJson(fetchImpl, `${baseUrl}/${endpoint}`, body);
+    return http.ok ? toVerdict(http.value, endpoint) : http;
+  };
+  return {
+    activate: (request) => call("activate", { ...request }),
+    validate: (request) => call("validate", { ...request }),
+    deactivate: (request) => call("deactivate", { ...request }),
+  };
 }

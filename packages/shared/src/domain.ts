@@ -21,6 +21,11 @@ export function normalizeHost(input: string): string {
   return host;
 }
 
+/** True when `host` is `apex` itself or any subdomain of it. Inputs must already be normalised. */
+export function isSameOrSubdomain(host: string, apex: string): boolean {
+  return host === apex || host.endsWith("." + apex);
+}
+
 export function hostMatchesPattern(hostname: string, pattern: string): boolean {
   const host = normalizeHost(hostname);
   const pat = normalizeHost(pattern);
@@ -29,10 +34,7 @@ export function hostMatchesPattern(hostname: string, pattern: string): boolean {
     const suffix = pat.slice(1); // ".example.com"
     return host.endsWith(suffix) && host.length > suffix.length;
   }
-  if (pat.startsWith("*")) {
-    const apex = pat.slice(1); // "example.com"
-    return host === apex || host.endsWith("." + apex);
-  }
+  if (pat.startsWith("*")) return isSameOrSubdomain(host, pat.slice(1));
   return host === pat;
 }
 
