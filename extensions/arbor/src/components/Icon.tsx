@@ -1,7 +1,6 @@
 export type IconName =
   | "chevron"
   | "window"
-  | "folder"
   | "note"
   | "globe"
   | "close"
@@ -17,7 +16,6 @@ export type IconName =
 const PATHS: Record<IconName, string> = {
   chevron: "M4.5 2.5 8 6l-3.5 3.5",
   window: "M1.5 2.5h9v7h-9zM1.5 4.5h9",
-  folder: "M1.5 3h3l1 1h5v5.5h-9z",
   note: "M2.5 1.5h5l2 2v7h-7zM4 6h4M4 8h3",
   globe:
     "M6 1.5a4.5 4.5 0 1 0 0 9 4.5 4.5 0 1 0 0-9M1.5 6h9M6 1.5c-2 2.5-2 6.5 0 9M6 1.5c2 2.5 2 6.5 0 9",
@@ -37,6 +35,54 @@ export interface IconProps {
   size?: number;
   className?: string;
   title?: string;
+}
+
+export interface ContainerIconProps {
+  /** The container is bound to an open browser window. */
+  open: boolean;
+  size?: number;
+  className?: string;
+  title?: string;
+}
+
+/**
+ * The one glyph for containers (windows and groups are the same thing): a window frame, drawn
+ * as an outline while the container is closed and with its title bar and body filled while its
+ * browser window is open. Same shape either way, so the state reads as a state, not as a kind.
+ */
+export function ContainerIcon({ open, size = 12, className, title }: ContainerIconProps) {
+  return (
+    <svg
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden={title ? undefined : true}
+      role={title ? "img" : undefined}
+    >
+      {title ? <title>{title}</title> : null}
+      {open ? (
+        <>
+          <rect
+            x="1.5"
+            y="2.5"
+            width="9"
+            height="7"
+            fill="currentColor"
+            opacity="0.22"
+            stroke="none"
+          />
+          <rect x="1.5" y="2.5" width="9" height="2" fill="currentColor" stroke="none" />
+        </>
+      ) : null}
+      <path d={PATHS.window} />
+    </svg>
+  );
 }
 
 /** Tiny stroke icons so the UI needs no icon font, images or emoji. */

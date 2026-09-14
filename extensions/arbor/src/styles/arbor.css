@@ -321,8 +321,12 @@ body {
   background: var(--bf-color-surface);
   border: 1px solid var(--bf-color-border);
 }
-.row__icon--window {
+/* Containers: one glyph; accent and filled while the window is open, muted outline when closed. */
+.row__icon--open {
   color: var(--bf-color-accent);
+}
+.row__icon--closed {
+  color: var(--bf-color-text-muted);
 }
 
 .row__title {

@@ -18,7 +18,7 @@ import {
   type NodeId,
   type TreeNode,
 } from "@/lib/model";
-import { Icon } from "./Icon";
+import { ContainerIcon, Icon } from "./Icon";
 
 export type { DropPosition };
 
@@ -265,8 +265,13 @@ export const TreeRow = memo(function TreeRow({
         {node.kind === "tab" ? (
           <Favicon node={node} fallback={faviconFallback} />
         ) : container ? (
-          <span className="row__icon row__icon--window">
-            <Icon name="window" size={10} />
+          // Windows and groups are one thing: the same frame, filled while its window is open.
+          <span className={live ? "row__icon row__icon--open" : "row__icon row__icon--closed"}>
+            <ContainerIcon
+              open={live}
+              size={10}
+              title={live ? "Open window" : "Closed window (group)"}
+            />
           </span>
         ) : (
           <span className="row__icon">
