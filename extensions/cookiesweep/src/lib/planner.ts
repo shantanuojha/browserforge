@@ -73,6 +73,9 @@ export function normalizeCookieDomain(domain: string): string {
 const NON_WEB_SCHEMES =
   /^(about|chrome|chrome-extension|moz-extension|edge|file|data|blob|javascript|view-source|devtools|opera|vivaldi|brave|safari-extension|safari-web-extension|ms-browser-extension):/i;
 
+/** Firefox Reader View: `about:reader?url=<encoded article URL>`. The tab still is that site. */
+const READER_VIEW = /^about:reader\?/i;
+
 /**
  * Hostname of a tab URL, or null for tabs that cannot own cookies (file://, chrome://, about:...).
  * Also accepts a bare hostname (optionally with a port) for convenience.
@@ -81,6 +84,10 @@ export function hostFromTabUrl(urlOrHost: string | undefined | null): string | n
   if (!urlOrHost) return null;
   const raw = urlOrHost.trim();
   if (!raw) return null;
+  if (READER_VIEW.test(raw)) {
+    const inner = new URLSearchParams(raw.slice(raw.indexOf("?") + 1)).get("url");
+    return inner ? hostFromTabUrl(inner) : null;
+  }
   if (NON_WEB_SCHEMES.test(raw)) return null;
   if (raw.includes("://")) {
     try {

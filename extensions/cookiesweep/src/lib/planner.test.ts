@@ -53,6 +53,16 @@ describe("hostFromTabUrl", () => {
     expect(hostFromTabUrl("ftp://files.example.com/")).toBeNull();
     expect(hostFromTabUrl("view-source:https://example.com")).toBeNull();
   });
+  it("sees through Firefox Reader View to the article's site", () => {
+    // Reader View rewrites the tab URL; the page still belongs to (and needs) example.com.
+    expect(hostFromTabUrl("about:reader?url=https%3A%2F%2Fwww.example.com%2Farticle")).toBe(
+      "www.example.com",
+    );
+    expect(hostFromTabUrl("about:reader?url=https://news.site/x&foo=1")).toBe("news.site");
+    expect(hostFromTabUrl("about:reader")).toBeNull();
+    expect(hostFromTabUrl("about:reader?url=chrome%3A%2F%2Fsettings")).toBeNull();
+    expect(hostFromTabUrl("about:reader?url=")).toBeNull();
+  });
   it("accepts bare hosts with optional ports", () => {
     expect(hostFromTabUrl("Example.com")).toBe("example.com");
     expect(hostFromTabUrl("localhost:3000")).toBe("localhost");
