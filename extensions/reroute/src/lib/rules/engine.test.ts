@@ -1,5 +1,8 @@
+import { hostMatchesAny } from "@browserforge/shared";
 import { describe, expect, it } from "vitest";
 import { DNR_PRIORITY } from "../dnr";
+import type { DnrRule } from "../dnr";
+import { conditionMatches } from "../tracking/clean";
 import {
   allowlistToDNR,
   anchorForDNR,
@@ -10,6 +13,7 @@ import {
   dnrIneligibilityReason,
   firstMatch,
   isRE2Compatible,
+  isValidAbsoluteUrl,
   matchRule,
   matchRuleDetailed,
   substitute,
@@ -23,14 +27,46 @@ import { createRule, type Rule } from "./model";
 
 const rule = (p: Partial<Rule>): Rule => createRule({ id: p.id ?? "t", name: "test", ...p });
 
+/**
+ * What Chrome does with a matching `regexFilter` + `regexSubstitution` rule:
+ * the first match of the filter within the URL is replaced by the substitution
+ * (`\N` = capture N). Returns null when the filter does not match.
+ */
+function emulateDnrRedirect(dnr: DnrRule, url: string): string | null {
+  const filter = new RegExp(dnr.condition.regexFilter!, "i");
+  if (!filter.test(url)) return null;
+  const substitution = dnr.action.redirect!.regexSubstitution!.replace(/\\(\d)/g, "$$$1");
+  return url.replace(filter, substitution);
+}
+
+/** Redirector 3.5.3 `_preparePattern` + `_includeMatch`, verbatim semantics, used as an oracle. */
+function redirectorWildcard(pattern: string, redirectUrl: string, url: string): string | null {
+  let converted = "^";
+  for (const ch of pattern) {
+    if ("()[]{}?.^$\\+".includes(ch)) converted += "\\" + ch;
+    else if (ch === "*") converted += "(.*?)";
+    else converted += ch;
+  }
+  converted += "$";
+  const matches = new RegExp(converted, "gi").exec(url);
+  if (!matches) return null;
+  let out = redirectUrl;
+  for (let i = matches.length - 1; i > 0; i--) {
+    out = out.replace(new RegExp("\\$" + i, "gi"), matches[i] || "");
+  }
+  return out;
+}
+
 describe("wildcardToRegex", () => {
   it("escapes regex specials and anchors", () => {
     expect(wildcardToRegex("https://example.com/path?x=1")).toBe(
       "^https://example\\.com/path\\?x=1$",
     );
   });
-  it("turns each * into a capture group", () => {
-    expect(wildcardToRegex("https://*.example.com/*")).toBe("^https://(.*)\\.example\\.com/(.*)$");
+  it("turns each * into a lazy capture group, like Redirector", () => {
+    expect(wildcardToRegex("https://*.example.com/*")).toBe(
+      "^https://(.*?)\\.example\\.com/(.*?)$",
+    );
   });
   it("matches Redirector fixture: http://example.com/* -> https", () => {
     const re = new RegExp(wildcardToRegex("http://example.com/*"), "i");
@@ -376,7 +412,7 @@ describe("DNR compilation", () => {
       id: 10_000,
       priority: DNR_PRIORITY.userRuleBase + 5, // 6 enabled rules, index 0
       condition: {
-        regexFilter: "^http://example\\.com/(.*)$",
+        regexFilter: "^http://example\\.com/(.*?)$",
         resourceTypes: ["main_frame"],
         isUrlFilterCaseSensitive: false,
       },
@@ -424,18 +460,146 @@ describe("DNR compilation", () => {
     expect(emulated).toBe(matchRule(url, r));
   });
 
-  it("allowlistToDNR builds one allow rule over normalised domains", () => {
+  it("allowlistToDNR builds allow rules per pattern form over normalised hosts", () => {
     expect(allowlistToDNR([], 1)).toEqual([]);
-    const [allow] = allowlistToDNR(["Example.com", "*.foo.org", "*bar.net", " .baz.io. "], 7);
-    expect(allow!.id).toBe(7);
-    expect(allow!.priority).toBe(DNR_PRIORITY.siteAllow);
-    expect(allow!.action).toEqual({ type: "allow" });
-    expect(allow!.condition.requestDomains).toEqual([
-      "example.com",
-      "foo.org",
-      "bar.net",
-      "baz.io",
-    ]);
+    const rules = allowlistToDNR(["Example.com", "*.foo.org", "*bar.net", " .baz.io. "], 7);
+    expect(rules.map((r) => r.id)).toEqual([7, 8, 9]);
+    for (const r of rules) {
+      expect(r.priority).toBe(DNR_PRIORITY.siteAllow);
+      expect(r.action).toEqual({ type: "allow" });
+    }
+    // `*host` -> requestDomains (apex and subdomains)
+    expect(rules[0]!.condition.requestDomains).toEqual(["bar.net"]);
+    // exact hosts -> one regex
+    expect(rules[1]!.condition.regexFilter).toContain("example\\.com|baz\\.io");
+    // `*.host` -> one regex
+    expect(rules[2]!.condition.regexFilter).toContain("foo\\.org");
+  });
+});
+
+describe("Redirector wildcard fidelity", () => {
+  const cases: [pattern: string, redirect: string, url: string][] = [
+    // Multiple wildcards: Redirector's captures are lazy, so $1 is the shortest split.
+    ["https://example.com/*/*", "https://x.example/$2/$1", "https://example.com/a/b/c"],
+    ["https://*.example.com/*", "https://$1.other/$2", "https://a.b.example.com/p/q"],
+    ["*?id=*&*", "https://x/$2?rest=$3", "https://a.example/p?id=7&x=1&y=2"],
+    ["https://example.com/*", "https://x/$1", "https://example.com/only/one"],
+    ["https://example.com/*-*", "https://x/$1/$2", "https://example.com/a-b-c"],
+  ];
+  it.each(cases)("matches Redirector for %s", (pattern, redirect, url) => {
+    const r = rule({ matchType: "wildcard", include: pattern, redirectTo: redirect });
+    expect(matchRule(url, r)).toBe(redirectorWildcard(pattern, redirect, url));
+  });
+});
+
+describe("DNR / JS parity", () => {
+  const parity = (r: Rule, url: string) => {
+    const { dnrRules, jsOnlyRuleIds } = compileToDNR([r], 1);
+    expect(jsOnlyRuleIds, "rule should be DNR-eligible").toEqual([]);
+    expect(emulateDnrRedirect(dnrRules[0]!, url)).toBe(matchRule(url, r));
+  };
+
+  it("top-level alternation with per-branch anchors replaces the whole URL", () => {
+    parity(
+      rule({
+        id: "alt",
+        matchType: "regex",
+        include: "^https://a\\.example/x|b\\.example/(.*)$",
+        redirectTo: "https://c.example/$1",
+      }),
+      "https://www.b.example/path?q=1",
+    );
+    parity(
+      rule({
+        id: "alt2",
+        matchType: "regex",
+        include: "^https://a\\.example/(.*)|old\\.example/(.*)",
+        redirectTo: "https://c.example/$1$2",
+      }),
+      "https://site.old.example/deep",
+    );
+    parity(
+      rule({
+        id: "alt3",
+        matchType: "regex",
+        include: "shorts/([\\w-]+)|reel/([\\w-]+)$",
+        redirectTo: "https://v.example/watch?v=$1$2",
+      }),
+      "https://www.example.com/reel/abc",
+    );
+  });
+
+  it("alternation inside groups, classes and escapes is not top-level", () => {
+    expect(anchorForDNR("^(?:a|b)$")).toBe("^(?:a|b)$");
+    expect(anchorForDNR("^[|]$")).toBe("^[|]$");
+    expect(anchorForDNR("^a\\|b$")).toBe("^a\\|b$");
+    expect(anchorForDNR("^a|b$")).toBe("^.*?(?:^a|b$).*$");
+  });
+
+  it("wildcard rules compile to the same lazy captures the JS engine uses", () => {
+    parity(
+      rule({ id: "w", include: "https://example.com/*/*", redirectTo: "https://x.example/$2/$1" }),
+      "https://example.com/a/b/c",
+    );
+  });
+});
+
+describe("redirect target scheme", () => {
+  it("never produces a javascript: target (tabs.update and DNR both reject it)", () => {
+    expect(isValidAbsoluteUrl("javascript:alert(1)")).toBe(false);
+    expect(isValidAbsoluteUrl("JavaScript:void 0")).toBe(false);
+    expect(isValidAbsoluteUrl("https://a.example/")).toBe(true);
+    expect(isValidAbsoluteUrl("about:blank")).toBe(true);
+    expect(
+      matchRule(
+        "https://a.example/x",
+        rule({ include: "https://a.example/*", redirectTo: "javascript:alert('$1')" }),
+      ),
+    ).toBeNull();
+  });
+});
+
+describe("RE2 escapes that JS reads as plain letters", () => {
+  it("are rejected so the rule stays on the JS path", () => {
+    // In JS these are identity escapes ("A", "z", ...); in RE2 they are anchors / literals / bytes.
+    for (const src of ["\\Ahttps://a", "a\\z", "\\Qa.b\\E", "a\\Cb", "\\a"]) {
+      expect(checkRE2Compatible(src).ok, src).toBe(false);
+    }
+    expect(isRE2Compatible("\\d\\/\\.\\-\\w")).toBe(true);
+  });
+});
+
+describe("allowlist DNR rules follow the same host semantics as the JS fallback", () => {
+  const allowed = (patterns: string[], url: string) => {
+    const host = new URL(url).hostname;
+    const rules = allowlistToDNR(patterns, 1);
+    return rules.some((r) => conditionMatches(r, url, host));
+  };
+  const cases: [patterns: string[], url: string][] = [
+    [["example.com"], "https://example.com/"],
+    [["example.com"], "https://www.example.com/"],
+    [["example.com"], "https://example.com:8443/p?q#f"],
+    [["example.com"], "https://notexample.com/"],
+    [["*.example.com"], "https://example.com/"],
+    [["*.example.com"], "https://a.b.example.com/"],
+    [["*example.com"], "https://example.com/"],
+    [["*example.com"], "https://a.example.com/"],
+    [["*example.com"], "https://notexample.com/"],
+    [["Example.COM", "*.Other.org"], "https://x.other.org/"],
+    [["Example.COM", "*.Other.org"], "https://other.org/"],
+  ];
+  it.each(cases)("%j vs %s", (patterns, url) => {
+    expect(allowed(patterns, url)).toBe(hostMatchesAny(new URL(url).hostname, patterns));
+  });
+  it("uses RE2-safe regexes and distinct ids", () => {
+    const rules = allowlistToDNR(["a.example", "*.b.example", "*c.example"], 1);
+    const ids = rules.map((r) => r.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const r of rules) {
+      expect(r.action).toEqual({ type: "allow" });
+      expect(r.priority).toBe(DNR_PRIORITY.siteAllow);
+      if (r.condition.regexFilter) expect(isRE2Compatible(r.condition.regexFilter)).toBe(true);
+    }
   });
 });
 
