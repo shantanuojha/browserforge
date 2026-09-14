@@ -40,11 +40,28 @@ describe("public/rules/tracking-params.json", () => {
         expect(r.priority).toBe(DNR_PRIORITY.trackingException);
       } else {
         expect(r.action.type).toBe("redirect");
-        expect(r.priority).toBe(DNR_PRIORITY.tracking);
+        expect(r.priority).toBeGreaterThanOrEqual(DNR_PRIORITY.tracking);
+        expect(r.priority).toBeLessThan(DNR_PRIORITY.trackingException);
         const params = r.action.redirect?.transform?.queryTransform?.removeParams ?? [];
         expect(params.length).toBeGreaterThan(0);
         for (const p of params) expect(p).toMatch(/^[^&=#\s]+$/);
       }
+    }
+  });
+
+  it("every provider rule carries the catch-all parameters and outranks it", () => {
+    const removers = rules.filter((r) => r.action.type === "redirect");
+    const catchAll = removers.find(
+      (r) => !r.condition.regexFilter && !r.condition.requestDomains && !r.condition.urlFilter,
+    );
+    if (!catchAll) return; // fallback set without a global provider
+    const globalParams = catchAll.action.redirect!.transform!.queryTransform!.removeParams!;
+    expect(catchAll.priority).toBe(DNR_PRIORITY.tracking);
+    for (const r of removers) {
+      if (r === catchAll) continue;
+      expect(r.priority!, `rule ${r.id}`).toBeGreaterThan(catchAll.priority!);
+      const params = new Set(r.action.redirect!.transform!.queryTransform!.removeParams!);
+      for (const p of globalParams) expect(params.has(p), `rule ${r.id} lacks ${p}`).toBe(true);
     }
   });
 

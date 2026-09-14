@@ -18,7 +18,7 @@ Reroute is not affiliated with or endorsed by the ClearURLs project.
 
 ## Last generation
 
-- Generated: 2026-09-07T20:56:51.704Z
+- Generated: 2026-09-14T21:01:43.622Z
 - Source: https://rules2.clearurls.xyz/data.minify.json
 - Providers: 141 used of 206
   (65 skipped)

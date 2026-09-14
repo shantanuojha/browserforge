@@ -72,14 +72,20 @@ export const DNR_LIMITS = {
  * Priority bands. Higher wins. Allow rules only suppress rules with a lower or
  * equal priority, so the ordering below encodes the product semantics:
  *
- *   tracking removeParams (static)      1
- *   tracking exceptions (static allow)  2   suppress only tracking cleanup
+ *   tracking removeParams (static)      1..9  catch-all at 1; a provider whose condition is
+ *                                             covered by another's sits one above it
+ *   tracking exceptions (static allow)  10    suppress only tracking cleanup
  *   user redirect rules (dynamic)       100..  never suppressed by tracking exceptions
  *   per-site allowlist (dynamic allow)  100000 turns everything off for a host
+ *
+ * Chrome applies exactly one matching redirect rule per request (the highest
+ * priority; ties broken by index order) and does not fall through when that
+ * rule's removeParams changes nothing, so nested tracking rules must both
+ * outrank and include the rules that cover them.
  */
 export const DNR_PRIORITY = {
   tracking: 1,
-  trackingException: 2,
+  trackingException: 10,
   userRuleBase: 100,
   siteAllow: 100_000,
 } as const;

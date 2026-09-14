@@ -3,9 +3,12 @@
  * "Copy clean link" and the popup's "Clean & copy current URL", so the copied
  * link matches what the network layer would have produced for a navigation.
  *
- * Semantics mirror DNR for the rule shapes we generate: the highest-priority
- * matching rule wins; `allow` beats `redirect` at equal priority; because every
- * redirect re-enters matching, all applicable removeParams rules end up applied.
+ * Semantics mirror DNR for the rule shapes we generate: `allow` at a priority
+ * at or above a redirect rule suppresses it; of the remaining removeParams
+ * rules only the highest-priority one is applied (Chrome picks a single rule
+ * per request and does not fall through when it changes nothing, which is why
+ * the generator nests parameters into the more specific rule). Equal-priority
+ * ties, which the generator avoids for nested providers, are unioned here.
  */
 
 import type { DnrRule } from "../dnr";
@@ -100,11 +103,13 @@ export function cleanUrl(url: string, rules: readonly DnrRule[]): CleanResult {
     else if (rule.action.redirect?.transform?.queryTransform?.removeParams) removers.push(rule);
   }
 
+  const eligible = removers.filter((rule) => (rule.priority ?? 1) > maxAllow);
+  if (eligible.length === 0) return { url, removed: [], changed: false };
+  const top = Math.max(...eligible.map((rule) => rule.priority ?? 1));
   const keys = new Set<string>();
-  for (const rule of removers) {
-    if ((rule.priority ?? 1) <= maxAllow) continue;
+  for (const rule of eligible) {
+    if ((rule.priority ?? 1) !== top) continue;
     for (const k of rule.action.redirect!.transform!.queryTransform!.removeParams!) keys.add(k);
   }
-  if (keys.size === 0) return { url, removed: [], changed: false };
   return removeQueryKeys(url, keys);
 }
