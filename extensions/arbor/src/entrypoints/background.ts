@@ -244,6 +244,10 @@ export default defineBackground(() => {
       }),
     )
     .on(
+      msg.applyHistoryStep,
+      gated((step) => tracker.runHistoryStep(step)),
+    )
+    .on(
       msg.listSnapshots,
       gated(() => store.listSnapshots()),
     )

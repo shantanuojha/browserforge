@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+﻿import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { browser } from "wxt/browser";
 import { Button, ProBadge } from "@browserforge/ui";
 import { ConfirmDialog } from "@/components/ConfirmDialog";
@@ -7,15 +7,25 @@ import { ImportExportView } from "@/components/ImportExportView";
 import { RecoveryView } from "@/components/RecoveryView";
 import { TreeView, type TreeActions } from "@/components/TreeView";
 import { UpsellRow } from "@/components/UpsellRow";
+import { useHistory } from "@/hooks/useHistory";
 import { usePro } from "@/hooks/usePro";
 import { useSettings } from "@/hooks/useSettings";
 import { useTreeState } from "@/hooks/useTreeState";
 import { summarizeContainer } from "@/lib/container-actions";
+import { history } from "@/lib/history";
 import { msg } from "@/lib/messages";
 import { descendantIds, ops, type NodeId, type Tree } from "@/lib/model";
 import { primaryActionFor } from "@/lib/primary-action";
 
 type View = "tree" | "recovery" | "io";
+
+/** Footer message; `undo` adds an Undo button for the entry just recorded. */
+interface Toast {
+  text: string;
+  undo?: boolean;
+}
+
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Body of the delete confirmation: what goes, and how many open tabs it closes unsaved. */
 function deleteWarning(tree: Tree, id: NodeId): string {
@@ -47,74 +57,150 @@ export function App() {
   const [confirm, setConfirm] = useState<
     { kind: "close-all" } | { kind: "delete"; id: NodeId } | null
   >(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useState<Toast | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const fallback = useMemo(() => faviconFallback(), []);
 
   const report = useCallback((e: unknown) => {
-    setToast(e instanceof Error ? e.message : String(e));
+    setToast({ text: e instanceof Error ? e.message : String(e) });
   }, []);
+  const hist = useHistory(report);
+  const { undo, redo, push } = hist;
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 4000);
+    // A toast that offers Undo stays a little longer.
+    const t = setTimeout(() => setToast(null), toast.undo ? 5000 : 4000);
     return () => clearTimeout(t);
   }, [toast]);
 
-  // "/" focuses search from anywhere in the panel.
+  const undoNow = useCallback(() => {
+    setToast(null);
+    void undo().then((e) => {
+      if (e) setToast({ text: `Undone: ${e.label}.` });
+    });
+  }, [undo]);
+  const redoNow = useCallback(() => {
+    setToast(null);
+    void redo().then((e) => {
+      if (e) setToast({ text: `Redone: ${e.label}.` });
+    });
+  }, [redo]);
+
+  // "/" focuses search from anywhere in the panel; Ctrl+Z / Ctrl+Shift+Z / Ctrl+Y undo and redo
+  // tree edits while the panel has focus (inside a text field they keep their native meaning).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement;
-      if (e.key === "/" && target.tagName !== "INPUT" && target.tagName !== "TEXTAREA") {
+      const inEditor = target.tagName === "INPUT" || target.tagName === "TEXTAREA";
+      if (inEditor) return;
+      if (e.key === "/") {
         e.preventDefault();
         setView("tree");
         searchRef.current?.focus();
+        return;
+      }
+      if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+      const key = e.key.toLowerCase();
+      if (key === "z") {
+        e.preventDefault();
+        if (e.shiftKey) redoNow();
+        else undoNow();
+      } else if (key === "y" && !e.shiftKey) {
+        e.preventDefault();
+        redoNow();
       }
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, []);
+  }, [undoNow, redoNow]);
+
+  // Every mutating action records its inverse against the tree the panel showed at the time
+  // (`tree`), so `actions` is rebuilt per tree version. Collapse/expand is not recorded.
+  const performDelete = useCallback(
+    (id: NodeId) => {
+      void msg.deleteNode.send({ id }).then((removed) => {
+        const entry = history.remove(tree, removed, id);
+        push(entry);
+        if (entry) setToast({ text: `${entry.done}.`, undo: true });
+      }, report);
+    },
+    [tree, push, report],
+  );
 
   const actions = useMemo<TreeActions>(() => {
     const run = (p: Promise<unknown>) => void p.catch(report);
+    const reopen = (id: NodeId) => {
+      const entry = history.reopen(tree, id);
+      run(msg.restoreNode.send({ id }).then(() => push(entry)));
+    };
     return {
       toggleCollapse: (id, collapsed) => run(msg.applyOps.send([ops.collapse(id, collapsed)])),
-      setNote: (id, note) => run(msg.applyOps.send([ops.note(id, note)])),
-      rename: (id, title) => run(msg.applyOps.send([ops.update(id, { title })])),
+      setNote: (id, note) => {
+        const entry = history.note(tree, id, note);
+        run(msg.applyOps.send([ops.note(id, note)]).then(() => push(entry)));
+      },
+      rename: (id, title) => {
+        const entry = history.rename(tree, id, title);
+        run(msg.applyOps.send([ops.update(id, { title })]).then(() => push(entry)));
+      },
       primary: (id) => {
         const n = tree.get(id);
         if (!n) return;
+        if (primaryActionFor(n) === "focus") run(msg.focusNode.send({ id }));
+        else reopen(id);
+      },
+      closeAndSave: (id) => {
+        const entry = history.closeAndSave(tree, id);
         run(
-          primaryActionFor(n) === "focus"
-            ? msg.focusNode.send({ id })
-            : msg.restoreNode.send({ id }),
+          msg.closeAndSave.send({ id }).then((n) => {
+            push(entry);
+            if (n) setToast({ text: `Closed and saved ${plural(n, "tab")}.`, undo: !!entry });
+          }),
         );
       },
-      closeAndSave: (id) => run(msg.closeAndSave.send({ id })),
-      restore: (id) => run(msg.restoreNode.send({ id })),
-      reopenAll: (id) =>
+      restore: reopen,
+      reopenAll: (id) => {
+        const entry = history.reopen(tree, id);
         run(
-          msg.reopenAll
-            .send({ id })
-            .then((n) =>
-              setToast(n ? `Reopened ${n} saved tab${n === 1 ? "" : "s"}.` : "Nothing to reopen."),
-            ),
-        ),
+          msg.reopenAll.send({ id }).then((n) => {
+            push(entry);
+            setToast(
+              n
+                ? { text: `Reopened ${plural(n, "saved tab")}.`, undo: !!entry }
+                : { text: "Nothing to reopen." },
+            );
+          }),
+        );
+      },
       deleteNode: (id) => {
         const n = tree.get(id);
         if (!n) return;
         const subtree = descendantIds(tree, id).length;
         const live = n.liveTabId !== undefined || n.liveWindowId !== undefined;
         if (subtree > 0 || live) setConfirm({ kind: "delete", id });
-        else run(msg.deleteNode.send({ id }));
+        else performDelete(id);
       },
-      move: (id, parentId, index) => run(msg.moveNode.send({ id, parentId, index })),
+      move: (id, parentId, index) =>
+        run(
+          msg.moveNode
+            .send({ id, parentId, index })
+            .then((pruned) => push(history.move(tree, id, parentId, index, pruned))),
+        ),
       addGroup: (parentId, index) =>
-        run(msg.addNode.send({ parentId, index, kind: "group", title: "New group" })),
+        run(
+          msg.addNode
+            .send({ parentId, index, kind: "group", title: "New group" })
+            .then((node) => push(history.create(node, index))),
+        ),
       addNote: (parentId, index) =>
-        run(msg.addNode.send({ parentId, index, kind: "note", title: "Note" })),
+        run(
+          msg.addNode
+            .send({ parentId, index, kind: "note", title: "Note" })
+            .then((node) => push(history.create(node, index))),
+        ),
     };
-  }, [tree, report]);
+  }, [tree, report, push, performDelete]);
 
   const liveTabCount = useMemo(() => {
     let n = 0;
@@ -125,8 +211,13 @@ export function App() {
   const closeAll = () => {
     if (settings.confirmCloseAll) setConfirm({ kind: "close-all" });
     else
-      void msg.closeAllAndSave.send().then((n) => setToast(`Closed and saved ${n} tabs.`), report);
+      void msg.closeAllAndSave
+        .send()
+        .then((n) => setToast({ text: `Closed and saved ${plural(n, "tab")}.` }), report);
   };
+
+  const undoTitle = hist.undoLabel ? `Undo: ${hist.undoLabel}` : "Nothing to undo";
+  const redoTitle = hist.redoLabel ? `Redo: ${hist.redoLabel}` : "Nothing to redo";
 
   const live = state?.live ?? { activeTabIds: [], focusedWindowId: undefined };
 
@@ -181,6 +272,28 @@ export function App() {
                 aria-label="Search"
               />
             </label>
+            <span className="toolbar__history" role="group" aria-label="Undo and redo">
+              <button
+                type="button"
+                className="icon-btn"
+                title={`${undoTitle} (Ctrl+Z)`}
+                aria-label={undoTitle}
+                disabled={!hist.canUndo}
+                onClick={undoNow}
+              >
+                <Icon name="undo" />
+              </button>
+              <button
+                type="button"
+                className="icon-btn"
+                title={`${redoTitle} (Ctrl+Shift+Z)`}
+                aria-label={redoTitle}
+                disabled={!hist.canRedo}
+                onClick={redoNow}
+              >
+                <Icon name="redo" />
+              </button>
+            </span>
             <Button
               size="sm"
               variant="secondary"
@@ -224,11 +337,18 @@ export function App() {
 
       <footer className="app__footer">
         {toast ? (
-          <span>{toast}</span>
+          <span className="toast" role="status">
+            <span className="toast__text">{toast.text}</span>
+            {toast.undo && hist.canUndo ? (
+              <Button size="sm" variant="ghost" onClick={undoNow}>
+                Undo
+              </Button>
+            ) : null}
+          </span>
         ) : pro === false ? (
           <UpsellRow compact feature="Scheduled backups." />
         ) : (
-          <span>Arrows move, Enter opens, Delete closes and saves, N adds a note.</span>
+          <span>Arrows move, Enter opens, Delete closes and saves, Ctrl+Z undoes.</span>
         )}
         <Button size="sm" variant="ghost" onClick={() => void browser.runtime.openOptionsPage()}>
           Options
@@ -244,7 +364,7 @@ export function App() {
             setConfirm(null);
             void msg.closeAllAndSave
               .send()
-              .then((n) => setToast(`Closed and saved ${n} tabs.`), report);
+              .then((n) => setToast({ text: `Closed and saved ${plural(n, "tab")}.` }), report);
           }}
           onCancel={() => setConfirm(null)}
         >
@@ -261,7 +381,7 @@ export function App() {
           onConfirm={() => {
             const id = confirm.id;
             setConfirm(null);
-            void msg.deleteNode.send({ id }).catch(report);
+            performDelete(id);
           }}
           onCancel={() => setConfirm(null)}
         >

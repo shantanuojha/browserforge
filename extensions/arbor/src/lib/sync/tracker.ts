@@ -1,3 +1,4 @@
+import type { HistoryStep } from "../history";
 import { newId } from "../ids";
 import {
   buildChildIndex,
@@ -90,7 +91,11 @@ export class TabTracker {
   private readonly knownWindows = new Map<number, boolean>();
   private focusedWindowId: number | undefined;
   private adoptTabs: TabAdoption[] = [];
-  private adoptWindow: { nodeId: NodeId; urls: string[] } | null = null;
+  private adoptWindow: {
+    nodeId: NodeId;
+    urls: string[];
+    only: ReadonlySet<NodeId> | undefined;
+  } | null = null;
   private readonly newId: () => string;
   private readonly now: () => number;
 
@@ -530,7 +535,7 @@ export class TabTracker {
     this.knownWindows.set(win.id, isTrackableWindow(win));
     if (!isTrackableWindow(win)) return;
     if (this.adoptWindow) {
-      const { nodeId, urls } = this.adoptWindow;
+      const { nodeId, urls, only } = this.adoptWindow;
       this.adoptWindow = null;
       const node = this.tree.get(nodeId);
       if (node && node.kind === "window" && node.liveWindowId === undefined) {
@@ -538,7 +543,7 @@ export class TabTracker {
         // Queue adoptions so the tabs.onCreated events reuse the saved children by url.
         const used = new Set<NodeId>();
         for (const url of urls) {
-          const target = this.savedDescendantByUrl(nodeId, url, used);
+          const target = this.savedDescendantByUrl(nodeId, url, used, only);
           if (target) {
             used.add(target.id);
             this.adoptTabs.push({ nodeId: target.id, url, windowId: win.id, ts: this.now() });
@@ -839,6 +844,7 @@ export class TabTracker {
     rootId: NodeId,
     url: string,
     used: Set<NodeId>,
+    only?: ReadonlySet<NodeId>,
   ): TreeNode | undefined {
     const tree = this.tree;
     for (const id of descendantIds(tree, rootId)) {
@@ -848,6 +854,7 @@ export class TabTracker {
         n.kind === "tab" &&
         n.liveTabId === undefined &&
         !used.has(id) &&
+        (!only || only.has(id)) &&
         sameUrl(n.url, url)
       ) {
         return n;
@@ -900,15 +907,25 @@ export class TabTracker {
     return opened;
   }
 
-  /** Reopen a saved window node as a new browser window; its saved descendants become its tabs. */
-  private async reopenWindow(node: TreeNode): Promise<number> {
+  /**
+   * Reopen a saved window node as a new browser window; its saved descendants (or just the ones
+   * in `only`) become its tabs.
+   */
+  private async reopenWindow(node: TreeNode, only?: ReadonlySet<NodeId>): Promise<number> {
     const nodeId = node.id;
     const urls = descendantIds(this.tree, nodeId)
       .map((id) => this.tree.get(id))
-      .filter((n): n is TreeNode => !!n && n.kind === "tab" && n.liveTabId === undefined && !!n.url)
+      .filter(
+        (n): n is TreeNode =>
+          !!n &&
+          n.kind === "tab" &&
+          n.liveTabId === undefined &&
+          !!n.url &&
+          (!only || only.has(n.id)),
+      )
       .map((n) => n.url as string);
     if (!urls.length) return 0;
-    this.adoptWindow = { nodeId, urls };
+    this.adoptWindow = { nodeId, urls, only };
     let created: { window: LiveWindow; tabs: LiveTab[] };
     try {
       created = await this.port.createWindow(urls);
@@ -923,7 +940,7 @@ export class TabTracker {
     const used = new Set<NodeId>();
     for (const t of tabs) {
       const url = t.pendingUrl || t.url;
-      const target = url ? this.savedDescendantByUrl(nodeId, url, used) : undefined;
+      const target = url ? this.savedDescendantByUrl(nodeId, url, used, only) : undefined;
       if (target) {
         used.add(target.id);
         this.finishTabAdoption(target.id, t);
@@ -1053,5 +1070,90 @@ export class TabTracker {
     if (sameWindow && currentOrder.indexOf(tabId) === targetIndex) return pruned;
     await this.port.moveTab(tabId, targetWindow.liveWindowId, targetIndex);
     return pruned;
+  }
+
+  // -- undo / redo ----------------------------------------------------------------------------
+
+  /**
+   * Reopen exactly these saved tab nodes in place (undo of close-and-save, redo of a reopen).
+   * Nodes whose nearest window node is a saved window come back together as that window (one new
+   * browser window, the node live again); the rest open one by one where they sit, like
+   * `restore` does. Nodes that are not saved tabs with a url are skipped. Returns the count.
+   */
+  async reopenNodes(ids: readonly NodeId[]): Promise<number> {
+    const byWindow = new Map<NodeId | null, TreeNode[]>();
+    for (const id of ids) {
+      const n = this.tree.get(id);
+      if (!n || n.kind !== "tab" || n.liveTabId !== undefined || !n.url) continue;
+      const win = windowNodeOf(this.tree, id);
+      const key = win && win.liveWindowId === undefined ? win.id : null;
+      const list = byWindow.get(key);
+      if (list) list.push(n);
+      else byWindow.set(key, [n]);
+    }
+    let opened = 0;
+    for (const [winId, nodes] of byWindow) {
+      const win = winId === null ? undefined : this.tree.get(winId);
+      if (win && win.liveWindowId === undefined) {
+        opened += await this.reopenWindow(win, new Set(nodes.map((n) => n.id)));
+        continue;
+      }
+      for (const n of nodes) {
+        const current = this.tree.get(n.id);
+        if (!current || current.liveTabId !== undefined) continue;
+        await this.reopenTab(current, false);
+        opened++;
+      }
+    }
+    return opened;
+  }
+
+  /**
+   * Close the browser tabs of exactly these nodes (undo of a reopen, redo of close-and-save).
+   * The resulting events turn the nodes into saved nodes in place. Returns the count.
+   */
+  async closeNodes(ids: readonly NodeId[]): Promise<number> {
+    const tabIds: number[] = [];
+    for (const id of ids) {
+      const n = this.tree.get(id);
+      if (n && n.kind === "tab" && n.liveTabId !== undefined) tabIds.push(n.liveTabId);
+    }
+    if (tabIds.length) await this.port.removeTabs(tabIds);
+    return tabIds.length;
+  }
+
+  /**
+   * Run one undo/redo step (see `history.ts`). Every kind maps onto the same code a user gesture
+   * would run, so live tabs are handled identically; steps that no longer apply throw with a
+   * message the panel shows.
+   */
+  async runHistoryStep(step: HistoryStep): Promise<void> {
+    switch (step.kind) {
+      case "ops":
+        this.store.append(step.ops);
+        return;
+      case "removeEmpty": {
+        const node = this.tree.get(step.id);
+        if (!node) return;
+        if (childrenOf(this.tree, step.id).length) {
+          throw new Error(`"${node.title}" is no longer empty, so it was not removed`);
+        }
+        this.store.append([ops.remove(step.id)]);
+        return;
+      }
+      case "move":
+        if (!this.tree.has(step.id)) throw new Error("That node no longer exists");
+        await this.moveNode(step.id, step.parentId, step.index);
+        return;
+      case "delete":
+        await this.deleteNode(step.id);
+        return;
+      case "reopen":
+        await this.reopenNodes(step.ids);
+        return;
+      case "close":
+        await this.closeNodes(step.ids);
+        return;
+    }
   }
 }

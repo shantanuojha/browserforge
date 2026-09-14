@@ -1,4 +1,5 @@
 import type { BackupMeta } from "./backups";
+import type { HistoryStep } from "./history";
 import type { ArborExport } from "./io/arbor-json";
 import { defineMessage } from "./messaging";
 import type { NodeId, Op, OpBody, TreeNode } from "./model";
@@ -43,6 +44,8 @@ export const msg = {
     { parentId: NodeId | null; index?: number; kind: "group" | "note"; title: string },
     TreeNode
   >("addNode"),
+  /** One undo/redo step, run through the tracker like the user action it reverses. */
+  applyHistoryStep: defineMessage<HistoryStep, void>("applyHistoryStep"),
 
   listSnapshots: defineMessage<void, SnapshotMeta[]>("listSnapshots"),
   restoreSnapshot: defineMessage<{ seq: number }, number>("restoreSnapshot"),

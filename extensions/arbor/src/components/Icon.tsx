@@ -10,7 +10,9 @@ export type IconName =
   | "trash"
   | "plus"
   | "search"
-  | "more";
+  | "more"
+  | "undo"
+  | "redo";
 
 const PATHS: Record<IconName, string> = {
   chevron: "M4.5 2.5 8 6l-3.5 3.5",
@@ -26,6 +28,8 @@ const PATHS: Record<IconName, string> = {
   plus: "M6 2v8M2 6h8",
   search: "M5 1.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 1 0 0-7M7.5 7.5l3 3",
   more: "M3 6h.01M6 6h.01M9 6h.01",
+  undo: "M2.5 4.5h5a2.25 2.25 0 0 1 0 4.5H5M4.5 2.5l-2 2 2 2",
+  redo: "M9.5 4.5h-5a2.25 2.25 0 0 0 0 4.5H7M7.5 2.5l2 2-2 2",
 };
 
 export interface IconProps {

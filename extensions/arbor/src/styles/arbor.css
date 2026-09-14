@@ -141,6 +141,36 @@ body {
 .toolbar__spacer {
   flex: 1;
 }
+.toolbar__history {
+  display: inline-flex;
+  gap: 2px;
+}
+.toolbar__history .icon-btn {
+  padding: 4px 6px;
+  border-color: var(--bf-color-border);
+  background: var(--bf-color-surface);
+}
+.toolbar__history .icon-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+  background: transparent;
+  border-color: transparent;
+}
+.toolbar__history .icon-btn:disabled:hover {
+  color: var(--bf-color-text-muted);
+}
+
+.toast {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--bf-space-2);
+  min-width: 0;
+}
+.toast__text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .search {
   flex: 1;
