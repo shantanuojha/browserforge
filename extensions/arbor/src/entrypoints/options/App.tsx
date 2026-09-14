@@ -1,152 +1,64 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
-import { Button, ProBadge } from "@browserforge/ui";
-import { downloadJson } from "@/adapters/files";
-import { msg } from "@/adapters/messaging";
+import { useCallback, useEffect, useState } from "react";
+import { errorMessage } from "@browserforge/shared";
+import { ProBadge } from "@browserforge/ui";
 import { hasIdentityPermission, requestIdentityPermission } from "@/adapters/permissions";
 import { LicenseSection } from "@/components/LicenseSection";
-import { UpsellRow } from "@/components/UpsellRow";
+import { BackupsSection, type DriveBackupProps } from "@/components/options/BackupsSection";
+import { GeneralSection } from "@/components/options/GeneralSection";
+import { useBackups } from "@/hooks/useBackups";
 import { usePro } from "@/hooks/usePro";
 import { useSettings } from "@/hooks/useSettings";
-import type { BackupMeta } from "@/lib/backups";
-import { fileStamp, formatDateTime } from "@/lib/format";
 import { DRIVE_BACKUP_ENABLED } from "@/lib/pro";
 import type { Settings } from "@/lib/settings";
 
-function Field({
-  label,
-  hint,
-  htmlFor,
-  children,
-}: {
-  label: string;
-  hint?: string;
-  htmlFor?: string;
-  children: ReactNode;
-}) {
-  return (
-    <div className="field">
-      <label className="field__label" htmlFor={htmlFor}>
-        <span>{label}</span>
-        {hint ? <span className="field__hint">{hint}</span> : null}
-      </label>
-      {children}
-    </div>
-  );
+/** Whether the optional `identity` permission is granted; only asked while Drive backup is shipped. */
+function useIdentityPermission(): [boolean | null, (granted: boolean) => void] {
+  const [granted, setGranted] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (!DRIVE_BACKUP_ENABLED) return;
+    let cancelled = false;
+    hasIdentityPermission()
+      .then((value) => {
+        if (!cancelled) setGranted(value);
+      })
+      .catch(() => {
+        if (!cancelled) setGranted(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+  return [granted, setGranted];
 }
 
-/**
- * A number input whose stored value is clamped. While it has focus it shows what the user typed
- * and only commits values inside the range; the clamped value is committed on blur. Committing
- * every keystroke straight into the clamped setting snapped the field mid-edit (clearing the
- * snapshot interval showed "1", typing "10" then produced "110").
- */
-function NumberField({
-  id,
-  min,
-  max,
-  value,
-  disabled,
-  onCommit,
-}: {
-  id: string;
-  min: number;
-  max: number;
-  value: number;
-  disabled?: boolean | undefined;
-  onCommit: (value: number) => void;
-}) {
-  const [draft, setDraft] = useState<string | null>(null);
-  const clamp = (n: number) => Math.min(max, Math.max(min, Math.round(n)));
-  const parse = (text: string): number | null => {
-    if (text.trim() === "") return null;
-    const n = Number(text);
-    return Number.isFinite(n) ? n : null;
-  };
+function PlannedSection() {
   return (
-    <input
-      id={id}
-      type="number"
-      min={min}
-      max={max}
-      disabled={disabled}
-      value={draft ?? String(value)}
-      onFocus={() => setDraft(String(value))}
-      onChange={(e) => {
-        setDraft(e.target.value);
-        const n = parse(e.target.value);
-        if (n !== null && n >= min && n <= max && Number.isInteger(n)) onCommit(n);
-      }}
-      onBlur={() => {
-        const n = draft === null ? null : parse(draft);
-        setDraft(null);
-        if (n !== null && clamp(n) !== value) onCommit(clamp(n));
-      }}
-    />
+    <section className="section">
+      <div className="section__header">
+        <h2 className="section__title">Planned</h2>
+      </div>
+      <div className="section__body">
+        <p>
+          Not in this version and not part of Pro yet: Google Drive backup, and power keys
+          (multi-select, cut and paste subtrees, copy a subtree as a Markdown or HTML list).
+        </p>
+      </div>
+    </section>
   );
 }
 
 export function App() {
   const [settings, update, loaded] = useSettings();
   const pro = usePro();
-  const [backups, setBackups] = useState<BackupMeta[]>([]);
   const [status, setStatus] = useState<string | null>(null);
-  const [identityGranted, setIdentityGranted] = useState<boolean | null>(null);
+  const report = useCallback((text: string) => setStatus(text), []);
+  const backups = useBackups(report);
+  const [identityGranted, setIdentityGranted] = useIdentityPermission();
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
     void update({ ...settings, [key]: value });
   const setBackup = <K extends keyof Settings["backups"]>(key: K, value: Settings["backups"][K]) =>
     void update({ ...settings, backups: { ...settings.backups, [key]: value } });
-
-  const refreshBackups = useCallback(async () => {
-    try {
-      setBackups(await msg.listBackups.send());
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
-    }
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    msg.listBackups
-      .send()
-      .then((list) => {
-        if (!cancelled) setBackups(list);
-      })
-      .catch((e: unknown) => {
-        if (!cancelled) setStatus(e instanceof Error ? e.message : String(e));
-      });
-    if (DRIVE_BACKUP_ENABLED) {
-      hasIdentityPermission()
-        .then((granted) => {
-          if (!cancelled) setIdentityGranted(granted);
-        })
-        .catch(() => {
-          if (!cancelled) setIdentityGranted(false);
-        });
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const backupNow = async () => {
-    try {
-      const meta = await msg.runBackupNow.send();
-      setStatus(`Backup written: ${formatDateTime(meta.ts)} (${meta.nodeCount} nodes).`);
-      await refreshBackups();
-    } catch (e) {
-      setStatus(e instanceof Error ? e.message : String(e));
-    }
-  };
-
-  const download = async (b: BackupMeta) => {
-    const data = await msg.getBackup.send({ ts: b.ts });
-    if (!data) {
-      setStatus("That backup no longer exists.");
-      return;
-    }
-    downloadJson(`arbor-backup-${fileStamp(new Date(b.ts))}.json`, data);
-  };
 
   const toggleDrive = async (enabled: boolean) => {
     if (enabled) {
@@ -155,7 +67,7 @@ export function App() {
         setIdentityGranted(granted);
         if (!granted) return;
       } catch (e) {
-        setStatus(e instanceof Error ? e.message : String(e));
+        setStatus(errorMessage(e));
         return;
       }
     }
@@ -165,176 +77,31 @@ export function App() {
   if (!loaded) return <div className="page page--options">Loading...</div>;
 
   const gated = pro !== true;
+  const drive: DriveBackupProps | undefined = DRIVE_BACKUP_ENABLED
+    ? {
+        enabled: settings.backups.driveEnabled,
+        identityGranted,
+        gated,
+        onToggle: (enabled) => void toggleDrive(enabled),
+      }
+    : undefined;
 
   return (
     <div className="page page--options">
       <h1 className="app__title" style={{ fontSize: 18 }}>
         Arbor options {pro ? <ProBadge /> : null}
       </h1>
-
-      <section className="section">
-        <div className="section__header">
-          <h2 className="section__title">General</h2>
-        </div>
-        <div className="section__body">
-          <Field
-            label="Snapshot interval"
-            hint="Minutes between compacted snapshots of the change log (a snapshot is also taken every 200 changes)."
-            htmlFor="compaction"
-          >
-            <NumberField
-              id="compaction"
-              min={1}
-              max={120}
-              value={settings.compactionIntervalMinutes}
-              onCommit={(v) => set("compactionIntervalMinutes", v)}
-            />
-          </Field>
-          <Field label="Confirm before Close all and save" htmlFor="confirm-close">
-            <input
-              id="confirm-close"
-              type="checkbox"
-              checked={settings.confirmCloseAll}
-              onChange={(e) => set("confirmCloseAll", e.target.checked)}
-            />
-          </Field>
-          <Field
-            label="Theme follows OS"
-            hint="Turn off to pick light or dark explicitly."
-            htmlFor="theme-os"
-          >
-            <input
-              id="theme-os"
-              type="checkbox"
-              checked={settings.theme === "system"}
-              onChange={(e) => set("theme", e.target.checked ? "system" : "light")}
-            />
-          </Field>
-          {settings.theme !== "system" ? (
-            <Field label="Theme" htmlFor="theme">
-              <select
-                id="theme"
-                value={settings.theme}
-                onChange={(e) => set("theme", e.target.value === "dark" ? "dark" : "light")}
-              >
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </Field>
-          ) : null}
-          <Field label="Keyboard shortcut" hint="Change it under chrome://extensions/shortcuts.">
-            <code>Alt+Shift+A</code>
-          </Field>
-        </div>
-      </section>
-
-      <section className="section">
-        <div className="section__header">
-          <h2 className="section__title">
-            Backups <ProBadge title="Pro feature" />
-          </h2>
-          <Button size="sm" variant="secondary" disabled={gated} onClick={() => void backupNow()}>
-            Back up now
-          </Button>
-        </div>
-        <div className="section__body">
-          <p>
-            Scheduled backups export the whole tree on a timer and keep the newest copies here,
-            ready to save as files. Manual export in the side panel is always free.
-          </p>
-          {gated ? <UpsellRow feature="Scheduled local backups with rolling retention." /> : null}
-          <Field label="Scheduled backups" htmlFor="backups-enabled">
-            <input
-              id="backups-enabled"
-              type="checkbox"
-              disabled={gated}
-              checked={settings.backups.enabled}
-              onChange={(e) => setBackup("enabled", e.target.checked)}
-            />
-          </Field>
-          <Field label="Every N minutes" htmlFor="backups-interval">
-            <NumberField
-              id="backups-interval"
-              min={5}
-              max={1440}
-              disabled={gated}
-              value={settings.backups.intervalMinutes}
-              onCommit={(v) => setBackup("intervalMinutes", v)}
-            />
-          </Field>
-          <Field label="Keep the newest N backups" htmlFor="backups-retention">
-            <NumberField
-              id="backups-retention"
-              min={1}
-              max={100}
-              disabled={gated}
-              value={settings.backups.retention}
-              onCommit={(v) => setBackup("retention", v)}
-            />
-          </Field>
-          {backups.length ? (
-            <div className="list" role="list">
-              {backups.map((b) => (
-                <div key={b.ts} className="list__item" role="listitem">
-                  <div className="list__grow">
-                    {formatDateTime(b.ts)} <span className="list__muted">{b.nodeCount} nodes</span>
-                  </div>
-                  <Button size="sm" variant="secondary" onClick={() => void download(b)}>
-                    Save file
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => void msg.deleteBackup.send({ ts: b.ts }).then(refreshBackups)}
-                  >
-                    Delete
-                  </Button>
-                </div>
-              ))}
-            </div>
-          ) : (
-            <p>No stored backups yet.</p>
-          )}
-
-          {DRIVE_BACKUP_ENABLED ? (
-            <>
-              <Field
-                label="Google Drive backup"
-                hint={
-                  identityGranted
-                    ? "Sign-in permission granted."
-                    : "Asks for the optional identity permission when enabled."
-                }
-                htmlFor="drive-enabled"
-              >
-                <input
-                  id="drive-enabled"
-                  type="checkbox"
-                  disabled={gated}
-                  checked={settings.backups.driveEnabled}
-                  onChange={(e) => void toggleDrive(e.target.checked)}
-                />
-              </Field>
-              {gated ? <UpsellRow feature="Google Drive backup." /> : null}
-            </>
-          ) : null}
-          {status ? <div className="notice">{status}</div> : null}
-        </div>
-      </section>
-
+      <GeneralSection settings={settings} set={set} />
+      <BackupsSection
+        settings={settings.backups}
+        gated={gated}
+        setBackup={setBackup}
+        backups={backups}
+        status={status}
+        drive={drive}
+      />
       <LicenseSection />
-
-      <section className="section">
-        <div className="section__header">
-          <h2 className="section__title">Planned</h2>
-        </div>
-        <div className="section__body">
-          <p>
-            Not in this version and not part of Pro yet: Google Drive backup, and power keys
-            (multi-select, cut and paste subtrees, copy a subtree as a Markdown or HTML list).
-          </p>
-        </div>
-      </section>
+      <PlannedSection />
     </div>
   );
 }

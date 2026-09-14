@@ -1,14 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import type { MenuEntry } from "@/lib/tree-menu";
 
-export interface MenuItem {
-  label: string;
-  shortcut?: string | undefined;
-  danger?: boolean | undefined;
-  disabled?: boolean | undefined;
-  onSelect: () => void;
-}
-
-export type MenuEntry = MenuItem | "separator";
+export type { MenuEntry, MenuItem } from "@/lib/tree-menu";
 
 export interface ContextMenuProps {
   x: number;

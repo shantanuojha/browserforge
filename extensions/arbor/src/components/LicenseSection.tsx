@@ -10,8 +10,27 @@ import {
   useLicense,
   type KeyValueItem,
 } from "@browserforge/ui";
-import type { LicenseClient } from "@browserforge/licensing";
+import type { LicenseClient, LicenseState } from "@browserforge/licensing";
 import { LICENSING, PRO_PAGE_URL, getLicenseClient, openCheckout } from "@/adapters/licensing";
+
+/** The detail rows shown for a licence state: key and status while there is a key to show. */
+function licenseDetails(state: LicenseState | null): KeyValueItem[] {
+  if (!state) return [];
+  if (state.kind === "pro" || state.kind === "grace") {
+    return [
+      { key: "Licence key", value: state.key, mono: true },
+      { key: "Status", value: state.kind === "pro" ? "Active" : "Active (offline grace)" },
+      { key: "Last checked", value: formatDate(state.lastValidatedAt) },
+    ];
+  }
+  if (state.kind === "invalid" && state.key) {
+    return [
+      { key: "Licence key", value: state.key, mono: true },
+      { key: "Status", value: "Not valid" },
+    ];
+  }
+  return [];
+}
 
 /**
  * Options-page "Pro" section: licence status, activate/manage dialog and the "Buy Pro" link.
@@ -58,24 +77,29 @@ function NotConfigured() {
   );
 }
 
+/** "Manage licence" for Pro users, "Enter licence key" + "Buy Pro" for everyone else. */
+function LicenseButtons({ isPro, onOpen }: { isPro: boolean; onOpen(): void }) {
+  return (
+    <div className="button-row">
+      <Button size="sm" variant="secondary" onClick={onOpen}>
+        {isPro ? "Manage licence" : "Enter licence key"}
+      </Button>
+      {isPro ? (
+        <ProBadge />
+      ) : (
+        <Button size="sm" onClick={openCheckout}>
+          Buy Pro
+        </Button>
+      )}
+    </div>
+  );
+}
+
 function LicenseBody({ client }: { client: LicenseClient }) {
   const { state, isPro } = useLicense(client);
   const [open, setOpen] = useState(false);
   const summary = summarizeLicenseState(state);
-
-  const details: KeyValueItem[] =
-    state && (state.kind === "pro" || state.kind === "grace")
-      ? [
-          { key: "Licence key", value: state.key, mono: true },
-          { key: "Status", value: state.kind === "pro" ? "Active" : "Active (offline grace)" },
-          { key: "Last checked", value: formatDate(state.lastValidatedAt) },
-        ]
-      : state?.kind === "invalid" && state.key
-        ? [
-            { key: "Licence key", value: state.key, mono: true },
-            { key: "Status", value: "Not valid" },
-          ]
-        : [];
+  const details = licenseDetails(state);
 
   return (
     <>
@@ -92,18 +116,7 @@ function LicenseBody({ client }: { client: LicenseClient }) {
           your order email.
         </p>
       ) : null}
-      <div className="button-row">
-        <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
-          {isPro ? "Manage licence" : "Enter licence key"}
-        </Button>
-        {!isPro ? (
-          <Button size="sm" onClick={openCheckout}>
-            Buy Pro
-          </Button>
-        ) : (
-          <ProBadge />
-        )}
-      </div>
+      <LicenseButtons isPro={isPro} onOpen={() => setOpen(true)} />
       {open ? (
         <ActivateLicenseDialog
           client={client}
