@@ -23,3 +23,28 @@ export function readHttpsUrl(value: unknown): string | undefined {
     return undefined;
   }
 }
+
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** A UUID (any version), lower-cased; `undefined` for anything else. */
+export function readUuid(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  return UUID_PATTERN.test(text) ? text.toLowerCase() : undefined;
+}
+
+const SLUG_PATTERN = /^[a-z0-9](?:[a-z0-9-_]{0,62}[a-z0-9])?$/i;
+
+/** A URL path segment such as an organisation slug (letters, digits, `-`, `_`); else `undefined`. */
+export function readSlug(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim();
+  return SLUG_PATTERN.test(text) ? text : undefined;
+}
+
+/** One of `allowed`, matched case-insensitively after trimming; `undefined` for anything else. */
+export function readEnum<T extends string>(value: unknown, allowed: readonly T[]): T | undefined {
+  if (typeof value !== "string") return undefined;
+  const text = value.trim().toLowerCase();
+  return allowed.find((candidate) => candidate.toLowerCase() === text);
+}

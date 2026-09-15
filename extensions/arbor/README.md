@@ -80,21 +80,25 @@ and the module map of the tracker (`src/lib/sync/`).
 
 ## Licensing
 
-Pro is a $15 one-time Lemon Squeezy licence, handled by `@browserforge/licensing` through
-`src/adapters/licensing.ts` (build-time config in `src/lib/licensing-config.ts`). The store and
-variant ids are baked in at build time from WXT env vars (see
-`.env.example`: `WXT_LEMONSQUEEZY_STORE_ID`, `WXT_LEMONSQUEEZY_VARIANT_ID_ARBOR`, optional
-`WXT_LEMONSQUEEZY_CHECKOUT_URL_ARBOR`). Without them the build still works: Pro gates stay closed
-and the options page shows a neutral "Pro purchases are opening soon" note (the developer-facing
-"Licensing not configured" wording only appears in dev builds). The background schedules
-revalidation via `chrome.alarms`; the options page hosts the activate / deactivate dialog.
+Pro is a $15 one-time licence key sold through Polar, handled by `@browserforge/licensing` through
+`src/adapters/licensing.ts` (build-time config in `src/lib/licensing-config.ts`). The provider and
+its public ids are baked in at build time from WXT env vars (see `.env.example`:
+`WXT_LICENSE_PROVIDER`, `WXT_POLAR_ORGANIZATION_ID`, `WXT_POLAR_BENEFIT_ID_ARBOR`, optional
+`WXT_POLAR_CHECKOUT_URL_ARBOR`, `WXT_POLAR_ORG_SLUG`, `WXT_POLAR_API_BASE`; the
+`WXT_LEMONSQUEEZY_*` set stays readable until that adapter is removed). Without them the build still
+works: Pro gates stay closed and the options page shows a neutral "Pro purchases are opening soon"
+note (the developer-facing "Licensing not configured" wording only appears in dev builds). The
+background schedules revalidation via `chrome.alarms`; the options page hosts the activate /
+deactivate dialog.
 
 ## Constraints
 
 - Permissions stay as declared in `wxt.config.ts` (`tabs`, `storage`, `unlimitedStorage`,
   `sidePanel`, `alarms`, `favicon`); every one is used by shipped code. The optional `identity`
-  permission returns only together with a working Drive upload. `host_permissions` covers only
-  `https://api.lemonsqueezy.com/*` for the licence check.
+  permission returns only together with a working Drive upload. `host_permissions` still lists
+  `https://api.lemonsqueezy.com/*` for the retired Lemon Squeezy code path and is dropped with it;
+  Polar's API is CORS-open and needs no host permission (adding one would be a permission
+  increase that disables Arbor for existing users).
 - No remote code, no analytics. The only network call in the whole extension is the licence check.
 - Must run in Chrome and Edge; Firefox build should compile (side panel → sidebar_action fallback is
   a stretch goal).

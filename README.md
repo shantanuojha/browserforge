@@ -49,15 +49,20 @@ The website lives in its own repository, `browserforge-site`: landing page
 
 ## Licensing
 
-Arbor and Reroute read their Lemon Squeezy configuration from `WXT_*` variables in
-`extensions/<name>/.env` (git-ignored; see each `.env.example`). Generate both files from the local
-secrets file (`C:\Users\SHANTANU\.browserforge\secrets.env`, keys `LEMONSQUEEZY_STORE_ID`,
-`LEMONSQUEEZY_VARIANT_ID_ARBOR`, `LEMONSQUEEZY_VARIANT_ID_REROUTE`) with:
+Arbor and Reroute read their licence-provider configuration from `WXT_*` variables in
+`extensions/<name>/.env` (git-ignored; see each `.env.example`). The provider is Polar or, while
+that adapter is kept, Lemon Squeezy (`WXT_LICENSE_PROVIDER`, inferred from the ids present when
+unset). Generate both files from the local secrets file (`C:\Users\SHANTANU\.browserforge\secrets.env`,
+keys `LICENSE_PROVIDER`, `POLAR_ORGANIZATION_ID`, `POLAR_BENEFIT_ID_ARBOR`, `POLAR_BENEFIT_ID_REROUTE`,
+`POLAR_CHECKOUT_URL_ARBOR`, `POLAR_CHECKOUT_URL_REROUTE`, `POLAR_ORG_SLUG`, their `POLAR_SANDBOX_*`
+mirrors, and the legacy `LEMONSQUEEZY_*` ids) with:
 
 ```powershell
 pwsh scripts/write-env.ps1                       # or: -SecretsPath <file>
+pwsh scripts/write-env.ps1 -Sandbox              # POLAR_SANDBOX_* ids + sandbox-api.polar.sh
 ```
 
-The script skips empty keys, sets `WXT_LEMONSQUEEZY_CHECKOUT_URL_*` to the product pages'
-`#pro` anchors, and never prints values. Without a `.env`, builds still work: Pro gates stay closed
-and the options page shows "Licensing not configured".
+The script skips empty keys, never forwards `POLAR_OAT*` tokens, sets
+`WXT_LEMONSQUEEZY_CHECKOUT_URL_*` to the product pages' `#pro` anchors, and never prints values.
+Without a `.env`, builds still work: Pro gates stay closed and the options page shows "Licensing
+not configured".

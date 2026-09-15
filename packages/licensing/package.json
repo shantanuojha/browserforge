@@ -2,7 +2,7 @@
   "name": "@browserforge/licensing",
   "version": "0.1.0",
   "private": true,
-  "description": "Lemon Squeezy licence-key activation, validation and feature gating for BrowserForge Pro features.",
+  "description": "Licence-key activation, validation and feature gating for BrowserForge Pro features, with Polar and Lemon Squeezy adapters.",
   "license": "MIT",
   "type": "module",
   "exports": {

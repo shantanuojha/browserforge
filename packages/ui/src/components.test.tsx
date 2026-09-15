@@ -268,9 +268,12 @@ describe("ActivateLicenseDialog", () => {
     storage: createMemoryStorage(),
     fetch: async () => new Response("{}", { status: 500 }),
   });
+  const restoreUrl = "https://store.example/portal";
 
   it("renders the activation form for an unknown/free state", () => {
-    const html = renderToStaticMarkup(<ActivateLicenseDialog client={client} onClose={() => {}} />);
+    const html = renderToStaticMarkup(
+      <ActivateLicenseDialog client={client} onClose={() => {}} restoreUrl={restoreUrl} />,
+    );
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
     expect(html).toMatch(/aria-labelledby="([^"]+)"[\s\S]*id="\1"/);
@@ -285,10 +288,29 @@ describe("ActivateLicenseDialog", () => {
     expect(html).not.toContain("Deactivate this browser");
   });
 
+  it("names no store: the hint is generic unless the extension supplies one", () => {
+    const generic = renderToStaticMarkup(
+      <ActivateLicenseDialog client={client} onClose={() => {}} restoreUrl={restoreUrl} />,
+    );
+    expect(generic).toContain("Paste the licence key from your purchase email or order page.");
+    expect(generic).not.toMatch(/lemon|polar/i);
+    const named = renderToStaticMarkup(
+      <ActivateLicenseDialog
+        client={client}
+        onClose={() => {}}
+        restoreUrl={restoreUrl}
+        restoreHint="Paste the key from the Example Store portal."
+      />,
+    );
+    expect(named).toContain("Paste the key from the Example Store portal.");
+  });
+
   it("can take focus itself so keyboard handling works before anything inside is focused", () => {
     // In the Pro state nothing autofocuses; without a focusable container the opener keeps
     // focus, Escape never reaches the dialog's key handler and Tab walks the page behind it.
-    const html = renderToStaticMarkup(<ActivateLicenseDialog client={client} onClose={() => {}} />);
+    const html = renderToStaticMarkup(
+      <ActivateLicenseDialog client={client} onClose={() => {}} restoreUrl={restoreUrl} />,
+    );
     expect(html).toMatch(/<div[^>]*role="dialog"[^>]*tabindex="-1"/);
   });
 

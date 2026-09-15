@@ -5,7 +5,7 @@ Read this before changing anything. It applies to humans and to AI agents workin
 ## Layout
 
 - `packages/shared` — pure TS utilities (no DOM, no `chrome.*` at import time).
-- `packages/licensing` — Lemon Squeezy licence client. Spec in its README.
+- `packages/licensing` — licence-key client with Polar and Lemon Squeezy adapters. Spec in its README.
 - `packages/ui` — shared React components + `styles.css` tokens. Spec in its README.
 - `extensions/arbor`, `extensions/reroute`, `extensions/cookiesweep` — WXT extensions. Each README is
   the product spec for that extension.
@@ -39,7 +39,8 @@ Read this before changing anything. It applies to humans and to AI agents workin
 - No remote code: no `eval`, no `new Function`, no `<script src>` to another origin, no fetching
   logic/config that changes behaviour. Data files may be bundled; catalogs are compiled at build time.
 - Single purpose per extension. Permissions exactly as declared in `wxt.config.ts`; ask before adding.
-- No analytics or telemetry. The only network calls allowed are to `api.lemonsqueezy.com` (licensing)
-  and, for Arbor's opt-in Drive backup, Google APIs.
+- No analytics or telemetry. The only network calls allowed are to the licence provider's API
+  (`api.polar.sh`, or `api.lemonsqueezy.com` while that adapter is kept) and, for Arbor's opt-in
+  Drive backup, Google APIs.
 - Never reuse the name, icon or branding of the extensions we replace (Tabs Outliner, Redirector,
   ClearURLs, Cookie AutoDelete). Mentioning them in "imports from" text is fine.

@@ -1,14 +1,18 @@
+/**
+ * The licence client: activation, cached validation with offline grace, deactivation and
+ * change notifications over a `LicenseApi` port. Provider-agnostic; the adapter for the
+ * configured provider is chosen in `defaultApi` and every answer arrives as a normalised verdict.
+ */
 import { err, ok, systemClock, type Clock } from "@browserforge/shared";
 import { classifyApiError, createLicenseApi, licenseError, type LicenseResponse } from "./api.js";
-import { browserFamily, buildInstanceName, randomInstanceSuffix } from "./instance.js";
+import { browserFamily, buildInstanceName } from "./instance.js";
 import {
   activatedRecord,
   deriveLicenseState,
-  instanceSuffixStorageKey,
+  foreignRecordState,
+  freeRecord,
   invalidRecord,
   isProState,
-  licenseStorageKey,
-  parseStoredLicense,
   rejectionReason,
   revalidationAlarmName,
   type LicenseIdentity,
@@ -16,7 +20,9 @@ import {
   type StoredInvalid,
   type StoredLicense,
 } from "./license-record.js";
+import { createLicenseRepository, type LicenseRepository } from "./license-repository.js";
 import { normalizeKey } from "./mask.js";
+import { createPolarLicenseApi } from "./polar-api.js";
 import { DEFAULT_REVALIDATE_EVERY_MS, scheduleRevalidation } from "./revalidation.js";
 import type {
   AlarmsLike,
@@ -25,9 +31,9 @@ import type {
   LicenseClient,
   LicenseClientOptions,
   LicenseError,
+  LicenseProvider,
   LicenseResult,
   LicenseState,
-  LicenseStorage,
   ScheduleRevalidationOptions,
   ValidateOptions,
 } from "./types.js";
@@ -37,44 +43,34 @@ export const DEFAULT_GRACE_PERIOD_MS = 14 * 24 * 3600 * 1000;
 type StoredKeyed = StoredActivated | StoredInvalid;
 
 /* ------------------------------------------------------------------------------------------ */
-/* Storage boundary                                                                             */
+/* Wiring                                                                                       */
 
-interface LicenseRepository {
-  load(): Promise<StoredLicense | undefined>;
-  save(record: StoredLicense | undefined): Promise<void>;
-  /** Per-profile random suffix for `instance_name`, created and persisted on first use. */
-  instanceSuffix(): Promise<string>;
+const defaultFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
+
+/** The production adapter for `provider`, unless the caller injected an `api` of its own. */
+function defaultApi(options: LicenseClientOptions, provider: LicenseProvider): LicenseApi {
+  if (options.api) return options.api;
+  const fetchImpl = options.fetch ?? defaultFetch;
+  if (provider === "polar") {
+    if (!options.polar)
+      throw new Error("createLicenseClient: provider 'polar' needs `polar` options");
+    return createPolarLicenseApi(fetchImpl, options.polar);
+  }
+  return createLicenseApi(fetchImpl, options.apiBaseUrl);
 }
 
-// The parameter is deliberately not called `storage`: WXT's vitest plugin auto-imports
-// `wxt/utils/storage` for any bare `storage` identifier it finds, even in workspace packages.
-function createLicenseRepository(area: LicenseStorage, productName: string): LicenseRepository {
-  const licenseKey = licenseStorageKey(productName);
-  const suffixKey = instanceSuffixStorageKey(productName);
-  return {
-    async load() {
-      const record = await area.get(licenseKey);
-      return parseStoredLicense(record[licenseKey]);
-    },
-    async save(record) {
-      if (record) await area.set({ [licenseKey]: record });
-      else await area.remove(licenseKey);
-    },
-    async instanceSuffix() {
-      const existing = (await area.get(suffixKey))[suffixKey];
-      if (typeof existing === "string" && existing.length > 0) return existing;
-      const suffix = randomInstanceSuffix();
-      await area.set({ [suffixKey]: suffix });
-      return suffix;
-    },
-  };
+function allowedProductRefs(options: LicenseClientOptions): ReadonlySet<string> {
+  return new Set([
+    ...(options.allowedProductRefs ?? []),
+    ...(options.allowedVariantIds ?? []).map(String),
+  ]);
 }
 
 /* ------------------------------------------------------------------------------------------ */
 /* Answer interpretation                                                                        */
 
 function activationError(body: LicenseResponse): LicenseError {
-  const code = classifyApiError(body.error, body.license_key?.status);
+  const code = classifyApiError(body);
   return licenseError(code === "not_activated" ? "unknown" : code, body.error ?? undefined);
 }
 
@@ -83,32 +79,38 @@ function deactivationSucceeded(body: LicenseResponse, code: string): boolean {
   return body.deactivated === true || code === "invalid_key" || code === "not_activated";
 }
 
-const defaultFetch: FetchLike = (input, init) => globalThis.fetch(input, init);
+/** The product the key was bought for, in whichever vocabulary the adapter used. */
+function productRef(meta: LicenseResponse["meta"]): string | undefined {
+  if (meta?.product_ref !== undefined) return meta.product_ref;
+  return meta?.variant_id === undefined ? undefined : String(meta.variant_id);
+}
 
 /* ------------------------------------------------------------------------------------------ */
 
-class LemonSqueezyLicenseClient implements LicenseClient {
+class ProviderLicenseClient implements LicenseClient {
   readonly productName: string;
   readonly alarmName: string;
 
+  private readonly provider: LicenseProvider;
   private readonly api: LicenseApi;
   private readonly repository: LicenseRepository;
   private readonly now: Clock;
   private readonly gracePeriodMs: number;
   private readonly revalidateEveryMs: number;
-  private readonly allowedVariants: ReadonlySet<number>;
+  private readonly allowedProducts: ReadonlySet<string>;
   private readonly userAgent: string | undefined;
   private readonly listeners = new Set<(state: LicenseState) => void>();
 
   constructor(options: LicenseClientOptions) {
     this.productName = options.productName;
     this.alarmName = revalidationAlarmName(options.productName);
-    this.api = options.api ?? createLicenseApi(options.fetch ?? defaultFetch, options.apiBaseUrl);
+    this.provider = options.provider ?? "lemonsqueezy";
+    this.api = defaultApi(options, this.provider);
     this.repository = createLicenseRepository(options.storage, options.productName);
     this.now = options.now ?? systemClock;
     this.gracePeriodMs = options.gracePeriodMs ?? DEFAULT_GRACE_PERIOD_MS;
     this.revalidateEveryMs = options.revalidateEveryMs ?? DEFAULT_REVALIDATE_EVERY_MS;
-    this.allowedVariants = new Set(options.allowedVariantIds ?? []);
+    this.allowedProducts = allowedProductRefs(options);
     this.userAgent = options.userAgent;
   }
 
@@ -116,7 +118,7 @@ class LemonSqueezyLicenseClient implements LicenseClient {
     const key = normalizeKey(input);
     if (key.length === 0) return err(licenseError("invalid_key"));
     const stored = await this.repository.load();
-    if (stored && stored.kind !== "free" && stored.key === key) {
+    if (stored && stored.kind !== "free" && stored.key === key && !this.isForeign(stored)) {
       const revalidated = await this.revalidateOwnInstance(stored);
       if (revalidated) return revalidated;
       // The instance is gone or the key changed state: fall through to a fresh activation.
@@ -126,7 +128,7 @@ class LemonSqueezyLicenseClient implements LicenseClient {
 
   async validate(opts: ValidateOptions = {}): Promise<LicenseState> {
     const stored = await this.repository.load();
-    if (!stored || stored.kind === "free") return this.derive(stored);
+    if (!stored || stored.kind === "free" || this.isForeign(stored)) return this.derive(stored);
     if (!opts.force && !this.isStale(stored)) return this.derive(stored);
     const res = await this.api.validate({
       license_key: stored.key,
@@ -139,15 +141,20 @@ class LemonSqueezyLicenseClient implements LicenseClient {
   async deactivate(): Promise<LicenseResult<void>> {
     const stored = await this.repository.load();
     if (!stored || stored.kind === "free") return err(licenseError("not_activated"));
+    if (this.isForeign(stored)) {
+      // The seat lives with a provider this build no longer talks to; drop the record locally.
+      await this.commit(undefined);
+      return ok(undefined);
+    }
     const res = await this.api.deactivate({
       license_key: stored.key,
       instance_id: stored.instanceId,
     });
     if (!res.ok) return err(res.error);
     const { body } = res.value;
-    const code = classifyApiError(body.error, body.license_key?.status);
+    const code = classifyApiError(body);
     if (!deactivationSucceeded(body, code)) return err(licenseError(code, body.error ?? undefined));
-    await this.commit({ v: 1, kind: "free", reason: "deactivated" });
+    await this.commit(freeRecord("deactivated"));
     return ok(undefined);
   }
 
@@ -186,20 +193,27 @@ class LemonSqueezyLicenseClient implements LicenseClient {
 
   /* ---- internals ------------------------------------------------------------------------- */
 
+  /** A record written by another provider's client (e.g. v1 records after the Polar switch). */
+  private isForeign(stored: StoredKeyed): boolean {
+    return stored.provider !== this.provider;
+  }
+
   private derive(stored: StoredLicense | undefined): LicenseState {
+    if (stored && stored.kind !== "free" && this.isForeign(stored))
+      return foreignRecordState(stored);
     return deriveLicenseState(stored, this.now(), this.gracePeriodMs);
   }
 
-  private variantAllowed(meta: LicenseResponse["meta"]): boolean {
-    if (this.allowedVariants.size === 0) return true;
-    const variantId = meta?.variant_id;
-    return variantId !== undefined && this.allowedVariants.has(variantId);
+  private productAllowed(meta: LicenseResponse["meta"]): boolean {
+    if (this.allowedProducts.size === 0) return true;
+    const ref = productRef(meta);
+    return ref !== undefined && this.allowedProducts.has(ref);
   }
 
-  /** `valid: true` for an active key of an allowed variant. */
+  /** `valid: true` for an active key of an allowed product. */
   private isValidAnswer(body: LicenseResponse): boolean {
     const status = body.license_key?.status ?? "active";
-    return body.valid === true && status === "active" && this.variantAllowed(body.meta);
+    return body.valid === true && status === "active" && this.productAllowed(body.meta);
   }
 
   private notify(state: LicenseState): void {
@@ -243,12 +257,17 @@ class LemonSqueezyLicenseClient implements LicenseClient {
     if (!res.ok) return res;
     const { body } = res.value;
     if (!body.activated || !body.instance) return err(activationError(body));
-    if (!this.variantAllowed(body.meta)) {
+    if (!this.productAllowed(body.meta)) {
       // Release the seat we just consumed; the key is for a different product.
       await this.api.deactivate({ license_key: key, instance_id: body.instance.id });
       return err(licenseError("wrong_product"));
     }
-    const identity: LicenseIdentity = { key, instanceId: body.instance.id, instanceName };
+    const identity: LicenseIdentity = {
+      provider: this.provider,
+      key,
+      instanceId: body.instance.id,
+      instanceName,
+    };
     return ok(await this.commit(activatedRecord(identity, body, this.now())));
   }
 
@@ -269,11 +288,11 @@ class LemonSqueezyLicenseClient implements LicenseClient {
     const at = this.now();
     const status = body.license_key?.status ?? "active";
     if (!body.valid || status !== "active") return invalidRecord(stored, rejectionReason(body), at);
-    if (!this.variantAllowed(body.meta)) return invalidRecord(stored, "wrong_product", at);
+    if (!this.productAllowed(body.meta)) return invalidRecord(stored, "wrong_product", at);
     return activatedRecord(stored, body, at);
   }
 }
 
 export function createLicenseClient(options: LicenseClientOptions): LicenseClient {
-  return new LemonSqueezyLicenseClient(options);
+  return new ProviderLicenseClient(options);
 }

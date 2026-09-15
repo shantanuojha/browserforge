@@ -11,11 +11,7 @@ export { EmptyState, type EmptyStateProps } from "./EmptyState.js";
 export { Section, type SectionProps } from "./Section.js";
 export { KeyValueList, type KeyValueItem, type KeyValueListProps } from "./KeyValueList.js";
 export { ProGate, openExternal, type ProGateProps } from "./ProGate.js";
-export {
-  ActivateLicenseDialog,
-  DEFAULT_RESTORE_URL,
-  type ActivateLicenseDialogProps,
-} from "./ActivateLicenseDialog.js";
+export { ActivateLicenseDialog, type ActivateLicenseDialogProps } from "./ActivateLicenseDialog.js";
 export {
   formatDate,
   hasRestorableKey,

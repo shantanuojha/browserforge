@@ -9,7 +9,7 @@ export interface ProGateProps<F extends string = string> {
   can: (feature: F) => boolean;
   /** Display price, e.g. "$9 one-time". */
   price: string;
-  /** Hosted Lemon Squeezy checkout URL supplied by the extension. Opened in a new tab. */
+  /** The store's hosted checkout URL, supplied by the extension. Opened in a new tab. */
   checkoutUrl: string;
   /** Short human label for the locked feature; defaults to the feature id. */
   featureLabel?: ReactNode;

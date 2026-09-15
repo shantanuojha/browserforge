@@ -1,6 +1,7 @@
 /**
- * @browserforge/licensing — Lemon Squeezy licence-key client shared by paid extensions.
- * See README.md for the specification. Pure TypeScript; the dialog lives in `@browserforge/ui`.
+ * @browserforge/licensing — licence-key client shared by paid extensions, with adapters for
+ * Lemon Squeezy and Polar. See README.md for the specification. Pure TypeScript; the dialog
+ * lives in `@browserforge/ui`.
  */
 export type {
   ActivateRequest,
@@ -17,9 +18,11 @@ export type {
   LicenseErrorCode,
   LicenseFreeReason,
   LicenseInvalidReason,
+  LicenseProvider,
   LicenseResult,
   LicenseState,
   LicenseStorage,
+  PolarLicenseApiOptions,
   ProLicenseInfo,
   ScheduleRevalidationOptions,
   ValidateOptions,
@@ -35,8 +38,26 @@ export { DEFAULT_REVALIDATE_EVERY_MS, scheduleRevalidation } from "./revalidatio
 export { defineFeatures, type FeatureGate, type FeatureTier } from "./features.js";
 export { looksLikeLicenseKey, maskKey, normalizeKey } from "./mask.js";
 export { browserFamily, type BrowserFamily } from "./instance.js";
-export { LEMON_SQUEEZY_API, createLicenseApi, licenseError } from "./api.js";
-export type { LicenseResponse } from "./api-schema.js";
+export { LEMON_SQUEEZY_API, createLicenseApi } from "./api.js";
+export { licenseError } from "./errors.js";
+export {
+  POLAR_API,
+  POLAR_SANDBOX_API,
+  createPolarLicenseApi,
+  polarLicenseKeysUrl,
+} from "./polar-api.js";
+export type { LicenseKeyStatus, LicenseResponse } from "./api-schema.js";
+export {
+  LEMON_SQUEEZY_ORDERS_URL,
+  LICENSE_PROVIDERS,
+  licensingEnvNames,
+  polarPortalUrl,
+  providerClientOptions,
+  readProviderConfig,
+  type LicensingEnvNames,
+  type ProviderConfig,
+  type ProviderSettings,
+} from "./provider-config.js";
 
 import type { LicenseClient } from "./types.js";
 

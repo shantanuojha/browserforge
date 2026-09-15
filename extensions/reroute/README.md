@@ -52,10 +52,13 @@ detection, DNR rule generation shape, importer round-trips, loop protection.
 
 ## Licensing
 
-Pro is a $9 one-time Lemon Squeezy licence, handled by `@browserforge/licensing` through
-`src/lib/licensing.ts`. The store and variant ids are baked in at build time from WXT env vars (see
-`.env.example`: `WXT_LEMONSQUEEZY_STORE_ID`, `WXT_LEMONSQUEEZY_VARIANT_ID_REROUTE`, optional
-`WXT_LEMONSQUEEZY_CHECKOUT_URL_REROUTE`). Without them the build still works: Pro gates stay closed
+Pro is a $9 one-time licence key sold through Polar, handled by `@browserforge/licensing` through
+`src/adapters/licensing.ts` (build-time config in `src/lib/licensing-config.ts`). The provider and
+its public ids are baked in at build time from WXT env vars (see `.env.example`:
+`WXT_LICENSE_PROVIDER`, `WXT_POLAR_ORGANIZATION_ID`, `WXT_POLAR_BENEFIT_ID_REROUTE`, optional
+`WXT_POLAR_CHECKOUT_URL_REROUTE`, `WXT_POLAR_ORG_SLUG`, `WXT_POLAR_API_BASE`; the
+`WXT_LEMONSQUEEZY_*` set stays readable until that adapter is removed). Without them the build still
+works: Pro gates stay closed
 and the Pro tab shows a neutral "Pro purchases are opening soon" note (the developer-facing
 "Licensing not configured" wording only appears in dev builds). The background schedules
 revalidation via `chrome.alarms` (hence the `alarms` permission); the Pro tab hosts the activate /
@@ -64,6 +67,7 @@ deactivate dialog.
 ## Constraints
 
 - No remote code or runtime rule fetching; the catalog is compiled at build time. The only network
-  call is the licence check against `api.lemonsqueezy.com` (covered by `<all_urls>`).
+  call is the licence check against the provider's API (`api.polar.sh`, or `api.lemonsqueezy.com`
+  while that adapter is kept), covered by `<all_urls>`.
 - `<all_urls>` host permission is needed for `modifyHeaders`-free redirects on any site; document the
   justification for the store listing.

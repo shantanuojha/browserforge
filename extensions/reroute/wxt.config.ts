@@ -22,7 +22,8 @@ export default defineConfig({
       "alarms",
     ],
     // `<all_urls>` is needed for redirects on any site; it also covers the only API Reroute calls,
-    // https://api.lemonsqueezy.com/* (licence activation/validation).
+    // the licence provider's endpoint (https://api.polar.sh/* or https://api.lemonsqueezy.com/*,
+    // depending on the build's WXT_LICENSE_PROVIDER) for licence activation/validation.
     host_permissions: ["<all_urls>"],
     action: { default_title: "Reroute" },
     options_ui: { page: "options.html", open_in_tab: true },

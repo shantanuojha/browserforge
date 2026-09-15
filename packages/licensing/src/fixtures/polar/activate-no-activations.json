@@ -1,0 +1,4 @@
+{
+  "error": "NotPermitted",
+  "detail": "This license key does not support activations. Use the /validate endpoint instead to check license validity."
+}

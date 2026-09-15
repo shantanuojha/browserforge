@@ -1,5 +1,10 @@
 import type { Result } from "@browserforge/shared";
-import type { LicenseResponse } from "./api-schema.js";
+import type { LicenseErrorCode, LicenseResponse } from "./api-schema.js";
+
+export type { LicenseErrorCode } from "./api-schema.js";
+
+/** The licence-key providers this package has an adapter for. */
+export type LicenseProvider = "lemonsqueezy" | "polar";
 
 /** Why a stored licence is no longer usable. */
 export type LicenseInvalidReason =
@@ -15,7 +20,7 @@ export interface ProLicenseInfo {
   readonly instanceName: string;
   /** Epoch ms of the last successful `activate`/`validate` round-trip. */
   readonly lastValidatedAt: number;
-  /** Epoch ms when the licence expires, if Lemon Squeezy reports one. */
+  /** Epoch ms when the licence expires, if the provider reports one. */
   readonly expiresAt?: number;
   readonly email?: string;
 }
@@ -31,22 +36,11 @@ export type LicenseState =
       readonly key?: string;
     };
 
-export type LicenseErrorCode =
-  | "invalid_key"
-  | "activation_limit"
-  | "wrong_product"
-  | "expired"
-  | "disabled"
-  | "not_activated"
-  | "network"
-  | "bad_response"
-  | "unknown";
-
 export interface LicenseError {
   readonly code: LicenseErrorCode;
   /** Human-readable, safe to show in UI. */
   readonly message: string;
-  /** Raw `error` string from Lemon Squeezy when available (for logs). */
+  /** The provider's raw error string when available (for logs). */
   readonly detail?: string;
 }
 
@@ -82,8 +76,10 @@ export interface InstanceRequest {
 }
 
 /**
- * Port to the Lemon Squeezy licence endpoints. The client depends on this interface only;
- * `createLicenseApi` is the production adapter over `fetch`, tests hand in a fake.
+ * Port to a provider's licence endpoints, in the vocabulary of the first provider (`license_key`,
+ * `instance_*`). The client depends on this interface only; `createLicenseApi` (Lemon Squeezy)
+ * and `createPolarLicenseApi` (Polar) are the production adapters over `fetch`, tests hand in a
+ * fake. Every adapter answers with the normalised `LicenseResponse` verdict.
  */
 export interface LicenseApi {
   activate(request: ActivateRequest): Promise<LicenseResult<ApiCallResult>>;
@@ -91,16 +87,38 @@ export interface LicenseApi {
   deactivate(request: InstanceRequest): Promise<LicenseResult<ApiCallResult>>;
 }
 
+/** What the Polar adapter needs; all of it is public (it travels in unauthenticated bodies). */
+export interface PolarLicenseApiOptions {
+  /** Polar organisation id (uuid), required in every customer-portal call. */
+  organizationId: string;
+  /** Sent on `validate` so Polar itself rejects keys bought for another product. */
+  benefitId?: string;
+  /** API origin: `POLAR_API` (default) or `POLAR_SANDBOX_API`. */
+  baseUrl?: string;
+}
+
 export interface LicenseClientOptions {
-  /** Storage namespace and first half of the Lemon Squeezy `instance_name`. */
+  /** Storage namespace and first half of the instance name sent to the provider. */
   productName: string;
-  /** Keys bought for any other variant are rejected with `wrong_product`. Empty = accept all. */
+  /**
+   * Which provider this client talks to. Default `"lemonsqueezy"`. A stored record from another
+   * provider reads as `invalid` so the user re-activates the same key against this one.
+   */
+  provider?: LicenseProvider;
+  /**
+   * Product references the key must have been bought for: Polar benefit ids, or Lemon Squeezy
+   * variant ids as strings. Anything else is rejected with `wrong_product`. Empty = accept all.
+   */
+  allowedProductRefs?: readonly string[];
+  /** @deprecated Lemon Squeezy variant ids; same as `allowedProductRefs` with `String(id)`. */
   allowedVariantIds?: readonly number[];
   storage: LicenseStorage;
-  /** Licence endpoints. Defaults to `createLicenseApi(fetch, apiBaseUrl)`; tests inject a fake. */
+  /** Licence endpoints. Defaults to the adapter for `provider`; tests inject a fake. */
   api?: LicenseApi;
   /** Transport used by the default `api`. Ignored when `api` is given. */
   fetch?: FetchLike;
+  /** Settings for the default Polar adapter. Required when `provider` is `"polar"` and no `api`. */
+  polar?: PolarLicenseApiOptions;
   now?: () => number;
   /** Offline grace after the last successful validation. Default 14 days. */
   gracePeriodMs?: number;
@@ -108,7 +126,7 @@ export interface LicenseClientOptions {
   revalidateEveryMs?: number;
   /** Overrides `navigator.userAgent` for instance naming (tests). */
   userAgent?: string;
-  /** Overrides the API base URL (tests). Production is always api.lemonsqueezy.com. */
+  /** Overrides the Lemon Squeezy API base URL (tests). Production is always api.lemonsqueezy.com. */
   apiBaseUrl?: string;
 }
 

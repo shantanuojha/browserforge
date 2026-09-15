@@ -1,12 +1,20 @@
 /**
  * The persisted licence record and the pure rules that turn it into a `LicenseState`.
  * Validated on read so corrupted storage degrades to "free" and never throws.
+ *
+ * Record versions: v1 predates the provider switch and is read as a Lemon Squeezy record; v2 adds
+ * `provider` to every record that holds a key. Writes are always v2.
  */
 import { z } from "zod";
 import { classifyApiError, parseExpiresAt } from "./api.js";
 import type { LicenseResponse } from "./api-schema.js";
 import { maskKey } from "./mask.js";
-import type { LicenseInvalidReason, LicenseState, ProLicenseInfo } from "./types.js";
+import type {
+  LicenseInvalidReason,
+  LicenseProvider,
+  LicenseState,
+  ProLicenseInfo,
+} from "./types.js";
 
 const InvalidReasonSchema = z.enum([
   "expired",
@@ -17,8 +25,9 @@ const InvalidReasonSchema = z.enum([
   "unknown",
 ]);
 
-const StoredActivatedSchema = z.object({
-  v: z.literal(1),
+const ProviderSchema = z.enum(["lemonsqueezy", "polar"]);
+
+const ActivatedFields = {
   kind: z.literal("activated"),
   key: z.string(),
   instanceId: z.string(),
@@ -28,23 +37,33 @@ const StoredActivatedSchema = z.object({
   lastFailedAt: z.number().optional(),
   expiresAt: z.number().optional(),
   email: z.string().optional(),
-});
+};
 
-const StoredInvalidSchema = z.object({
-  v: z.literal(1),
+const InvalidFields = {
   kind: z.literal("invalid"),
   key: z.string(),
   instanceId: z.string(),
   instanceName: z.string(),
   reason: InvalidReasonSchema,
   checkedAt: z.number(),
-});
+};
 
-const StoredFreeSchema = z.object({
-  v: z.literal(1),
+const FreeFields = {
   kind: z.literal("free"),
   reason: z.enum(["grace_expired", "deactivated"]).optional(),
+};
+
+const StoredActivatedSchema = z.object({
+  v: z.literal(2),
+  provider: ProviderSchema,
+  ...ActivatedFields,
 });
+const StoredInvalidSchema = z.object({
+  v: z.literal(2),
+  provider: ProviderSchema,
+  ...InvalidFields,
+});
+const StoredFreeSchema = z.object({ v: z.literal(2), ...FreeFields });
 
 export const StoredLicenseSchema = z.discriminatedUnion("kind", [
   StoredActivatedSchema,
@@ -52,12 +71,21 @@ export const StoredLicenseSchema = z.discriminatedUnion("kind", [
   StoredFreeSchema,
 ]);
 
+/** The pre-provider layout; every v1 record was written by the Lemon Squeezy client. */
+const StoredLicenseV1Schema = z.discriminatedUnion("kind", [
+  z.object({ v: z.literal(1), ...ActivatedFields }),
+  z.object({ v: z.literal(1), ...InvalidFields }),
+  z.object({ v: z.literal(1), ...FreeFields }),
+]);
+
 export type StoredActivated = z.infer<typeof StoredActivatedSchema>;
 export type StoredInvalid = z.infer<typeof StoredInvalidSchema>;
+export type StoredFree = z.infer<typeof StoredFreeSchema>;
 export type StoredLicense = z.infer<typeof StoredLicenseSchema>;
 
-/** What identifies this browser's activation on the server. */
+/** What identifies this browser's activation on the server, and which server that is. */
 export interface LicenseIdentity {
+  readonly provider: LicenseProvider;
   readonly key: string;
   readonly instanceId: string;
   readonly instanceName: string;
@@ -83,10 +111,18 @@ export function isProState(state: LicenseState | null | undefined): boolean {
   return state?.kind === "pro" || state?.kind === "grace";
 }
 
-/** Parses whatever is in storage; anything unrecognised reads as "nothing stored". */
+function migrateV1(value: unknown): StoredLicense | undefined {
+  const parsed = StoredLicenseV1Schema.safeParse(value);
+  if (!parsed.success) return undefined;
+  const record = parsed.data;
+  if (record.kind === "free") return { ...record, v: 2 };
+  return { ...record, v: 2, provider: "lemonsqueezy" };
+}
+
+/** Parses whatever is in storage (v2 or v1); anything unrecognised reads as "nothing stored". */
 export function parseStoredLicense(value: unknown): StoredLicense | undefined {
   const parsed = StoredLicenseSchema.safeParse(value);
-  return parsed.success ? parsed.data : undefined;
+  return parsed.success ? parsed.data : migrateV1(value);
 }
 
 function toProInfo(stored: StoredActivated): ProLicenseInfo {
@@ -130,14 +166,20 @@ export function deriveLicenseState(
   }
 }
 
+/** A key held by another provider's client: shown as invalid so the user re-activates it here. */
+export function foreignRecordState(stored: StoredActivated | StoredInvalid): LicenseState {
+  return { kind: "invalid", reason: "unknown", key: maskKey(stored.key) };
+}
+
 export function activatedRecord(
   identity: LicenseIdentity,
   body: LicenseResponse,
   at: number,
 ): StoredActivated {
   const record: StoredActivated = {
-    v: 1,
+    v: 2,
     kind: "activated",
+    provider: identity.provider,
     key: identity.key,
     instanceId: identity.instanceId,
     instanceName: identity.instanceName,
@@ -156,8 +198,9 @@ export function invalidRecord(
   at: number,
 ): StoredInvalid {
   return {
-    v: 1,
+    v: 2,
     kind: "invalid",
+    provider: identity.provider,
     key: identity.key,
     instanceId: identity.instanceId,
     instanceName: identity.instanceName,
@@ -166,9 +209,14 @@ export function invalidRecord(
   };
 }
 
+export function freeRecord(reason?: StoredFree["reason"]): StoredFree {
+  return reason ? { v: 2, kind: "free", reason } : { v: 2, kind: "free" };
+}
+
 const API_ERROR_TO_INVALID_REASON: Partial<Record<string, LicenseInvalidReason>> = {
   expired: "expired",
   disabled: "disabled",
+  wrong_product: "wrong_product",
   invalid_key: "not_found",
   not_activated: "deactivated",
 };
@@ -177,6 +225,7 @@ const API_ERROR_TO_INVALID_REASON: Partial<Record<string, LicenseInvalidReason>>
 export function rejectionReason(body: LicenseResponse): LicenseInvalidReason {
   const status = body.license_key?.status;
   if (status === "expired") return "expired";
-  if (status === "disabled") return "disabled";
-  return API_ERROR_TO_INVALID_REASON[classifyApiError(body.error, status)] ?? "unknown";
+  // Polar says `revoked` (refund, manual pull) where Lemon Squeezy says `disabled`.
+  if (status === "disabled" || status === "revoked") return "disabled";
+  return API_ERROR_TO_INVALID_REASON[classifyApiError(body)] ?? "unknown";
 }
