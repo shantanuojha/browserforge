@@ -29,7 +29,8 @@ function treeHandlers(on: Registration, service: ArborBackground): void {
   on(messages.reopenAll, ({ id }) => tracker.reopenAll(id));
   on(messages.closeAndSave, ({ id }) => tracker.closeAndSave(id));
   on(messages.closeAllAndSave, () => tracker.closeAllAndSave());
-  on(messages.deleteNode, ({ id }) => tracker.deleteNode(id));
+  on(messages.removeNode, ({ id }) => tracker.removeNode(id));
+  on(messages.closeAndRemove, ({ id }) => tracker.closeAndRemove(id));
   on(messages.addNode, (input) => service.addNode(input));
   on(messages.applyHistoryStep, (step) => tracker.runHistoryStep(step));
 }

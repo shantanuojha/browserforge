@@ -26,7 +26,8 @@ export interface RowCallbacks {
   onCloseAndSave(id: NodeId): void;
   onRestore(id: NodeId): void;
   onReopenAll(id: NodeId): void;
-  onDelete(id: NodeId): void;
+  /** "Remove from tree": the row button; "Close tabs and remove" is menu and keyboard only. */
+  onRemove(id: NodeId): void;
   onEditNote(id: NodeId): void;
   onSaveNote(id: NodeId, note: string): void;
   onStartRename(id: NodeId): void;
@@ -51,6 +52,8 @@ export interface TreeRowProps {
   childCount: number;
   /** Shared container actions (see `containerActions`); `null` for tab and note rows. */
   containerActions: ContainerAction[] | null;
+  /** Tab and note rows: whether "Remove from tree" has anything to do (see `canRemove`). */
+  removable: boolean;
   faviconFallback: FaviconFallback;
   cb: RowCallbacks;
 }
@@ -230,6 +233,7 @@ export const TreeRow = memo(function TreeRow(props: TreeRowProps) {
           id={node.id}
           live={flags.live}
           canRestore={flags.saved && !!node.url}
+          removable={props.removable}
           containerActions={containerActions}
           pinned={pinned}
           cb={cb}

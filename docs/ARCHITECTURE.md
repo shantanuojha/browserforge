@@ -107,8 +107,8 @@ running the real entrypoint against `@webext-core/fake-browser` (Reroute, Cookie
   `pruning` (untitled containers left empty), `adoption` (restores in flight), `mirror` (the
   browser events), `rebuild` + `matchers` (re-matching on startup: by live id, by URL overlap),
   `reopen` + `containers` (focus, close-and-save, restore, reopen in place or as a window),
-  `edits` (delete and move with the browser following), `history-runner` (undo/redo steps as a
-  table keyed by kind).
+  `edits` (remove from tree without touching the browser, close-and-remove, and move with the
+  browser following), `history-runner` (undo/redo steps as a table keyed by kind).
 - `lib/model` and `lib/history` are pure: op appliers, coercers and step runners are tables keyed
   by op or step kind, so a new kind is one entry each. The op-log, snapshot and export formats
   are the same as before the refactor.

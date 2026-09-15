@@ -15,8 +15,10 @@ export interface TreeKeyboardDeps {
   startEditingNote(id: NodeId): void;
   toggleCollapse(id: NodeId, collapsed: boolean): void;
   primary(id: NodeId): void;
-  closeAndSave(id: NodeId): void;
-  deleteNode(id: NodeId): void;
+  /** Delete: "Remove from tree"; never closes a tab. */
+  removeNode(id: NodeId): void;
+  /** Shift+Delete: "Close tabs and remove"; the actions layer asks for confirmation. */
+  closeAndRemove(id: NodeId): void;
   actionsFor(node: TreeNode): ContainerAction[] | null;
 }
 
@@ -50,15 +52,19 @@ interface RowKeyContext {
 
 type RowKeyHandler = (ctx: RowKeyContext) => void;
 
-/** Delete key: close-and-save while anything beneath is open, delete otherwise. */
-function deleteOrClose({ node, deps }: RowKeyContext): void {
+/**
+ * Delete key: "Remove from tree", which never closes a tab; with Shift, "Close tabs and remove".
+ * Containers resolve through their shared action list so the disabled states match the menu;
+ * tab and note rows go to the actions layer, which applies the same checks.
+ */
+function removeOrCloseAndRemove({ e, node, deps }: RowKeyContext): void {
   const container = deps.actionsFor(node);
   if (container) {
-    deleteKeyAction(container)?.run();
-  } else if (node.kind === "tab" && node.liveTabId !== undefined) {
-    deps.closeAndSave(node.id);
+    deleteKeyAction(container, { shift: e.shiftKey })?.run();
+  } else if (e.shiftKey) {
+    deps.closeAndRemove(node.id);
   } else {
-    deps.deleteNode(node.id);
+    deps.removeNode(node.id);
   }
 }
 
@@ -95,11 +101,11 @@ const ROW_KEYS: Record<string, RowKeyHandler> = {
   },
   Delete(ctx) {
     ctx.e.preventDefault();
-    deleteOrClose(ctx);
+    removeOrCloseAndRemove(ctx);
   },
   Backspace(ctx) {
     ctx.e.preventDefault();
-    deleteOrClose(ctx);
+    removeOrCloseAndRemove(ctx);
   },
   F2({ e, node, deps }) {
     e.preventDefault();

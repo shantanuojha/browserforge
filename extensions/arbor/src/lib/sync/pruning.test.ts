@@ -49,14 +49,14 @@ describe("empty window pruning", () => {
     expect(windowNodeIds(ctx)).toEqual([w1Node?.id]);
   });
 
-  it("delete: removing the only tab node of a live window prunes the window in the same step", async () => {
+  it("close and remove: removing the only tab node of a live window prunes the window in the same step", async () => {
     const ctx = await realistic();
     const { store, fb, tracker } = ctx;
     const w = fb.openWindow();
     const a = fb.openTab(w.id, "https://a.test/", "A");
     const aNode = nodeOf(ctx, a) as TreeNode;
     const wNode = winNodeOf(ctx, w) as TreeNode;
-    const removed = await tracker.deleteNode(aNode.id);
+    const removed = await tracker.closeAndRemove(aNode.id);
     // Window first, then the deleted subtree: the order an undo re-adds them in.
     expect(removed.map((n) => n.id)).toEqual([wNode.id, aNode.id]);
     expect(store.getTree().size).toBe(0);
@@ -64,7 +64,7 @@ describe("empty window pruning", () => {
     expect(fb.windows).toEqual([]); // the browser closed the window with its last tab
   });
 
-  it("delete: a live window keeps its node while the real window still has a tab elsewhere in the tree", async () => {
+  it("close and remove: a live window keeps its node while the real window still has a tab elsewhere in the tree", async () => {
     const ctx = await realistic();
     const { store, fb, tracker } = ctx;
     const w = fb.openWindow();
@@ -73,7 +73,7 @@ describe("empty window pruning", () => {
     const wNode = winNodeOf(ctx, w) as TreeNode;
     addRootGroup(ctx, "g");
     await dropInside(ctx, nodeOf(ctx, b)?.id ?? "", "g"); // B detached into a root group
-    const removed = await tracker.deleteNode(nodeOf(ctx, a)?.id ?? "");
+    const removed = await tracker.closeAndRemove(nodeOf(ctx, a)?.id ?? "");
     expect(removed.map((n) => n.title)).toEqual(["A"]);
     // Zero children, but the browser window is open with B in it: the node stays, live.
     expect(store.getTree().get(wNode.id)).toMatchObject({ liveWindowId: w.id });
@@ -112,7 +112,7 @@ describe("empty window pruning", () => {
       ops.add(makeNode({ id: "g", parentId: "w", kind: "window", title: "G", ts: 1 })),
     ]);
     addSavedTab(ctx, "s", "w", "https://s.test/", "S");
-    expect((await tracker.deleteNode("s")).map((n) => n.id)).toEqual(["s"]);
+    expect((await tracker.closeAndRemove("s")).map((n) => n.id)).toEqual(["s"]);
     expect(store.getTree().has("w")).toBe(true);
     expect(titlesUnder(ctx, "w")).toEqual(["memo", "G"]);
     // The empty group and the note stay through a sweep as well.
@@ -122,7 +122,7 @@ describe("empty window pruning", () => {
     // An empty root group is never touched either.
     addRootGroup(ctx, "root-group");
     addSavedTab(ctx, "t", "root-group", "https://t.test/", "T");
-    await tracker.deleteNode("t");
+    await tracker.closeAndRemove("t");
     expect(store.getTree().has("root-group")).toBe(true);
   });
 
@@ -148,7 +148,7 @@ describe("empty window pruning", () => {
     expect(await tracker.moveNode("s", "g", 1)).toEqual([]);
   });
 
-  it("close-and-save then delete: the saved window goes with its last saved tab", async () => {
+  it("close-and-save then close and remove: the saved window goes with its last saved tab", async () => {
     const ctx = await realistic();
     const { store, fb, tracker } = ctx;
     const w = fb.openWindow();
@@ -160,9 +160,9 @@ describe("empty window pruning", () => {
     expect(await tracker.closeAndSave(wNode.id)).toBe(2);
     expect(store.getTree().get(wNode.id)?.liveWindowId).toBeUndefined();
     expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "B"]);
-    expect((await tracker.deleteNode(aNode.id)).map((n) => n.id)).toEqual([aNode.id]);
+    expect((await tracker.closeAndRemove(aNode.id)).map((n) => n.id)).toEqual([aNode.id]);
     expect(store.getTree().has(wNode.id)).toBe(true);
-    expect((await tracker.deleteNode(bNode.id)).map((n) => n.id)).toEqual([wNode.id, bNode.id]);
+    expect((await tracker.closeAndRemove(bNode.id)).map((n) => n.id)).toEqual([wNode.id, bNode.id]);
     expect(store.getTree().size).toBe(0);
   });
 
@@ -174,13 +174,13 @@ describe("empty window pruning", () => {
       ops.add(makeNode({ id: "inner", parentId: "outer", kind: "window", title: "", ts: 1 })),
     ]);
     addSavedTab(ctx, "s", "inner", "https://s.test/", "S");
-    expect((await tracker.deleteNode("s")).map((n) => n.id)).toEqual(["outer", "inner", "s"]);
+    expect((await tracker.closeAndRemove("s")).map((n) => n.id)).toEqual(["outer", "inner", "s"]);
     expect(store.getTree().size).toBe(0);
 
     addRootGroup(ctx, "g");
     store.append([ops.add(makeNode({ id: "w", parentId: "g", kind: "window", title: "", ts: 1 }))]);
     addSavedTab(ctx, "t", "w", "https://t.test/", "T");
-    expect((await tracker.deleteNode("t")).map((n) => n.id)).toEqual(["w", "t"]);
+    expect((await tracker.closeAndRemove("t")).map((n) => n.id)).toEqual(["w", "t"]);
     expect([...store.getTree().keys()]).toEqual(["g"]);
   });
 
@@ -193,7 +193,7 @@ describe("empty window pruning", () => {
     const wNode = winNodeOf(ctx, w) as TreeNode;
     const aNode = nodeOf(ctx, a) as TreeNode;
     store.append([ops.update(wNode.id, { title: "Work" })]);
-    expect((await tracker.deleteNode(aNode.id)).map((n) => n.id)).toEqual([aNode.id]);
+    expect((await tracker.closeAndRemove(aNode.id)).map((n) => n.id)).toEqual([aNode.id]);
     expect(fb.windows).toEqual([]);
     expect(store.getTree().get(wNode.id)).toMatchObject({ kind: "window", title: "Work" });
     expect(store.getTree().get(wNode.id)?.liveWindowId).toBeUndefined();
@@ -215,18 +215,18 @@ describe("empty window pruning", () => {
     const a = fb.openTab(w.id, "https://a.test/", "A");
     const wNode = winNodeOf(ctx, w) as TreeNode;
     store.append([ops.update(wNode.id, { note: "keep this one" })]);
-    await ctx.tracker.deleteNode(nodeOf(ctx, a)?.id ?? "");
+    await ctx.tracker.closeAndRemove(nodeOf(ctx, a)?.id ?? "");
     expect(store.getTree().get(wNode.id)).toMatchObject({ note: "keep this one" });
   });
 
-  it("deleting a live window node closes its tabs and leaves nothing behind", async () => {
+  it("close and remove on a live window node closes its tabs and leaves nothing behind", async () => {
     const ctx = await realistic();
     const { store, fb, tracker } = ctx;
     const w = fb.openWindow();
     const a = fb.openTab(w.id, "https://a.test/", "A");
     const b = fb.openTab(w.id, "https://b.test/", "B", { openerTabId: a.id });
     const wNode = winNodeOf(ctx, w) as TreeNode;
-    const removed = await tracker.deleteNode(wNode.id);
+    const removed = await tracker.closeAndRemove(wNode.id);
     expect(removed.map((n) => n.title)).toEqual(["", "A", "B"]); // browser windows are untitled
     expect(fb.removed.sort()).toEqual([a.id, b.id].sort());
     expect(store.getTree().size).toBe(0); // the tab events did not re-save anything

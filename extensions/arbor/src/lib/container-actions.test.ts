@@ -20,10 +20,11 @@ function node(
 }
 
 /** A tab; `live` gives it a tab id in window 1 (pass `win` to put it in another window). */
-const tab = (id: NodeId, parentId: NodeId, live?: number, win = 1) =>
+const tab = (id: NodeId, parentId: NodeId, live?: number, win = 1, extra: Partial<TreeNode> = {}) =>
   node(id, parentId, "tab", {
     url: `https://${id}.test/`,
     ...(live !== undefined ? { liveTabId: live, liveWindowId: win } : {}),
+    ...extra,
   });
 
 /** A bound container: a window the browser has open. */
@@ -47,7 +48,8 @@ function handlers(): ContainerActionHandlers & { calls: string[] } {
     editNote: rec("editNote"),
     startRename: rec("startRename"),
     toggleCollapse: rec("toggleCollapse"),
-    deleteNode: rec("deleteNode"),
+    removeNode: rec("removeNode"),
+    closeAndRemove: rec("closeAndRemove"),
   };
 }
 
@@ -60,7 +62,7 @@ const enabledIds = (tree: ReturnType<typeof createTree>, id: NodeId) =>
 const byId = (tree: ReturnType<typeof createTree>, id: NodeId) =>
   Object.fromEntries(actionsOf(tree, id).map((a) => [a.id, a]));
 
-const ALL = ["reopen", "closeAndSave", "note", "rename", "collapse", "delete"];
+const ALL = ["reopen", "closeAndSave", "note", "rename", "collapse", "remove", "closeAndRemove"];
 
 describe("container actions", () => {
   it("every window node is a container, open or closed; tabs and notes are not", () => {
@@ -84,14 +86,18 @@ describe("container actions", () => {
 
   it("bound container: close-and-save on, reopen off while nothing beneath it is closed", () => {
     const tree = createTree([openWindow("w"), tab("a", "w", 10), tab("b", "w", 11)]);
-    expect(enabledIds(tree, "w")).toEqual(["closeAndSave", "note", "rename", "collapse", "delete"]);
+    expect(enabledIds(tree, "w")).toEqual([
+      "closeAndSave",
+      "note",
+      "rename",
+      "collapse",
+      "closeAndRemove",
+    ]);
     const acts = byId(tree, "w");
     expect(acts.closeAndSave?.label).toBe("Close window and save (2 open tabs)");
-    expect(acts.closeAndSave?.shortcut).toBe("Del");
+    expect(acts.closeAndSave?.shortcut).toBeUndefined(); // Delete no longer closes anything
     expect(acts.reopen?.label).toBe("Reopen all");
     expect(acts.reopen?.shortcut).toBeUndefined(); // Enter focuses an open window
-    expect(acts.delete?.label).toBe("Delete (closes 2 open tabs)");
-    expect(acts.delete?.danger).toBe(true);
   });
 
   it("bound container with a closed tab inside: reopen all comes back on", () => {
@@ -103,12 +109,12 @@ describe("container actions", () => {
 
   it("unbound container (a closed window or a group): open as window on, close off", () => {
     const tree = createTree([group("w", null, { title: "" }), tab("a", "w"), tab("b", "w")]);
-    expect(enabledIds(tree, "w")).toEqual(["reopen", "note", "rename", "collapse", "delete"]);
+    expect(enabledIds(tree, "w")).toEqual(["reopen", "note", "rename", "collapse", "remove"]);
     const acts = byId(tree, "w");
     expect(acts.reopen?.label).toBe("Open as window (2 saved tabs)");
     expect(acts.reopen?.shortcut).toBe("Enter");
     expect(acts.closeAndSave?.label).toBe("Close all and save");
-    expect(acts.delete?.label).toBe("Delete");
+    expect(acts.remove?.label).toBe("Remove from tree");
     // The very same labels for a group: the title does not change what the row can do.
     const named = createTree([group("g"), tab("a", "g"), tab("b", "g")]);
     expect(actionsOf(named, "g").map((a) => [a.label, a.disabled])).toEqual(
@@ -116,9 +122,9 @@ describe("container actions", () => {
     );
   });
 
-  it("empty group: only note, rename and delete", () => {
+  it("empty group: only note, rename and remove", () => {
     const tree = createTree([group("g")]);
-    expect(enabledIds(tree, "g")).toEqual(["note", "rename", "delete"]);
+    expect(enabledIds(tree, "g")).toEqual(["note", "rename", "remove"]);
     const acts = byId(tree, "g");
     expect(acts.reopen?.label).toBe("Open as window");
     expect(acts.collapse?.disabled).toBe(true);
@@ -147,7 +153,8 @@ describe("container actions", () => {
     const acts = byId(tree, "g");
     expect(acts.reopen?.label).toBe("Open as window (2 saved tabs, 1 open tab)");
     expect(acts.closeAndSave?.label).toBe("Close all and save (2 open tabs)");
-    expect(acts.delete?.label).toBe("Delete (closes 2 open tabs)");
+    expect(acts.remove?.label).toBe("Remove from tree (keeps 2 open tabs)");
+    expect(acts.closeAndRemove?.label).toBe("Close tabs and remove (2 open tabs)");
     expect(acts.collapse?.label).toBe("Expand");
   });
 
@@ -166,17 +173,32 @@ describe("container actions", () => {
     expect(byId(tree, "w").reopen?.disabled).toBe(true);
   });
 
-  it("row buttons are the enabled reopen / close / note / delete entries", () => {
+  it("row buttons are the enabled reopen / close / note / remove entries; close-and-remove is menu only", () => {
     const tree = createTree([group("g"), tab("s", "g"), tab("l", "g", 20)]);
-    expect(
-      actionsOf(tree, "g")
-        .filter((a) => a.inRow && !a.disabled)
-        .map((a) => a.id),
-    ).toEqual(["reopen", "closeAndSave", "note", "delete"]);
+    const acts = actionsOf(tree, "g");
+    expect(acts.filter((a) => a.inRow && !a.disabled).map((a) => a.id)).toEqual([
+      "reopen",
+      "closeAndSave",
+      "note",
+      "remove",
+    ]);
+    expect(acts.find((a) => a.id === "closeAndRemove")).toMatchObject({
+      inRow: false,
+      danger: true,
+      disabled: false,
+      shortcut: "Shift+Del",
+    });
+    const remove = acts.find((a) => a.id === "remove");
+    expect(remove?.shortcut).toBe("Del");
+    expect(remove?.danger).toBeFalsy(); // it never closes anything
   });
 
   it("runs the injected handlers with the container id", () => {
-    const tree = createTree([group("g", null, { collapsed: true }), tab("s", "g")]);
+    const tree = createTree([
+      group("g", null, { collapsed: true }),
+      tab("s", "g"),
+      tab("l", "g", 20),
+    ]);
     const h = handlers();
     for (const a of actionsOf(tree, "g", h)) a.run();
     expect(h.calls).toEqual([
@@ -185,7 +207,8 @@ describe("container actions", () => {
       "editNote:g",
       "startRename:g",
       "toggleCollapse:g:false",
-      "deleteNode:g",
+      "removeNode:g",
+      "closeAndRemove:g",
     ]);
   });
 
@@ -227,12 +250,80 @@ describe("container actions", () => {
     expect(pinnedContainerAction(actionsOf(empty, "g"))).toBeUndefined();
   });
 
-  it("Delete key closes-and-saves while something is open, deletes otherwise", () => {
-    const h = handlers();
-    const withLive = createTree([group("g"), tab("l", "g", 20)]);
-    deleteKeyAction(actionsOf(withLive, "g", h))?.run();
-    const allSaved = createTree([group("g"), tab("s", "g")]);
-    deleteKeyAction(actionsOf(allSaved, "g", h))?.run();
-    expect(h.calls).toEqual(["closeAndSave:g", "deleteNode:g"]);
+  describe("remove from tree vs close tabs and remove", () => {
+    it("a group: remove is on whatever it holds and keeps open tabs; close-and-remove needs open tabs", () => {
+      const withLive = createTree([group("g"), tab("l", "g", 20), tab("s", "g")]);
+      expect(byId(withLive, "g").remove).toMatchObject({
+        label: "Remove from tree (keeps 1 open tab)",
+        disabled: false,
+      });
+      expect(byId(withLive, "g").closeAndRemove).toMatchObject({
+        label: "Close tabs and remove (1 open tab)",
+        disabled: false,
+      });
+      const allSaved = createTree([group("g"), tab("s", "g")]);
+      expect(byId(allSaved, "g").remove).toMatchObject({
+        label: "Remove from tree",
+        disabled: false,
+      });
+      expect(byId(allSaved, "g").closeAndRemove).toMatchObject({
+        label: "Close tabs and remove",
+        disabled: true,
+      });
+      const empty = createTree([group("g")]);
+      expect(byId(empty, "g").remove?.disabled).toBe(false);
+      expect(byId(empty, "g").closeAndRemove?.disabled).toBe(true);
+    });
+
+    it("an open window stays in the tree: remove reads 'Remove saved items' and is off with nothing to remove", () => {
+      // Only open tabs, each directly under its window, no title, no note: nothing to remove.
+      const plain = createTree([openWindow("w"), tab("a", "w", 10), tab("b", "w", 11)]);
+      expect(byId(plain, "w").remove).toMatchObject({
+        label: "Remove saved items",
+        disabled: true,
+      });
+      expect(byId(plain, "w").closeAndRemove).toMatchObject({
+        label: "Close tabs and remove (2 open tabs)",
+        disabled: false,
+      });
+      // Open tabs nested under an open tab (opened from it) stay nested: still nothing to remove.
+      const nested = createTree([openWindow("w"), tab("a", "w", 10), tab("b", "a", 11)]);
+      expect(byId(nested, "w").remove?.disabled).toBe(true);
+      // A saved tab, a note, a title or a tab from another window filed here: something to remove.
+      const withSaved = createTree([openWindow("w"), tab("a", "w", 10), tab("s", "w")]);
+      expect(byId(withSaved, "w").remove?.disabled).toBe(false);
+      const titled = createTree([node("w", null, "window", { title: "Work", liveWindowId: 1 })]);
+      expect(byId(titled, "w").remove?.disabled).toBe(false);
+      const noted = createTree([openWindow("w"), tab("a", "w", 10, 1, { note: "todo" })]);
+      expect(byId(noted, "w").remove?.disabled).toBe(false);
+      const elsewhere = createTree([
+        openWindow("w"),
+        openWindow("w2", null, 2),
+        tab("a", "w", 10),
+        tab("x", "w", 30, 2), // open in window 2, filed under window 1: goes back to window 2
+      ]);
+      expect(byId(elsewhere, "w").remove?.disabled).toBe(false);
+      // An open tab under a saved tab: the saved tab goes, the open one moves up.
+      const underSaved = createTree([openWindow("w"), tab("s", "w"), tab("a", "s", 10)]);
+      expect(byId(underSaved, "w").remove?.disabled).toBe(false);
+      // An open window without tabs beneath it in the tree has nothing to close.
+      const bare = createTree([openWindow("w")]);
+      expect(byId(bare, "w").closeAndRemove?.disabled).toBe(true);
+    });
+
+    it("Delete key runs remove, Shift+Delete runs close-and-remove, neither when disabled", () => {
+      const h = handlers();
+      const withLive = createTree([group("g"), tab("l", "g", 20)]);
+      deleteKeyAction(actionsOf(withLive, "g", h), { shift: false })?.run();
+      deleteKeyAction(actionsOf(withLive, "g", h), { shift: true })?.run();
+      expect(h.calls).toEqual(["removeNode:g", "closeAndRemove:g"]);
+      // Nothing open beneath: Shift+Delete does nothing rather than falling back to remove.
+      const allSaved = createTree([group("g"), tab("s", "g")]);
+      expect(deleteKeyAction(actionsOf(allSaved, "g", h), { shift: true })).toBeUndefined();
+      // Nothing to remove on a plain open window: Delete does nothing (and never closes a tab).
+      const plain = createTree([openWindow("w"), tab("a", "w", 10)]);
+      expect(deleteKeyAction(actionsOf(plain, "w", h), { shift: false })).toBeUndefined();
+      expect(h.calls).toEqual(["removeNode:g", "closeAndRemove:g"]);
+    });
   });
 });

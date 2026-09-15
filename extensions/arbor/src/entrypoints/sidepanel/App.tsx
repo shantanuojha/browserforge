@@ -50,14 +50,17 @@ export function App() {
   }, []);
   usePanelShortcuts({ focusSearch, undo: undoNow, redo: redoNow });
 
-  const confirmDelete = useCallback((id: string) => setConfirm({ kind: "delete", id }), []);
-  const { actions, performDelete } = useTreeActions({
+  const confirmCloseAndRemove = useCallback(
+    (id: string) => setConfirm({ kind: "close-and-remove", id }),
+    [],
+  );
+  const { actions, performCloseAndRemove } = useTreeActions({
     tree,
     history,
     push,
     report,
     notify,
-    confirmDelete,
+    confirmCloseAndRemove,
   });
 
   const openTabs = useMemo(() => liveTabCount(tree), [tree]);
@@ -113,9 +116,9 @@ export function App() {
         tree={tree}
         liveTabCount={openTabs}
         onCloseAll={closeAllNow}
-        onDelete={(id) => {
+        onCloseAndRemove={(id) => {
           setConfirm(null);
-          performDelete(id);
+          performCloseAndRemove(id);
         }}
         onCancel={() => setConfirm(null)}
       />

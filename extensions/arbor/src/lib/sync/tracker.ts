@@ -11,7 +11,8 @@
  * - `LiveMirror`: the browser events (`TrackerEventSink`);
  * - `Rebuilder` + `RebuildMatcher`: re-matching the tree to the browser on startup;
  * - `ContainerOperations`: focus, close-and-save, restore, reopen (in place or as a window);
- * - `TreeEdits`: delete and move from the panel, with the browser following;
+ * - `TreeEdits`: remove (tree only), close-and-remove and move from the panel, with the browser
+ *   following where it must;
  * - `runHistoryStep`: undo/redo steps mapped onto the same operations.
  *
  * Invariants it maintains:
@@ -169,8 +170,14 @@ export class TabTracker implements TrackerEventSink, StepTarget {
     return this.containers.reopenAll(nodeId);
   }
 
-  deleteNode(nodeId: NodeId): Promise<TreeNode[]> {
-    return this.edits.deleteNode(nodeId);
+  /** "Remove from tree": tree only; open tabs stay open and re-mirrored under their window. */
+  removeNode(nodeId: NodeId): TreeNode[] {
+    return this.edits.removeNode(nodeId);
+  }
+
+  /** "Close tabs and remove": closes the open tabs beneath the node, then removes the subtree. */
+  closeAndRemove(nodeId: NodeId): Promise<TreeNode[]> {
+    return this.edits.closeAndRemove(nodeId);
   }
 
   moveNode(nodeId: NodeId, parentId: NodeId | null, index: number): Promise<TreeNode[]> {

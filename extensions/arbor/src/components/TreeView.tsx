@@ -17,6 +17,7 @@ import {
   type Tree,
   type TreeNode,
 } from "@/lib/model";
+import { canRemove, summarizeRemoval } from "@/lib/removal";
 import type { LiveState } from "@/lib/sync/tracker";
 import { ROW_HEIGHT } from "@/lib/tree-layout";
 import { buildContextMenu, type MenuEntry } from "@/lib/tree-menu";
@@ -42,7 +43,10 @@ export interface TreeActions {
    * new window otherwise.
    */
   reopenAll(id: NodeId): void;
-  deleteNode(id: NodeId): void;
+  /** "Remove from tree": saved items go, open tabs stay open under their window. Undoable. */
+  removeNode(id: NodeId): void;
+  /** "Close tabs and remove": closes the open tabs beneath, then removes. Asks first. */
+  closeAndRemove(id: NodeId): void;
   move(id: NodeId, parentId: NodeId | null, index: number): void;
   /** A new group: an unbound container the user names. */
   addGroup(parentId: NodeId | null, index: number): void;
@@ -90,7 +94,7 @@ function useRowCallbacks(
       onCloseAndSave: (id) => actions.closeAndSave(id),
       onRestore: (id) => actions.restore(id),
       onReopenAll: (id) => actions.reopenAll(id),
-      onDelete: (id) => actions.deleteNode(id),
+      onRemove: (id) => actions.removeNode(id),
       onEditNote: (id) => selection.startEditingNote(id),
       onSaveNote: (id, note) => {
         selection.setEditingNoteId(null);
@@ -131,7 +135,8 @@ function useContainerActions(
       editNote: cb.onEditNote,
       startRename: cb.onStartRename,
       toggleCollapse: (id, collapsed) => actions.toggleCollapse(id, collapsed),
-      deleteNode: cb.onDelete,
+      removeNode: cb.onRemove,
+      closeAndRemove: actions.closeAndRemove,
     }),
     [cb, actions],
   );
@@ -139,6 +144,14 @@ function useContainerActions(
     (node: TreeNode) =>
       isContainer(node) ? containerActions(tree, node, handlers, childIndex) : null,
     [tree, childIndex, handlers],
+  );
+}
+
+/** Whether "Remove from tree" has anything to do on a tab or note row (containers ask their actions). */
+function useLeafRemovable(tree: Tree, childIndex: ChildIndex): (node: TreeNode) => boolean {
+  return useCallback(
+    (node: TreeNode) => !isContainer(node) && canRemove(summarizeRemoval(tree, node, childIndex)),
+    [tree, childIndex],
   );
 }
 
@@ -157,6 +170,7 @@ function useContextMenuItems(deps: ContextMenuDeps): MenuEntry[] {
     const node = menu ? tree.get(menu.id) : undefined;
     if (!node) return [];
     return buildContextMenu({
+      tree,
       node,
       childIndex,
       containerActions: actionsFor(node),
@@ -164,7 +178,8 @@ function useContextMenuItems(deps: ContextMenuDeps): MenuEntry[] {
         primary: actions.primary,
         closeAndSave: actions.closeAndSave,
         restore: actions.restore,
-        deleteNode: actions.deleteNode,
+        removeNode: actions.removeNode,
+        closeAndRemove: actions.closeAndRemove,
         toggleCollapse: actions.toggleCollapse,
         editNote: selection.setEditingNoteId,
         startRename: selection.setRenamingId,
@@ -206,6 +221,7 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
   const edits = useRowCallbacks(tree, actions, selection, setMenu);
   const cb = useMemo<RowCallbacks>(() => ({ ...edits, ...drag.row }), [edits, drag.row]);
   const actionsFor = useContainerActions(tree, childIndex, cb, actions);
+  const removableFor = useLeafRemovable(tree, childIndex);
 
   const onKeyDown = useTreeKeyboard({
     rows,
@@ -218,8 +234,8 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
     startEditingNote: selection.setEditingNoteId,
     toggleCollapse: actions.toggleCollapse,
     primary: actions.primary,
-    closeAndSave: actions.closeAndSave,
-    deleteNode: actions.deleteNode,
+    removeNode: actions.removeNode,
+    closeAndRemove: actions.closeAndRemove,
     actionsFor,
   });
 
@@ -277,6 +293,7 @@ export function TreeView({ tree, live, query, actions, faviconFallback }: TreeVi
                   dropPosition={drag.drag?.over?.id === id ? drag.drag.over.pos : null}
                   childCount={childIndex.get(id)?.length ?? 0}
                   containerActions={actionsFor(row.node)}
+                  removable={removableFor(row.node)}
                   faviconFallback={faviconFallback}
                   cb={cb}
                 />

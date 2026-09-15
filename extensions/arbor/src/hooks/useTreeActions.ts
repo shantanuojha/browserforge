@@ -3,8 +3,9 @@ import { msg } from "@/adapters/messaging";
 import type { TreeActions } from "@/components/TreeView";
 import type { HistoryBuilders, HistoryEntry } from "@/lib/history";
 import { ops, type NodeId, type OpBody, type Tree } from "@/lib/model";
-import { deleteNeedsConfirmation, plural } from "@/lib/panel-text";
+import { plural } from "@/lib/panel-text";
 import { primaryActionFor } from "@/lib/primary-action";
+import { canCloseAndRemove, canRemove, summarizeRemoval } from "@/lib/removal";
 import type { Toast } from "./useToast";
 
 export interface TreeActionDeps {
@@ -14,30 +15,29 @@ export interface TreeActionDeps {
   push(entry: HistoryEntry | null): void;
   report(error: unknown): void;
   notify(toast: Toast): void;
-  /** Ask before a delete that closes tabs or removes a subtree. */
-  confirmDelete(id: NodeId): void;
+  /** Ask before closing tabs without saving them ("Close tabs and remove"). */
+  confirmCloseAndRemove(id: NodeId): void;
 }
 
 export interface TreeActionsApi {
   actions: TreeActions;
-  /** Delete without asking; the confirmation dialog calls this once the user agreed. */
-  performDelete(id: NodeId): void;
+  /** Close and remove without asking; the confirmation dialog calls this once the user agreed. */
+  performCloseAndRemove(id: NodeId): void;
 }
 
 interface ActionContext extends TreeActionDeps {
   /** Fire and forget: failures become a toast. */
   run(p: Promise<unknown>): void;
-  performDelete(id: NodeId): void;
 }
 
-/** Edits that only touch the tree: notes, titles, collapse, new nodes, drag-and-drop. */
+/** Edits that only touch the tree: notes, titles, collapse, new nodes, drag-and-drop, remove. */
 function treeEdits(
   ctx: ActionContext,
 ): Pick<
   TreeActions,
-  "toggleCollapse" | "setNote" | "rename" | "move" | "addGroup" | "addNote" | "deleteNode"
+  "toggleCollapse" | "setNote" | "rename" | "move" | "addGroup" | "addNote" | "removeNode"
 > {
-  const { tree, history, push, run } = ctx;
+  const { tree, history, push, notify, run } = ctx;
   /** Apply one op, then record the entry built from the tree before it. */
   const edit = (entry: HistoryEntry | null, body: OpBody) =>
     run(msg.applyOps.send([body]).then(() => push(entry)));
@@ -56,18 +56,25 @@ function treeEdits(
     // A group is a closed container with a name: the same node kind as a window.
     addGroup: (parentId, index) => add({ parentId, index, kind: "window", title: "New group" }),
     addNote: (parentId, index) => add({ parentId, index, kind: "note", title: "Note" }),
-    deleteNode: (id) => {
-      if (!tree.has(id)) return;
-      if (deleteNeedsConfirmation(tree, id)) ctx.confirmDelete(id);
-      else ctx.performDelete(id);
+    // Never touches the browser, always undoable: no confirmation, the toast offers Undo.
+    removeNode: (id) => {
+      const node = tree.get(id);
+      if (!node || !canRemove(summarizeRemoval(tree, node))) return;
+      run(
+        msg.removeNode.send({ id }).then((removed) => {
+          const entry = history.remove(tree, removed, id);
+          push(entry);
+          if (entry) notify({ text: `${entry.done}.`, undo: true });
+        }),
+      );
     },
   };
 }
 
-/** Actions that reach the browser: focus, restore, reopen, close-and-save. */
+/** Actions that reach the browser: focus, restore, reopen, close-and-save, close-and-remove. */
 function liveActions(
   ctx: ActionContext,
-): Pick<TreeActions, "primary" | "restore" | "reopenAll" | "closeAndSave"> {
+): Pick<TreeActions, "primary" | "restore" | "reopenAll" | "closeAndSave" | "closeAndRemove"> {
   const { tree, history, push, notify, run } = ctx;
   const reopen = (id: NodeId) => {
     const entry = history.reopen(tree, id);
@@ -100,6 +107,12 @@ function liveActions(
         }),
       );
     },
+    // The one action that closes tabs without saving them: it always asks first.
+    closeAndRemove: (id) => {
+      const node = tree.get(id);
+      if (!node || !canCloseAndRemove(summarizeRemoval(tree, node))) return;
+      ctx.confirmCloseAndRemove(id);
+    },
   };
 }
 
@@ -109,12 +122,12 @@ function liveActions(
  * Collapse/expand is not recorded.
  */
 export function useTreeActions(deps: TreeActionDeps): TreeActionsApi {
-  const { tree, history, push, report, notify, confirmDelete } = deps;
+  const { tree, history, push, report, notify, confirmCloseAndRemove } = deps;
 
-  const performDelete = useCallback(
+  const performCloseAndRemove = useCallback(
     (id: NodeId) => {
-      void msg.deleteNode.send({ id }).then((removed) => {
-        const entry = history.remove(tree, removed, id);
+      void msg.closeAndRemove.send({ id }).then((removed) => {
+        const entry = history.closeAndRemove(tree, removed, id);
         push(entry);
         if (entry) notify({ text: `${entry.done}.`, undo: true });
       }, report);
@@ -129,12 +142,11 @@ export function useTreeActions(deps: TreeActionDeps): TreeActionsApi {
       push,
       report,
       notify,
-      confirmDelete,
+      confirmCloseAndRemove,
       run: (p) => void p.catch(report),
-      performDelete,
     };
     return { ...treeEdits(ctx), ...liveActions(ctx) };
-  }, [tree, history, push, report, notify, confirmDelete, performDelete]);
+  }, [tree, history, push, report, notify, confirmCloseAndRemove]);
 
-  return { actions, performDelete };
+  return { actions, performCloseAndRemove };
 }

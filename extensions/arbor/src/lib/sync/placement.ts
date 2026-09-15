@@ -117,6 +117,29 @@ export class Placement {
   }
 
   /**
+   * Index directly under `windowNode` for the node of live `tab` going back to being a plain
+   * mirror of its browser tab: right after the last direct child mirroring an earlier strip
+   * position, else right before the first mirroring a later one, else last. Children that are
+   * not live tabs of this window (saved tabs, notes, nested containers, detached tabs) do not
+   * take part; tabs nested deeper are their parents' business.
+   */
+  indexUnderWindow(tab: LiveTab, windowNode: TreeNode): number {
+    const strip = this.books.orderOf(tab.windowId);
+    const mine = strip.indexOf(tab.id);
+    const positions = childrenOf(this.tree, windowNode.id).map((k) =>
+      k.kind === "tab" && k.liveTabId !== undefined && k.liveTabId !== tab.id
+        ? strip.indexOf(k.liveTabId)
+        : -1,
+    );
+    for (let i = positions.length - 1; i >= 0; i--) {
+      const p = positions[i] as number;
+      if (p >= 0 && p < mine) return i + 1;
+    }
+    const successor = positions.findIndex((p) => p > mine);
+    return successor >= 0 ? successor : positions.length;
+  }
+
+  /**
    * Strip index at which the tab for saved `nodeId` (inside bound `windowNode`'s subtree) must
    * open so the window's attached depth-first order keeps matching the strip: right after the
    * nearest attached predecessor still in the strip, else right before the nearest attached

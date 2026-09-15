@@ -13,8 +13,10 @@ export type HistoryStep =
   | { kind: "removeEmpty"; id: NodeId }
   /** `TabTracker.moveNode`: the browser tab follows when it has to. */
   | { kind: "move"; id: NodeId; parentId: NodeId | null; index: number }
-  /** `TabTracker.deleteNode`: subtree removal with window pruning, closes live tabs. */
-  | { kind: "delete"; id: NodeId }
+  /** `TabTracker.removeNode`: tree-only subtree removal; open tabs stay open, re-mirrored. */
+  | { kind: "remove"; id: NodeId }
+  /** `TabTracker.closeAndRemove`: closes the open tabs beneath the node, then removes the subtree. */
+  | { kind: "closeAndRemove"; id: NodeId }
   /**
    * `TabTracker.reopenNodes`: these saved nodes become live in place. With `container` (the
    * container the action was run on: a window closed as a whole, a group reopened as a window)
@@ -52,7 +54,9 @@ type StepCoercer<K extends HistoryStepKind> = (v: Raw) => StepOf<K> | undefined;
 const STEP_COERCERS: { [K in HistoryStepKind]: StepCoercer<K> } = {
   ops: (v) => (Array.isArray(v.ops) ? { kind: "ops", ops: v.ops as OpBody[] } : undefined),
   removeEmpty: (v) => (typeof v.id === "string" ? { kind: "removeEmpty", id: v.id } : undefined),
-  delete: (v) => (typeof v.id === "string" ? { kind: "delete", id: v.id } : undefined),
+  remove: (v) => (typeof v.id === "string" ? { kind: "remove", id: v.id } : undefined),
+  closeAndRemove: (v) =>
+    typeof v.id === "string" ? { kind: "closeAndRemove", id: v.id } : undefined,
   move: (v) =>
     typeof v.id === "string" && isParentId(v.parentId) && typeof v.index === "number"
       ? { kind: "move", id: v.id, parentId: v.parentId, index: v.index }

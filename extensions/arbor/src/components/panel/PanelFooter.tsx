@@ -25,7 +25,7 @@ function FooterMessage({ toast, canUndo, onUndo, pro }: Omit<PanelFooterProps, "
     );
   }
   if (pro === false) return <UpsellRow compact feature="Scheduled backups." />;
-  return <span>Arrows move, Enter opens, Delete closes and saves, Ctrl+Z undoes.</span>;
+  return <span>Arrows move, Enter opens, Delete removes (tabs stay open), Ctrl+Z undoes.</span>;
 }
 
 export function PanelFooter({ onOptions, ...message }: PanelFooterProps) {

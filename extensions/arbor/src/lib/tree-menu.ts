@@ -3,7 +3,14 @@
  * `containerActions` definition; tabs and notes have their own short lists. Pure: no DOM.
  */
 import type { ContainerAction } from "./container-actions";
-import { isBound, type ChildIndex, type NodeId, type TreeNode } from "./model";
+import { isBound, type ChildIndex, type NodeId, type Tree, type TreeNode } from "./model";
+import {
+  canCloseAndRemove,
+  canRemove,
+  closeAndRemoveLabel,
+  removeLabel,
+  summarizeRemoval,
+} from "./removal";
 
 export interface MenuItem {
   label: string;
@@ -20,7 +27,8 @@ export interface MenuHandlers {
   primary(id: NodeId): void;
   closeAndSave(id: NodeId): void;
   restore(id: NodeId): void;
-  deleteNode(id: NodeId): void;
+  removeNode(id: NodeId): void;
+  closeAndRemove(id: NodeId): void;
   toggleCollapse(id: NodeId, collapsed: boolean): void;
   editNote(id: NodeId): void;
   startRename(id: NodeId): void;
@@ -29,6 +37,7 @@ export interface MenuHandlers {
 }
 
 export interface MenuContext {
+  tree: Tree;
   node: TreeNode;
   childIndex: ChildIndex;
   /** The shared container definition, `null` for tab and note rows. */
@@ -74,7 +83,7 @@ function containerMenu(context: MenuContext, actions: ContainerAction[]): MenuEn
   if (isBound(node)) items.push(focusItem(node, handlers));
   items.push(...section("open"), "separator");
   items.push(...edit.slice(0, 2), ...newItems(context), ...edit.slice(2), "separator");
-  items.push(...section("danger"));
+  items.push(...section("remove"));
   return items;
 }
 
@@ -84,7 +93,7 @@ function tabOpenItems(node: TreeNode, handlers: MenuHandlers): MenuItem[] {
   if (node.liveTabId !== undefined) {
     return [
       focusItem(node, handlers),
-      { label: "Close and save", shortcut: "Del", onSelect: () => handlers.closeAndSave(node.id) },
+      { label: "Close and save", onSelect: () => handlers.closeAndSave(node.id) },
     ];
   }
   return [
@@ -97,9 +106,32 @@ function tabOpenItems(node: TreeNode, handlers: MenuHandlers): MenuItem[] {
   ];
 }
 
+/**
+ * The last section of a tab or note row, the same two ways out as on a container: "Remove from
+ * tree" (Delete; an open tab stays open and stays in the tree under its window) and the
+ * destructive "Close tabs and remove" (Shift+Delete), off when nothing beneath is open.
+ */
+function leafRemoveItems({ tree, node, childIndex, handlers }: MenuContext): MenuItem[] {
+  const s = summarizeRemoval(tree, node, childIndex);
+  return [
+    {
+      label: removeLabel(s, node),
+      shortcut: "Del",
+      disabled: !canRemove(s),
+      onSelect: () => handlers.removeNode(node.id),
+    },
+    {
+      label: closeAndRemoveLabel(s),
+      shortcut: "Shift+Del",
+      danger: true,
+      disabled: !canCloseAndRemove(s),
+      onSelect: () => handlers.closeAndRemove(node.id),
+    },
+  ];
+}
+
 function leafMenu(context: MenuContext): MenuEntry[] {
   const { node, childIndex, handlers } = context;
-  const liveTab = node.kind === "tab" && node.liveTabId !== undefined;
   const fresh = newItems(context);
   const items: MenuEntry[] = [...tabOpenItems(node, handlers), "separator"];
   items.push({
@@ -122,11 +154,7 @@ function leafMenu(context: MenuContext): MenuEntry[] {
       onSelect: () => handlers.toggleCollapse(node.id, !node.collapsed),
     });
   }
-  items.push("separator", {
-    label: liveTab ? "Delete (closes without saving)" : "Delete",
-    danger: true,
-    onSelect: () => handlers.deleteNode(node.id),
-  });
+  items.push("separator", ...leafRemoveItems(context));
   return items;
 }
 
