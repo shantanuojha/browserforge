@@ -2,7 +2,7 @@
 
 User-facing changes per Chrome Web Store release. Dates are release dates.
 
-## Unreleased
+## 0.1.6 — 2026-09-16
 
 ### Changed
 
