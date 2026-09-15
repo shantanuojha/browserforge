@@ -1,4 +1,16 @@
 /* BrowserForge design tokens. Light by default, dark via prefers-color-scheme. */
+
+/*
+ * Surfaces are three flat steps, no shadows or gradients:
+ *   bg-sunken  chrome that recedes (panel header, footer, toolbars)
+ *   bg         the content surface (tree, page)
+ *   surface    raised pieces (cards, inputs, hover fills, icon tiles)
+ * Text is a three-step grey scale, all >= 4.5:1 on every surface above:
+ *   text            primary: live tabs, titles, body copy
+ *   text-secondary  saved (closed) tabs, URLs, note previews
+ *   text-muted      counts, meta, hints, footer copy
+ * Contrast ratios (WCAG 2.x) are recorded in the PR that introduced the scale.
+ */
 :root {
   --bf-font-sans:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
@@ -13,11 +25,13 @@
   --bf-space-3: 12px;
   --bf-space-4: 16px;
 
-  --bf-color-bg: #ffffff;
-  --bf-color-surface: #f6f7f9;
-  --bf-color-border: #e2e5ea;
-  --bf-color-text: #1b1f24;
-  --bf-color-text-muted: #5b6470;
+  --bf-color-bg: #faf9f6;
+  --bf-color-bg-sunken: #f1efea;
+  --bf-color-surface: #ffffff;
+  --bf-color-border: #dcd8d0;
+  --bf-color-text: #26282c;
+  --bf-color-text-secondary: #5c6169;
+  --bf-color-text-muted: #646971;
   --bf-color-accent: #3b5bdb;
   --bf-color-accent-hover: #2f4bc0;
   --bf-color-accent-text: #ffffff;
@@ -39,11 +53,13 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --bf-color-bg: #0f1216;
-    --bf-color-surface: #171b21;
-    --bf-color-border: #2a3039;
-    --bf-color-text: #e6e9ee;
-    --bf-color-text-muted: #9aa4b1;
+    --bf-color-bg: #1b1d22;
+    --bf-color-bg-sunken: #15171b;
+    --bf-color-surface: #23262c;
+    --bf-color-border: #2e323a;
+    --bf-color-text: #d7dae0;
+    --bf-color-text-secondary: #a3a9b3;
+    --bf-color-text-muted: #8c929b;
     --bf-color-accent: #6b8cff;
     --bf-color-accent-hover: #86a1ff;
     --bf-color-accent-text: #0b0e14;

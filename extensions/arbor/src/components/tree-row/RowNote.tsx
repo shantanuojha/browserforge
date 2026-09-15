@@ -6,18 +6,20 @@ export interface RowNoteProps {
   id: NodeId;
   note: string | undefined;
   editing: boolean;
-  indent: number;
   onSave(id: NodeId, note: string): void;
   onCancel(): void;
   onEdit(id: NodeId): void;
 }
 
-/** The second line of a row: the note editor while editing, else the note preview, else nothing. */
-export function RowNote({ id, note, editing, indent, onSave, onCancel, onEdit }: RowNoteProps) {
+/**
+ * The second line of a row: the note editor while editing, else the note preview, else nothing.
+ * Both line up under the row's title; the offset comes from `--row-indent` in the stylesheet.
+ */
+export function RowNote({ id, note, editing, onSave, onCancel, onEdit }: RowNoteProps) {
   const onKeyDownInEditor = (e: KeyboardEvent) => e.stopPropagation();
   if (editing) {
     return (
-      <div style={{ paddingLeft: indent + 26 }} onKeyDown={onKeyDownInEditor}>
+      <div className="row__note-slot" onKeyDown={onKeyDownInEditor}>
         <NoteEditor value={note ?? ""} onCommit={(t) => onSave(id, t)} onCancel={onCancel} />
       </div>
     );
@@ -26,7 +28,6 @@ export function RowNote({ id, note, editing, indent, onSave, onCancel, onEdit }:
   return (
     <div
       className="row__note"
-      style={{ marginLeft: indent + 26 }}
       title={note}
       onClick={(e) => {
         e.stopPropagation();
