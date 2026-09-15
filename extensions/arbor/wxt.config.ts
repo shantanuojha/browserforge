@@ -14,7 +14,10 @@ export default defineConfig({
     // not implemented yet and is hidden behind DRIVE_BACKUP_ENABLED in the options page; add the
     // optional permission back when it ships.
     permissions: ["tabs", "storage", "unlimitedStorage", "sidePanel", "alarms", "favicon"],
-    // Licence activation/validation (Lemon Squeezy License API). The only host Arbor talks to.
+    // Retained for the Lemon Squeezy licence code path and removed together with it (a permission
+    // decrease). Polar's licence API (api.polar.sh) answers with `Access-Control-Allow-Origin: *`,
+    // so it needs no host permission; adding one here would disable Arbor for every existing user
+    // until they re-accept. Licence checks are the only network calls Arbor makes.
     host_permissions: ["https://api.lemonsqueezy.com/*"],
     action: { default_title: "Arbor" },
     side_panel: { default_path: "sidepanel.html" },

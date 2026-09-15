@@ -34,7 +34,7 @@ function licenseDetails(state: LicenseState | null): KeyValueItem[] {
 
 /**
  * Options-page "Pro" section: licence status, activate/manage dialog and the "Buy Pro" link.
- * When the build has no Lemon Squeezy ids it shows a neutral "opening soon" note to end users
+ * When the build has no licence-provider ids it shows a neutral "opening soon" note to end users
  * (and the developer-facing reason in dev builds).
  */
 export function LicenseSection() {
@@ -55,8 +55,8 @@ function NotConfigured() {
   if (import.meta.env.DEV) {
     return (
       <Callout tone="info" title="Licensing not configured (development build).">
-        No Lemon Squeezy store or variant id was set at build time, so licence keys cannot be
-        activated here. See <code>.env.example</code>.
+        No licence-provider ids were set at build time (provider: {LICENSING.provider}), so licence
+        keys cannot be activated here. See <code>.env.example</code>.
       </Callout>
     );
   }
@@ -121,6 +121,8 @@ function LicenseBody({ client }: { client: LicenseClient }) {
         <ActivateLicenseDialog
           client={client}
           title={isPro ? LICENSING.productLabel : `Activate ${LICENSING.productLabel}`}
+          restoreUrl={LICENSING.restoreUrl}
+          restoreHint={LICENSING.restoreHint}
           onClose={() => setOpen(false)}
         />
       ) : null}

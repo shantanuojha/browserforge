@@ -25,9 +25,12 @@ The same split applies to the packages:
 - `@browserforge/shared` is pure TypeScript (no DOM, no `chrome.*` at import time): guards, base64,
   env readers, `Clock`, domain matching, `createMessageListener`, the logger, `Result`.
   `storage.ts` is the one adapter it hosts; it reads `chrome.storage` at call time only.
-- `@browserforge/licensing` is a domain package. `LicenseApi` (the Lemon Squeezy endpoints) and
-  `LicenseStorage` are ports; `createLicenseApi` is the production adapter over `fetch`.
-  `license-record.ts` holds the persisted shape and the pure rules that turn it into a state.
+- `@browserforge/licensing` is a domain package. `LicenseApi` (a provider's licence endpoints) and
+  `LicenseStorage` are ports; there are two production adapters over `fetch`,
+  `createPolarLicenseApi` (Polar) and `createLicenseApi` (Lemon Squeezy), both answering the same
+  normalised verdict so the client never sees a provider. `license-record.ts` holds the persisted
+  shape (with the provider that wrote it) and the pure rules that turn it into a state;
+  `provider-config.ts` reads the provider and its ids from build-time env vars.
 - `@browserforge/ui` is React only. Presentation rules (`licenseSummary.ts`) are pure functions;
   side effects that every page needs (`dom.ts`: download, clipboard) live once, here.
 
@@ -38,23 +41,23 @@ service only (interface segregation). An **adapter** implements a port over a br
 the only place that API is touched. Tests hand in an in-memory implementation; the background
 entrypoint hands in the browser one.
 
-| Port                                                   | Declared in                                                         | Production adapter                                                   |
-| ------------------------------------------------------ | ------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `DnrPort`                                              | reroute `lib/background/rule-deployer.ts`                           | `adapters/dnr.ts`                                                    |
-| `RedirectTabsPort`, `ContentScriptMessenger`           | reroute `lib/background/redirect-fallback.ts`, `copy-clean-link.ts` | `adapters/tabs.ts`                                                   |
-| `SyncArea` / `SyncStore`                               | reroute `lib/sync/store.ts`                                         | `adapters/sync-area.ts`                                              |
-| `ActivityLogStore`, `ValueStore<T>`                    | reroute `lib/background/*`                                          | WXT storage items in `adapters/storage.ts`                           |
-| `ExecutorApi`                                          | cookiesweep `lib/executor.ts`                                       | `adapters/extension-api.ts`                                          |
-| `SessionStore`, `AlarmsPort`                           | cookiesweep `lib/background/scheduler.ts`                           | `adapters/session-store.ts`, `adapters/alarms.ts`                    |
-| `BadgePainter`                                         | cookiesweep `lib/background/badge.ts`                               | `adapters/badge-painter.ts`                                          |
-| `StoreRegistry` deps, `ActivityLog`, `CleanupNotifier` | cookiesweep `lib/background/*`                                      | wired in `entrypoints/background.ts`                                 |
-| `TabsPort`, `TrackerEventSink`                         | arbor `lib/sync/types.ts`                                           | `adapters/tabs-port.ts`, `adapters/tracker-events.ts`                |
-| `TreeStore` / `LogBackend`                             | arbor `lib/store/types.ts`                                          | `adapters/indexeddb-store.ts` (`MemoryTreeStore` in tests)           |
-| `BackupRepository`                                     | arbor `lib/backups.ts`                                              | `adapters/backup-store.ts`                                           |
-| `AlarmsPort`, `SettingsStore`                          | arbor `lib/background/ports.ts`                                     | `adapters/alarms.ts`, `adapters/settings-store.ts`                   |
-| `MessageTransport`, `TreePortSink`                     | arbor `lib/messaging.ts`, `lib/background/tree-broadcaster.ts`      | `adapters/messaging.ts`, `adapters/tree-port.ts`                     |
-| `LicenseApi`, `LicenseStorage`, `AlarmsLike`           | `@browserforge/licensing`                                           | `createLicenseApi(fetch)`, `browser.storage.local`, `browser.alarms` |
-| `Clock`                                                | `@browserforge/shared`                                              | `systemClock`                                                        |
+| Port                                                   | Declared in                                                         | Production adapter                                                                                    |
+| ------------------------------------------------------ | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| `DnrPort`                                              | reroute `lib/background/rule-deployer.ts`                           | `adapters/dnr.ts`                                                                                     |
+| `RedirectTabsPort`, `ContentScriptMessenger`           | reroute `lib/background/redirect-fallback.ts`, `copy-clean-link.ts` | `adapters/tabs.ts`                                                                                    |
+| `SyncArea` / `SyncStore`                               | reroute `lib/sync/store.ts`                                         | `adapters/sync-area.ts`                                                                               |
+| `ActivityLogStore`, `ValueStore<T>`                    | reroute `lib/background/*`                                          | WXT storage items in `adapters/storage.ts`                                                            |
+| `ExecutorApi`                                          | cookiesweep `lib/executor.ts`                                       | `adapters/extension-api.ts`                                                                           |
+| `SessionStore`, `AlarmsPort`                           | cookiesweep `lib/background/scheduler.ts`                           | `adapters/session-store.ts`, `adapters/alarms.ts`                                                     |
+| `BadgePainter`                                         | cookiesweep `lib/background/badge.ts`                               | `adapters/badge-painter.ts`                                                                           |
+| `StoreRegistry` deps, `ActivityLog`, `CleanupNotifier` | cookiesweep `lib/background/*`                                      | wired in `entrypoints/background.ts`                                                                  |
+| `TabsPort`, `TrackerEventSink`                         | arbor `lib/sync/types.ts`                                           | `adapters/tabs-port.ts`, `adapters/tracker-events.ts`                                                 |
+| `TreeStore` / `LogBackend`                             | arbor `lib/store/types.ts`                                          | `adapters/indexeddb-store.ts` (`MemoryTreeStore` in tests)                                            |
+| `BackupRepository`                                     | arbor `lib/backups.ts`                                              | `adapters/backup-store.ts`                                                                            |
+| `AlarmsPort`, `SettingsStore`                          | arbor `lib/background/ports.ts`                                     | `adapters/alarms.ts`, `adapters/settings-store.ts`                                                    |
+| `MessageTransport`, `TreePortSink`                     | arbor `lib/messaging.ts`, `lib/background/tree-broadcaster.ts`      | `adapters/messaging.ts`, `adapters/tree-port.ts`                                                      |
+| `LicenseApi`, `LicenseStorage`, `AlarmsLike`           | `@browserforge/licensing`                                           | `createPolarLicenseApi(fetch)` / `createLicenseApi(fetch)`, `browser.storage.local`, `browser.alarms` |
+| `Clock`                                                | `@browserforge/shared`                                              | `systemClock`                                                                                         |
 
 Rules of thumb:
 
@@ -150,5 +153,5 @@ something else; keep the two consistent within a product.
 - Adapters and wiring: `src/background.test.ts` drives the real entrypoint against
   `@webext-core/fake-browser` plus hand-rolled stubs for APIs the fake lacks. Arbor's adapter
   tests sit next to the adapters (`adapters/*.test.ts`, with `adapters/testing/fake-indexeddb.ts`).
-- Test doubles are shared, not copied: `createMemoryStorage`, `createFakeFetch` and the Lemon
-  Squeezy body builders live in `@browserforge/licensing/testing`.
+- Test doubles are shared, not copied: `createMemoryStorage`, `createFakeFetch`, the Lemon
+  Squeezy body builders and the Polar JSON fixtures live in `@browserforge/licensing/testing`.

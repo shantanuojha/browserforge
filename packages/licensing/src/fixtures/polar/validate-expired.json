@@ -1,0 +1,4 @@
+{
+  "error": "ResourceNotFound",
+  "detail": "License key has expired."
+}

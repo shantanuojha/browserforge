@@ -12,10 +12,11 @@ const T0 = Date.parse("2026-09-01T00:00:00Z");
 const GRACE = 14 * DAY;
 
 const identity = {
+  provider: "lemonsqueezy",
   key: "38b1460a-5104-4067-a91d-77b872934d51",
   instanceId: "i",
   instanceName: "n",
-};
+} as const;
 
 function activatedAt(at: number, extra: Partial<StoredActivated> = {}): StoredActivated {
   return { ...activatedRecord(identity, {}, at), ...extra };
@@ -58,12 +59,57 @@ describe("rejectionReason", () => {
     expect(rejectionReason({ error: "instance not found" })).toBe("deactivated");
     expect(rejectionReason({ error: "something odd" })).toBe("unknown");
   });
+
+  it("reads Polar's revoked status as disabled", () => {
+    expect(rejectionReason({ license_key: { status: "revoked" } })).toBe("disabled");
+  });
+
+  it("trusts an adapter's error_code over the error text", () => {
+    expect(rejectionReason({ error: "Not found", error_code: "wrong_product" })).toBe(
+      "wrong_product",
+    );
+    expect(rejectionReason({ error: "Not found", error_code: "not_activated" })).toBe(
+      "deactivated",
+    );
+  });
 });
 
 describe("parseStoredLicense", () => {
   it("treats unknown shapes as nothing stored", () => {
     expect(parseStoredLicense({ garbage: true })).toBeUndefined();
-    expect(parseStoredLicense({ v: 2, kind: "free" })).toBeUndefined();
-    expect(parseStoredLicense({ v: 1, kind: "free" })).toEqual({ v: 1, kind: "free" });
+    expect(parseStoredLicense({ v: 3, kind: "free" })).toBeUndefined();
+    expect(parseStoredLicense({ v: 2, kind: "activated", key: "k" })).toBeUndefined();
+    expect(parseStoredLicense({ v: 2, kind: "free" })).toEqual({ v: 2, kind: "free" });
+  });
+
+  it("reads a v1 record as a Lemon Squeezy v2 record", () => {
+    expect(parseStoredLicense({ v: 1, kind: "free", reason: "deactivated" })).toEqual({
+      v: 2,
+      kind: "free",
+      reason: "deactivated",
+    });
+    const v1 = {
+      v: 1,
+      kind: "activated",
+      key: identity.key,
+      instanceId: "i",
+      instanceName: "n",
+      lastValidatedAt: T0,
+      lastFailedAt: T0 + DAY,
+      email: "pat@example.com",
+    };
+    expect(parseStoredLicense(v1)).toEqual({ ...v1, v: 2, provider: "lemonsqueezy" });
+    const invalid = { v: 1, kind: "invalid", key: "k", instanceId: "i", instanceName: "n" };
+    expect(parseStoredLicense({ ...invalid, reason: "expired", checkedAt: T0 })).toMatchObject({
+      v: 2,
+      provider: "lemonsqueezy",
+      reason: "expired",
+    });
+  });
+
+  it("keeps the provider written on a v2 record", () => {
+    const stored = activatedRecord({ ...identity, provider: "polar" }, {}, T0);
+    expect(stored).toMatchObject({ v: 2, provider: "polar" });
+    expect(parseStoredLicense(stored)).toEqual(stored);
   });
 });

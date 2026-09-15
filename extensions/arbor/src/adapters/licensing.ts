@@ -1,7 +1,8 @@
 /**
- * Arbor's Lemon Squeezy licensing wiring: the single `LicenseClient` per JS context, backed by
+ * Arbor's licensing wiring: the single `LicenseClient` per JS context, backed by
  * `browser.storage.local`, and the small helpers the UI and background need. The client itself
- * lives in `@browserforge/licensing`; the build-time config in `lib/licensing-config.ts`.
+ * lives in `@browserforge/licensing`; the build-time config (which provider, which ids) in
+ * `lib/licensing-config.ts`.
  */
 import { browser } from "wxt/browser";
 import {
@@ -9,6 +10,7 @@ import {
   createLicenseClient,
   getEntitlements,
   licenseStorageKey,
+  providerClientOptions,
   type LicenseClient,
   type LicenseClientOptions,
 } from "@browserforge/licensing";
@@ -31,7 +33,7 @@ export const LICENSING: LicensingConfig = readLicensingConfig(
 
 export type ClientOverrides = Omit<
   Partial<LicenseClientOptions>,
-  "productName" | "allowedVariantIds"
+  "productName" | "provider" | "polar" | "allowedProductRefs" | "allowedVariantIds"
 >;
 
 /**
@@ -42,12 +44,12 @@ export function createArborLicenseClient(
   config: LicensingConfig,
   overrides: ClientOverrides = {},
 ): LicenseClient | undefined {
-  if (!config.configured || config.variantId === undefined) return undefined;
+  if (!config.settings) return undefined;
   return createLicenseClient({
     storage: browser.storage.local,
     ...overrides,
     productName: config.productName,
-    allowedVariantIds: [config.variantId],
+    ...providerClientOptions(config.settings),
   });
 }
 
@@ -91,8 +93,8 @@ export function resetLicensingForTests(): void {
 }
 
 /**
- * Single Pro gate used everywhere. Reads the cached licence state through the Lemon Squeezy
- * client; resolves to `false` when licensing is not configured in this build or the check fails.
+ * Single Pro gate used everywhere. Reads the cached licence state through the licence client;
+ * resolves to `false` when licensing is not configured in this build or the check fails.
  */
 export async function isPro(): Promise<boolean> {
   try {

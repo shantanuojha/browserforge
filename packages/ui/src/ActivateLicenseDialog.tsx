@@ -12,15 +12,21 @@ import { useLicense } from "./useLicense.js";
 import { useLicenseActions, type LicenseActions } from "./useLicenseActions.js";
 import { useModalFocus } from "./useModalFocus.js";
 
-/** Lemon Squeezy's customer page where buyers can find their licence keys again. */
-export const DEFAULT_RESTORE_URL = "https://app.lemonsqueezy.com/my-orders";
+/** Provider-neutral hint under the key field; extensions may name their store's page instead. */
+const DEFAULT_RESTORE_HINT = "Paste the licence key from your purchase email or order page.";
 
 export interface ActivateLicenseDialogProps {
   client: LicenseClient;
   onClose: () => void;
   title?: string;
-  /** Opened by "Restore purchase" when no key is stored in this browser. */
-  restoreUrl?: string;
+  /**
+   * Opened by "Restore purchase" when no key is stored in this browser: the store's customer
+   * page where buyers find their licence keys again. Supplied by the extension, which knows
+   * its provider.
+   */
+  restoreUrl: string;
+  /** Hint under the key field. Defaults to a provider-neutral sentence. */
+  restoreHint?: string;
   className?: string;
 }
 
@@ -53,7 +59,7 @@ function ProActions({ actions }: { actions: LicenseActions }) {
   );
 }
 
-function ActivationForm({ actions }: { actions: LicenseActions }) {
+function ActivationForm({ actions, hint }: { actions: LicenseActions; hint: string }) {
   const [key, setKey] = useState("");
   const disabled = actions.busy !== null;
 
@@ -74,7 +80,7 @@ function ActivationForm({ actions }: { actions: LicenseActions }) {
         spellCheck={false}
         autoFocus
         disabled={disabled}
-        hint="Paste the key from your purchase email or Lemon Squeezy order page."
+        hint={hint}
       />
       <div className="bf-dialog__actions">
         <Button type="submit" disabled={disabled || !looksLikeLicenseKey(key)}>
@@ -92,7 +98,8 @@ export function ActivateLicenseDialog({
   client,
   onClose,
   title = "Activate Pro",
-  restoreUrl = DEFAULT_RESTORE_URL,
+  restoreUrl,
+  restoreHint = DEFAULT_RESTORE_HINT,
   className,
 }: ActivateLicenseDialogProps) {
   const { state, isPro, refresh } = useLicense(client);
@@ -138,7 +145,7 @@ export function ActivateLicenseDialog({
               <ProActions actions={actions} />
             </>
           ) : (
-            <ActivationForm actions={actions} />
+            <ActivationForm actions={actions} hint={restoreHint} />
           )}
         </div>
       </div>

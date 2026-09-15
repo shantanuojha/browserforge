@@ -1,0 +1,4 @@
+{
+  "error": "RateLimitExceeded",
+  "detail": "Rate limit exceeded. Retry after 60 seconds."
+}

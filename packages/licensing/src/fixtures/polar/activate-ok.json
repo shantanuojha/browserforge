@@ -1,0 +1,42 @@
+{
+  "id": "0f3a2b1c-4d5e-4f60-8a7b-9c0d1e2f3a4b",
+  "license_key_id": "4c9e1f2a-7b3d-4e5f-9a0b-1c2d3e4f5a6b",
+  "label": "arbor@chrome-abc123",
+  "meta": {},
+  "created_at": "2026-01-01T00:00:00.000000Z",
+  "modified_at": null,
+  "license_key": {
+    "id": "4c9e1f2a-7b3d-4e5f-9a0b-1c2d3e4f5a6b",
+    "created_at": "2026-01-01T00:00:00.000000Z",
+    "modified_at": null,
+    "organization_id": "8f0f7f5e-2a4c-4f3e-9a51-3f0f1a6b2c7d",
+    "customer_id": "992fae2a-2a17-4b7a-8d9e-e287cf90131b",
+    "customer": {
+      "id": "992fae2a-2a17-4b7a-8d9e-e287cf90131b",
+      "created_at": "2026-01-01T00:00:00.000000Z",
+      "modified_at": null,
+      "metadata": {},
+      "external_id": null,
+      "email": "pat@example.com",
+      "email_verified": true,
+      "type": "individual",
+      "name": "Pat",
+      "billing_address": null,
+      "tax_id": null,
+      "organization_id": "8f0f7f5e-2a4c-4f3e-9a51-3f0f1a6b2c7d",
+      "deleted_at": null,
+      "first_user_event_at": null,
+      "avatar_url": "https://www.gravatar.com/avatar/00000000000000000000000000000000?d=blank"
+    },
+    "benefit_id": "b2c2a7f0-1c3e-4d5f-8a9b-0c1d2e3f4a5b",
+    "key": "ARBOR-3F5A7B9C-D1E2F3A4-B5C6D7E8-F9A0B1C2",
+    "display_key": "ARBOR-****-B1C2",
+    "status": "granted",
+    "limit_activations": 5,
+    "usage": 0,
+    "limit_usage": null,
+    "validations": 0,
+    "last_validated_at": null,
+    "expires_at": null
+  }
+}

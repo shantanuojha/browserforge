@@ -6,6 +6,13 @@ User-facing changes per Chrome Web Store release. Dates are release dates.
 
 ### Changed
 
+- **Pro purchases move to Polar.** Arbor Pro licence keys are now issued and checked through
+  Polar (polar.sh), which handles checkout, invoices and refunds as the merchant of record. The
+  extension's only network call becomes the licence check against `api.polar.sh`; nothing else
+  about what Arbor sends or stores changes, and Arbor asks for no new permissions. "Buy Pro" opens
+  the Polar checkout and "Restore purchase" opens the Polar customer portal, where you can also
+  free a seat you no longer use. A key activated with the previous provider shows as "not valid"
+  once; paste the same key again to activate it here.
 - **Deleting never closes your tabs any more.** "Delete" on a window, group, tab or note is now two
   separate actions, so removing something from the tree cannot take your open tabs with it:
   - **Remove from tree** (the trash button, the Delete key, the menu) takes the node and its saved
