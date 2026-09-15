@@ -55,7 +55,8 @@ export interface TreeRowProps {
   cb: RowCallbacks;
 }
 
-const INDENT_PER_LEVEL = 14;
+/** Keep in step with `--arbor-indent` in arbor.css. */
+const INDENT_PER_LEVEL = 12;
 
 interface RowFlags {
   container: boolean;
@@ -126,7 +127,10 @@ interface RowBadgesProps {
   childCount: number;
 }
 
-/** The small marks after the title: note flag, child count, open-tab dot. */
+/**
+ * The small marks after the title: note flag and child count. Whether a tab is open is carried
+ * by the row's text colour (`row--saved`), not by a separate dot.
+ */
 function RowBadges({ node, flags, editingNote, childCount }: RowBadgesProps) {
   return (
     <>
@@ -136,8 +140,23 @@ function RowBadges({ node, flags, editingNote, childCount }: RowBadgesProps) {
         </span>
       ) : null}
       {flags.container ? <span className="row__meta">{childCount}</span> : null}
-      {flags.live && node.kind === "tab" ? <span className="row__live" title="Open tab" /> : null}
     </>
+  );
+}
+
+/** One faint vertical line per ancestor level, aligned under that ancestor's twisty. */
+function DepthGuides({ depth }: { depth: number }) {
+  if (depth === 0) return null;
+  return (
+    <span className="row__guides" aria-hidden="true">
+      {Array.from({ length: depth }, (_, level) => (
+        <span
+          key={level}
+          className="row__guide"
+          style={{ "--guide-level": level } as CSSProperties}
+        />
+      ))}
+    </span>
   );
 }
 
@@ -206,12 +225,8 @@ export const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         cb.onContextMenu(node.id, e.clientX, e.clientY);
       }}
     >
-      <div
-        className="row__main"
-        style={{ paddingLeft: indent + 4 }}
-        onClick={onMainClick}
-        onDoubleClick={onDoubleClick}
-      >
+      <DepthGuides depth={depth} />
+      <div className="row__main" onClick={onMainClick} onDoubleClick={onDoubleClick}>
         <Twisty
           collapsed={!!node.collapsed}
           visible={hasChildren}
@@ -239,7 +254,6 @@ export const TreeRow = memo(function TreeRow(props: TreeRowProps) {
         id={node.id}
         note={node.note}
         editing={editingNote}
-        indent={indent}
         onSave={cb.onSaveNote}
         onCancel={cb.onCancelEdit}
         onEdit={cb.onEditNote}
