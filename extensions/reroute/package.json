@@ -1,6 +1,6 @@
 {
   "name": "@browserforge/reroute",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "description": "Reroute: URL rewrite rules - redirects, regex transforms and tracking-parameter cleanup.",
   "license": "MIT",
