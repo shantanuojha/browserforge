@@ -52,6 +52,47 @@ function subtreeOf(tree: Tree, root: TreeNode): TreeNode[] {
   return [root, ...descendantIds(tree, root.id).map((id) => tree.get(id) as TreeNode)];
 }
 
+/** What "Remove from tree" reset on a node it kept, as the patch that puts it back. */
+function keptFieldsPatch(node: TreeNode): NodePatch | null {
+  const patch: NodePatch = {};
+  if (node.kind === "window" && node.title) patch.title = node.title;
+  if (node.note) patch.note = node.note;
+  return Object.keys(patch).length ? patch : null;
+}
+
+/**
+ * Ops that undo `TabTracker.removeNode` on `rootId`: `removed` is what it returned (pruned
+ * containers first, then the removed part of the subtree, parents before children). Pruned
+ * containers come back first. Then the subtree as it was in `before` is walked depth-first and
+ * every node is put at the sibling index it had: removed ones are re-added (saved), the ones the
+ * tracker kept because they mirror something open (live tabs re-homed under their window, open
+ * windows moved to the root) are moved back and get their title and note again. Walking in
+ * before-order is what makes plain indices correct: when a node is placed, everything before it
+ * among its siblings is already in place.
+ */
+export function unremoveOps(before: Tree, removed: readonly TreeNode[], rootId: NodeId): OpBody[] {
+  const root = before.get(rootId);
+  if (!root) return readdOps(before, removed);
+  const subtree = subtreeOf(before, root);
+  const inSubtree = new Set(subtree.map((n) => n.id));
+  const removedIds = new Set(removed.map((n) => n.id));
+  const out = readdOps(
+    before,
+    removed.filter((n) => !inSubtree.has(n.id)),
+  );
+  for (const n of subtree) {
+    const index = siblingIndex(before, n);
+    if (removedIds.has(n.id)) {
+      out.push(ops.add(asSaved(n), index));
+      continue;
+    }
+    out.push(ops.move(n.id, n.parentId, index));
+    const patch = keptFieldsPatch(n);
+    if (patch) out.push(ops.update(n.id, patch));
+  }
+  return out;
+}
+
 /** The ops that undo one op applied to `tree`; empty when the op referred to a missing node. */
 type Inverter<T extends OpType> = (tree: Tree, op: OpOf<T>) => OpBody[];
 

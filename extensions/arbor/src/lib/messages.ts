@@ -39,7 +39,7 @@ export function isTreePortMessage(value: unknown): value is TreePortMessage {
 export const messages = {
   getState: defineMessage<void, TreeState>("getState"),
   getStartupInfo: defineMessage<void, StartupInfo>("getStartupInfo"),
-  /** Generic edits from the UI: notes, titles, collapse, delete. */
+  /** Generic edits from the UI: notes, titles, collapse. */
   applyOps: defineMessage<OpBody[], Op[]>("applyOps"),
   /** Returns the containers pruned because the move left them empty (outermost first). */
   moveNode: defineMessage<{ id: NodeId; parentId: NodeId | null; index: number }, TreeNode[]>(
@@ -54,8 +54,13 @@ export const messages = {
   reopenAll: defineMessage<{ id: NodeId }, number>("reopenAll"),
   closeAndSave: defineMessage<{ id: NodeId }, number>("closeAndSave"),
   closeAllAndSave: defineMessage<void, number>("closeAllAndSave"),
-  /** Returns every node removed (subtree plus pruned containers), parents before children. */
-  deleteNode: defineMessage<{ id: NodeId }, TreeNode[]>("deleteNode"),
+  /**
+   * "Remove from tree": tree only, open tabs stay open (re-mirrored under their window). Returns
+   * every node removed (pruned containers, then the removed subtree), parents before children.
+   */
+  removeNode: defineMessage<{ id: NodeId }, TreeNode[]>("removeNode"),
+  /** "Close tabs and remove": closes the open tabs beneath, then removes. Same return shape. */
+  closeAndRemove: defineMessage<{ id: NodeId }, TreeNode[]>("closeAndRemove"),
   /** A new group (`window`, unbound) or note. */
   addNode: defineMessage<
     { parentId: NodeId | null; index?: number; kind: "window" | "note"; title: string },

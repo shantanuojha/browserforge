@@ -80,18 +80,24 @@ export interface LeafActionHandlers {
   onEditNote(id: NodeId): void;
   onCloseAndSave(id: NodeId): void;
   onRestore(id: NodeId): void;
-  onDelete(id: NodeId): void;
+  onRemove(id: NodeId): void;
 }
 
 interface LeafButtonsProps {
   id: NodeId;
   live: boolean;
   canRestore: boolean;
+  /** "Remove from tree" has something to do (an open tab already in place has nothing). */
+  removable: boolean;
   cb: LeafActionHandlers;
 }
 
-/** Tab and note rows: note, then close-and-save or restore, then delete. */
-function LeafButtons({ id, live, canRestore, cb }: LeafButtonsProps) {
+/**
+ * Tab and note rows: note, then close-and-save or restore, then remove. "Remove from tree"
+ * never closes a tab; an open tab stays in the tree under its window. "Close tabs and remove"
+ * is deliberately not a row button (context menu, Shift+Delete).
+ */
+function LeafButtons({ id, live, canRestore, removable, cb }: LeafButtonsProps) {
   return (
     <>
       <ActionButton title="Note" icon="note" onClick={() => cb.onEditNote(id)} />
@@ -101,7 +107,13 @@ function LeafButtons({ id, live, canRestore, cb }: LeafButtonsProps) {
       {!live && canRestore ? (
         <ActionButton title="Restore" icon="restore" onClick={() => cb.onRestore(id)} />
       ) : null}
-      <ActionButton title="Delete" icon="trash" danger onClick={() => cb.onDelete(id)} />
+      {removable ? (
+        <ActionButton
+          title={live ? "Remove from tree (tab stays open)" : "Remove from tree"}
+          icon="trash"
+          onClick={() => cb.onRemove(id)}
+        />
+      ) : null}
     </>
   );
 }

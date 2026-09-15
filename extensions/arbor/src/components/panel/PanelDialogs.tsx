@@ -1,21 +1,25 @@
 import type { NodeId, Tree } from "@/lib/model";
-import { deleteWarning } from "@/lib/panel-text";
+import { closeAndRemoveWarning } from "@/lib/panel-text";
 import { ConfirmDialog } from "../ConfirmDialog";
 
-export type PendingConfirmation = { kind: "close-all" } | { kind: "delete"; id: NodeId };
+export type PendingConfirmation = { kind: "close-all" } | { kind: "close-and-remove"; id: NodeId };
 
 export interface PanelDialogsProps {
   confirm: PendingConfirmation | null;
   tree: Tree;
   liveTabCount: number;
   onCloseAll(): void;
-  onDelete(id: NodeId): void;
+  onCloseAndRemove(id: NodeId): void;
   onCancel(): void;
 }
 
-/** The two confirmations the panel asks for: closing everything, and deletes that lose tabs. */
+/**
+ * The two confirmations the panel asks for: closing everything, and "Close tabs and remove",
+ * the one action that closes tabs without saving them. "Remove from tree" never asks: it does
+ * not touch the browser and the toast offers Undo.
+ */
 export function PanelDialogs(props: PanelDialogsProps) {
-  const { confirm, tree, liveTabCount, onCloseAll, onDelete, onCancel } = props;
+  const { confirm, tree, liveTabCount, onCloseAll, onCloseAndRemove, onCancel } = props;
   if (confirm?.kind === "close-all") {
     return (
       <ConfirmDialog
@@ -31,16 +35,16 @@ export function PanelDialogs(props: PanelDialogsProps) {
       </ConfirmDialog>
     );
   }
-  if (confirm?.kind === "delete") {
+  if (confirm?.kind === "close-and-remove") {
     return (
       <ConfirmDialog
-        title="Delete from the tree?"
-        confirmLabel="Delete"
+        title="Close tabs and remove from the tree?"
+        confirmLabel="Close tabs and remove"
         danger
-        onConfirm={() => onDelete(confirm.id)}
+        onConfirm={() => onCloseAndRemove(confirm.id)}
         onCancel={onCancel}
       >
-        {deleteWarning(tree, confirm.id)}
+        {closeAndRemoveWarning(tree, confirm.id)}
       </ConfirmDialog>
     );
   }

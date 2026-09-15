@@ -4,6 +4,7 @@ import { childrenOf, makeNode, ops, serializeNodes, type Tree, type TreeNode } f
 import {
   addRootGroup,
   addSavedTab,
+  idOf,
   nodeOf,
   setup,
   titlesUnder,
@@ -33,7 +34,7 @@ async function realistic() {
 }
 
 describe("undo / redo flows", () => {
-  it("delete subtree -> undo: nodes come back in place with the same ids, saved; redo deletes again", async () => {
+  it("close tabs and remove a subtree -> undo: nodes come back in place with the same ids and their tabs reopen; redo closes and removes again", async () => {
     const ctx = await realistic();
     const { store, fb, tracker } = ctx;
     const w = fb.openWindow();
@@ -49,12 +50,13 @@ describe("undo / redo flows", () => {
     expect(titlesUnder(ctx, bNode.id)).toEqual(["C"]);
     const before = store.getTree();
 
-    const removed = await tracker.deleteNode(bNode.id);
+    const removed = await tracker.closeAndRemove(bNode.id);
     expect(removed.map((n) => n.id)).toEqual([bNode.id, cNode.id]);
     expect(fb.removed.sort()).toEqual([b.id, c.id].sort());
+    expect(fb.stripOrder(w.id)).toEqual([a.id, d.id]);
     expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "D"]);
-    const entry = history.remove(before, removed, bNode.id) as HistoryEntry;
-    expect(entry.label).toBe("delete 2 tabs");
+    const entry = history.closeAndRemove(before, removed, bNode.id) as HistoryEntry;
+    expect(entry.label).toBe('close and remove "B" (2 open tabs)');
 
     await run(ctx, entry.undo);
     const tree = store.getTree();
@@ -70,52 +72,181 @@ describe("undo / redo flows", () => {
       nodeOf(ctx, d)?.id,
       bNode.id,
     ]);
-    // Their tabs were closed without saving, so they are back as saved nodes.
-    expect(tree.get(bNode.id)?.liveTabId).toBeUndefined();
-    expect(tree.get(cNode.id)?.liveTabId).toBeUndefined();
-    expect(shape(tree)).toEqual(
-      shape(before).map(([id, p, o, live]) => [
-        id,
-        p,
-        o,
-        id === bNode.id || id === cNode.id ? false : live,
-      ]),
-    );
+    // The tabs were closed without saving, so the undo reopens them in place: same nodes,
+    // new browser tabs, back at their strip positions.
+    const bTab = tree.get(bNode.id)?.liveTabId;
+    const cTab = tree.get(cNode.id)?.liveTabId;
+    expect(bTab).toBeDefined();
+    expect(cTab).toBeDefined();
+    expect(fb.stripOrder(w.id)).toEqual([a.id, d.id, bTab, cTab]);
+    expect(shape(tree)).toEqual(shape(before));
 
     await run(ctx, entry.redo);
     expect(store.getTree().has(bNode.id)).toBe(false);
     expect(store.getTree().has(cNode.id)).toBe(false);
     expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "D"]);
+    expect(fb.stripOrder(w.id)).toEqual([a.id, d.id]);
   });
 
-  it("delete the last tab of a window (window pruned) -> undo: window and tab return at their old place", async () => {
+  it("close and remove the last tab of a window (window pruned) -> undo: window and tab return at their old place", async () => {
     const ctx = await realistic();
     const { store, fb, tracker } = ctx;
     addRootGroup(ctx, "g0");
     const w = fb.openWindow();
     const a = fb.openTab(w.id, "https://a.test/", "A");
     addRootGroup(ctx, "g2");
+    const other = fb.openWindow(); // so the reopened tab has a window to land in
+    fb.openTab(other.id, "https://o.test/", "O");
     const wNode = winNodeOf(ctx, w) as TreeNode;
     const aNode = nodeOf(ctx, a) as TreeNode;
-    expect(childrenOf(store.getTree(), null).map((n) => n.id)).toEqual(["g0", wNode.id, "g2"]);
+    const otherNode = winNodeOf(ctx, other) as TreeNode;
+    expect(childrenOf(store.getTree(), null).map((n) => n.id)).toEqual([
+      "g0",
+      wNode.id,
+      "g2",
+      otherNode.id,
+    ]);
     const before = store.getTree();
 
-    const removed = await tracker.deleteNode(aNode.id);
+    const removed = await tracker.closeAndRemove(aNode.id);
     expect(removed.map((n) => n.id)).toEqual([wNode.id, aNode.id]);
-    expect([...store.getTree().keys()]).toEqual(["g0", "g2"]);
-    const entry = history.remove(before, removed, aNode.id) as HistoryEntry;
+    expect(fb.windows.map((x) => x.id)).toEqual([other.id]);
+    expect(store.getTree().has(wNode.id)).toBe(false);
+    const entry = history.closeAndRemove(before, removed, aNode.id) as HistoryEntry;
 
     await run(ctx, entry.undo);
     const tree = store.getTree();
-    expect(childrenOf(tree, null).map((n) => n.id)).toEqual(["g0", wNode.id, "g2"]);
+    expect(childrenOf(tree, null).map((n) => n.id)).toEqual(["g0", wNode.id, "g2", otherNode.id]);
     expect(tree.get(wNode.id)).toMatchObject({ kind: "window", parentId: null });
     expect(tree.get(wNode.id)?.liveWindowId).toBeUndefined(); // the browser window is gone
+    // A single tab reopens where it sits; its window being gone, it opens in the focused one.
     expect(tree.get(aNode.id)).toMatchObject({ parentId: wNode.id, title: "A" });
-    expect(tree.get(aNode.id)?.liveTabId).toBeUndefined();
-    // The restored closed container can be reopened like any other: as a browser window.
-    await tracker.restore(wNode.id);
-    expect(store.getTree().get(wNode.id)?.liveWindowId).toBe(fb.windows[0]?.id);
-    expect(store.getTree().get(aNode.id)?.liveTabId).toBeDefined();
+    expect(tree.get(aNode.id)?.liveTabId).toBeDefined();
+    expect(tree.get(aNode.id)?.liveWindowId).toBe(other.id);
+  });
+
+  it("remove a group with 2 open and 2 saved tabs -> no tab closes, open ones re-mirror under their window in strip order, saved ones go; undo restores exactly", async () => {
+    const ctx = await realistic();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    fb.openTab(w.id, "https://a.test/", "A");
+    const b = fb.openTab(w.id, "https://b.test/", "B");
+    const c = fb.openTab(w.id, "https://c.test/", "C");
+    fb.openTab(w.id, "https://d.test/", "D");
+    const wNode = winNodeOf(ctx, w) as TreeNode;
+    addRootGroup(ctx, "g");
+    addSavedTab(ctx, "s1", "g", "https://s1.test/", "S1");
+    await tracker.moveNode(idOf(ctx, c), "g", 1); // C filed in the group (tab stays in W)
+    await tracker.moveNode(idOf(ctx, b), "g", 0); // B too, ahead of it
+    addSavedTab(ctx, "s2", "g", "https://s2.test/", "S2");
+    const bNode = nodeOf(ctx, b) as TreeNode;
+    store.append([ops.update(bNode.id, { note: "why" }), ops.update("g", { note: "group note" })]);
+    expect(titlesUnder(ctx, "g")).toEqual(["B", "S1", "C", "S2"]);
+    expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "D"]);
+    const before = store.getTree();
+
+    const removed = tracker.removeNode("g");
+    expect(removed.map((n) => n.id)).toEqual(["g", "s1", "s2"]);
+    // The browser was not touched: same four tabs, nothing closed, nothing moved.
+    expect(fb.removed).toEqual([]);
+    expect(fb.moved).toEqual([]);
+    expect(fb.tabs.length).toBe(4);
+    // B and C are back under their window at their strip positions, as plain mirrors.
+    expect(store.getTree().has("g")).toBe(false);
+    expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "B", "C", "D"]);
+    expect(store.getTree().get(bNode.id)).toMatchObject({ parentId: wNode.id, liveTabId: b.id });
+    expect(store.getTree().get(bNode.id)?.note).toBeUndefined();
+    expect(store.getTree().size).toBe(before.size - 3);
+    const entry = history.remove(before, removed, "g") as HistoryEntry;
+    expect(entry.label).toBe('remove "g" (2 saved tabs, 2 open tabs kept)');
+    expect(entry.done).toBe('Removed "g" (2 saved tabs, 2 open tabs kept)');
+
+    await run(ctx, entry.undo);
+    expect(shape(store.getTree())).toEqual(shape(before));
+    expect(titlesUnder(ctx, "g")).toEqual(["B", "S1", "C", "S2"]);
+    expect(store.getTree().get("g")).toMatchObject({ note: "group note" });
+    expect(store.getTree().get(bNode.id)).toMatchObject({ note: "why", liveTabId: b.id });
+    expect(fb.removed).toEqual([]);
+    expect(fb.moved).toEqual([]);
+
+    await run(ctx, entry.redo);
+    expect(store.getTree().has("g")).toBe(false);
+    expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "B", "C", "D"]);
+    expect(fb.tabs.length).toBe(4);
+  });
+
+  it("remove saved items from an open window -> title and note reset, saved tabs gone, open tabs kept where they are; undo", async () => {
+    const ctx = await realistic();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    const a = fb.openTab(w.id, "https://a.test/", "A");
+    const b = fb.openTab(w.id, "https://b.test/", "B", { openerTabId: a.id }); // nested under A
+    const wNode = winNodeOf(ctx, w) as TreeNode;
+    const aNode = nodeOf(ctx, a) as TreeNode;
+    addSavedTab(ctx, "s", wNode.id, "https://s.test/", "S");
+    addSavedTab(ctx, "s2", aNode.id, "https://s2.test/", "S2"); // saved under the open tab A
+    store.append([ops.update(wNode.id, { title: "Work", note: "n" })]);
+    expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "S"]);
+    expect(titlesUnder(ctx, aNode.id)).toEqual(["B", "S2"]);
+    const before = store.getTree();
+
+    const removed = tracker.removeNode(wNode.id);
+    expect(removed.map((n) => n.id)).toEqual(["s2", "s"]);
+    expect(fb.removed).toEqual([]);
+    expect(fb.tabs.length).toBe(2);
+    // The container is the mirror of an open window: it stays, bound, back to a plain "Window".
+    expect(store.getTree().get(wNode.id)).toMatchObject({ title: "", liveWindowId: w.id });
+    expect(store.getTree().get(wNode.id)?.note).toBeUndefined();
+    // Open tabs already in their place keep it, nesting included.
+    expect(titlesUnder(ctx, wNode.id)).toEqual(["A"]);
+    expect(titlesUnder(ctx, aNode.id)).toEqual(["B"]);
+    const entry = history.remove(before, removed, wNode.id) as HistoryEntry;
+    expect(entry.label).toBe('remove saved items from "Work" (2 saved tabs, 2 open tabs kept)');
+
+    await run(ctx, entry.undo);
+    expect(shape(store.getTree())).toEqual(shape(before));
+    expect(store.getTree().get(wNode.id)).toMatchObject({
+      title: "Work",
+      note: "n",
+      liveWindowId: w.id,
+    });
+    expect(nodeOf(ctx, b)?.parentId).toBe(aNode.id);
+  });
+
+  it("remove a single open tab -> it stays open and goes back under its window; undo files it again", async () => {
+    const ctx = await realistic();
+    const { store, fb, tracker } = ctx;
+    const w = fb.openWindow();
+    fb.openTab(w.id, "https://a.test/", "A");
+    const b = fb.openTab(w.id, "https://b.test/", "B");
+    fb.openTab(w.id, "https://c.test/", "C");
+    const wNode = winNodeOf(ctx, w) as TreeNode;
+    addRootGroup(ctx, "g");
+    await tracker.moveNode(idOf(ctx, b), "g", 0);
+    addSavedTab(ctx, "child", idOf(ctx, b), "https://child.test/", "Child");
+    store.append([ops.update(idOf(ctx, b), { note: "read later" })]);
+    const bNode = nodeOf(ctx, b) as TreeNode;
+    const before = store.getTree();
+
+    const removed = tracker.removeNode(bNode.id);
+    expect(removed.map((n) => n.id)).toEqual(["child"]);
+    expect(fb.removed).toEqual([]);
+    expect(fb.stripOrder(w.id).length).toBe(3);
+    expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "B", "C"]);
+    expect(titlesUnder(ctx, "g")).toEqual([]);
+    expect(store.getTree().get(bNode.id)).toMatchObject({ parentId: wNode.id, liveTabId: b.id });
+    expect(store.getTree().get(bNode.id)?.note).toBeUndefined();
+    const entry = history.remove(before, removed, bNode.id) as HistoryEntry;
+    expect(entry.label).toBe('remove "B" (1 saved tab, 1 open tab kept)');
+
+    await run(ctx, entry.undo);
+    expect(shape(store.getTree())).toEqual(shape(before));
+    expect(store.getTree().get(bNode.id)).toMatchObject({ parentId: "g", note: "read later" });
+    expect(titlesUnder(ctx, bNode.id)).toEqual(["Child"]);
+    expect(fb.moved).toEqual([]); // the undo is a tree-only move as well
+
+    await run(ctx, entry.redo);
+    expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "B", "C"]);
   });
 
   it("move -> undo: original position; redo: moved again", async () => {
@@ -333,7 +464,7 @@ describe("undo / redo flows", () => {
     expect(store.getTree().has("g")).toBe(true);
     expect(store.getTree().has("s")).toBe(true);
     // Steps on vanished nodes fail loudly instead of guessing.
-    await tracker.deleteNode("s");
+    await tracker.closeAndRemove("s");
     await expect(run(ctx, [{ kind: "move", id: "s", parentId: null, index: 0 }])).rejects.toThrow(
       /no longer exists/,
     );
@@ -352,7 +483,8 @@ describe("undo / redo flows", () => {
     const start = store.getTree();
     const stack = new HistoryStack();
 
-    // 1. drag B into the group, 2. close & save the group, 3. rename the group, 4. delete A.
+    // 1. drag B into the group, 2. close & save the group, 3. rename the group, 4. close and
+    // remove A.
     let before = store.getTree();
     stack.push(
       history.move(
@@ -371,7 +503,11 @@ describe("undo / redo flows", () => {
     before = store.getTree();
     const aNode = childrenOf(before, wNode.id)[0] as TreeNode;
     stack.push(
-      history.remove(before, await tracker.deleteNode(aNode.id), aNode.id) as HistoryEntry,
+      history.closeAndRemove(
+        before,
+        await tracker.closeAndRemove(aNode.id),
+        aNode.id,
+      ) as HistoryEntry,
     );
     const end = store.getTree();
     expect(titlesUnder(ctx, wNode.id)).toEqual(["C"]);
@@ -385,15 +521,18 @@ describe("undo / redo flows", () => {
       await run(ctx, e.undo);
       stack.undone(e);
     }
-    expect(labels).toEqual(['delete "A"', 'rename "g"', "close 1 tab", 'move "B"']);
+    expect(labels).toEqual([
+      'close and remove "A" (1 open tab)',
+      'rename "g"',
+      "close 1 tab",
+      'move "B"',
+    ]);
     const undone = store.getTree();
     expect(titlesUnder(ctx, wNode.id)).toEqual(["A", "B", "C"]);
     expect(titlesUnder(ctx, "g")).toEqual([]);
     expect(undone.get("g")?.title).toBe("g");
-    // Every node back with its id and place; A came back saved (its tab was deleted), B live.
-    expect(shape(undone)).toEqual(
-      shape(start).map(([id, p, o, live]) => [id, p, o, id === aNode.id ? false : live]),
-    );
+    // Every node back with its id and place, and every tab open again (A was reopened in place).
+    expect(shape(undone)).toEqual(shape(start));
 
     while (stack.canRedo) {
       const e = stack.takeRedo() as HistoryEntry;

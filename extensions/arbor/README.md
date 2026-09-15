@@ -20,7 +20,8 @@ Free:
 - Manual export/import (JSON). Importer for Tabs Outliner's `onViewClose_lastSessionSnapshot` JSON
   (recover it via their extension page console; document the steps in the importer UI) and for
   Tabs Outliner's exported tree files.
-- Keyboard basics: arrow navigation, Enter to focus/restore, Delete to close.
+- Keyboard basics: arrow navigation, Enter to focus/restore, Delete to remove from the tree (open
+  tabs stay open), Shift+Delete to close tabs and remove.
 
 Pro (gated via `@browserforge/licensing`, feature ids: `scheduled-backups`, `drive-backup`,
 `power-keys`, `multi-profile`):
@@ -58,6 +59,14 @@ container with an empty title (rendered as "Window"). Behaviour follows the stat
   untitled, note-less, childless container is pruned; anything the user named or annotated stays.
 - Dragging a live tab under an unbound container is a tree-only move (the browser tab stays where
   it is, "detached" from strip ordering) until that container is opened as a window.
+- Leaving the tree is two distinct actions, on every node kind. **Remove from tree** (Delete)
+  never touches the browser: saved tabs, notes and unbound containers beneath the node go; a live
+  tab stays and is re-mirrored directly under the container of its window at its strip position
+  (its note dropped); a bound container stays too, with its title and note reset ("Remove saved
+  items", disabled when nothing is left to remove). **Close tabs and remove** (Shift+Delete,
+  confirmed) closes the live tabs beneath the node without saving them, then removes the subtree.
+  Both are one undo step: the first re-adds what went and moves the kept nodes back, the second
+  re-adds the subtree and reopens the tabs in place.
 
 Compatibility: trees, op logs, backups and exports written before 0.1.4 used a separate `group`
 kind and titled browser windows "Window". `coerceNode` reads `group` as `window` wherever it

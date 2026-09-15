@@ -5,8 +5,9 @@
  * as ordinary ops appended to the same op log (or as the same tracker call a user gesture makes,
  * when live tabs are involved): re-adding a deleted subtree is a batch of `add` ops with the
  * original ids; undoing a move is a move back; undoing close-and-save reopens the very same nodes
- * in place; undoing a reopen closes exactly those tabs again. The panel keeps a short stack of
- * such entries for its session.
+ * in place; undoing a reopen closes exactly those tabs again; undoing a remove-from-tree re-adds
+ * what went and moves the open tabs it kept back where they were. The panel keeps a short stack
+ * of such entries for its session.
  *
  * Design choices, in case they come up:
  * - Entries are self-contained: they carry the nodes they re-add and the ids they act on, never
@@ -37,6 +38,7 @@ export {
   readdOps,
   savedTabNodesIn,
   siblingIndex,
+  unremoveOps,
 } from "./inverse";
 export { createHistory, type HistoryBuilders, type MoveRequest } from "./entries";
 export { HISTORY_DEPTH, HistoryStack, type HistoryState } from "./stack";

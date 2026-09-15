@@ -12,7 +12,8 @@ export interface StepTarget {
   readonly tree: Tree;
   append(bodies: readonly OpBody[]): void;
   moveNode(id: NodeId, parentId: NodeId | null, index: number): Promise<TreeNode[]>;
-  deleteNode(id: NodeId): Promise<TreeNode[]>;
+  removeNode(id: NodeId): TreeNode[];
+  closeAndRemove(id: NodeId): Promise<TreeNode[]>;
   reopenNodes(ids: readonly NodeId[], container?: NodeId): Promise<number>;
   closeNodes(ids: readonly NodeId[]): Promise<number>;
 }
@@ -38,8 +39,11 @@ const RUNNERS: { [K in HistoryStepKind]: StepRunner<K> } = {
     if (!target.tree.has(step.id)) throw new Error("That node no longer exists");
     await target.moveNode(step.id, step.parentId, step.index);
   },
-  async delete(target, step) {
-    await target.deleteNode(step.id);
+  remove(target, step) {
+    target.removeNode(step.id);
+  },
+  async closeAndRemove(target, step) {
+    await target.closeAndRemove(step.id);
   },
   async reopen(target, step) {
     await target.reopenNodes(step.ids, step.container);

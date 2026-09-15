@@ -2,6 +2,28 @@
 
 User-facing changes per Chrome Web Store release. Dates are release dates.
 
+## Unreleased
+
+### Changed
+
+- **Deleting never closes your tabs any more.** "Delete" on a window, group, tab or note is now two
+  separate actions, so removing something from the tree cannot take your open tabs with it:
+  - **Remove from tree** (the trash button, the Delete key, the menu) takes the node and its saved
+    tabs, notes and closed groups out of the tree and leaves the browser alone. Open tabs inside it
+    stay open and stay in the tree: each goes back under its own window, at its position in the tab
+    strip, the moment the group goes, so nothing is ever missing from the panel. An open window
+    cannot leave the tree while it is open; on it the entry reads **Remove saved items** and clears
+    its name, note and saved items instead (it is greyed out when there is nothing to remove). On an
+    open tab it drops the tab's note and files the tab back under its window.
+  - **Close tabs and remove** (the menu, Shift+Delete) is the old behaviour: it closes every open
+    tab beneath the node without saving them, then removes the node. It is shown in red, still asks
+    first, and the question now says how many open tabs will close and that the saved items will be
+    deleted.
+  - Both can be undone in one step (Ctrl+Z or the Undo button in the toast): a remove puts the nodes
+    back where they were, with their names and notes, and moves the open tabs it kept back to their
+    places; a close-and-remove puts the nodes back and reopens the tabs where they were.
+- The Delete key no longer means "Close and save". That action keeps its button and menu entry.
+
 ## 0.1.5 — 2026-09-15
 
 ### Fixed

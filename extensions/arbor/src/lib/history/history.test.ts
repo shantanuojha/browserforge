@@ -186,27 +186,121 @@ describe("entry builders", () => {
     expect(history.move(before, { id: "ghost", parentId: null, index: 0 })).toBeNull();
   });
 
-  it("remove: labels describe what went, undo re-adds everything, redo deletes again", () => {
+  it("remove: undo re-adds what went at its old index, redo removes again", () => {
+    const before = fixture();
+    const [s, c2] = ["s", "c2"].map((id) => before.get(id) as TreeNode) as [TreeNode, TreeNode];
+    const e = history.remove(before, [s, c2], "s") as HistoryEntry;
+    expect(e.label).toBe('remove "S" (1 saved tab)');
+    expect(e.done).toBe('Removed "S" (1 saved tab)');
+    expect(e.undo).toEqual([
+      { kind: "ops", ops: [ops.add(asSaved(s), 0), ops.add(asSaved(c2), 0)] },
+    ]);
+    expect(e.redo).toEqual([{ kind: "remove", id: "s" }]);
+    const withNote = applyOps(before, [ops.add(node("n", "g", "note"), 0)]);
+    expect(history.remove(withNote, [withNote.get("n") as TreeNode], "n")?.label).toBe(
+      "remove note",
+    );
+    expect(history.remove(before, [], "ghost")).toBeNull();
+  });
+
+  it("remove: open tabs the tracker kept are moved back where they were, with their notes", () => {
+    // B (open) was dragged into the group; removing the group keeps B and re-homes it under W.
+    const withLive = applyOps(fixture(), [
+      ops.move("b", "g", 0),
+      ops.update("b", { note: "keep me" }),
+    ]);
+    const removed = ["g", "s", "c2", "t"].map((id) => withLive.get(id) as TreeNode);
+    const e = history.remove(withLive, removed, "g") as HistoryEntry;
+    expect(e.label).toBe('remove "G" (3 saved tabs, 1 open tab kept)');
+    // Walked in before-order, each node at the index it had: adds for what went, moves (and
+    // the note) for what stayed. The group itself comes back second among the roots.
+    expect(e.undo).toEqual([
+      {
+        kind: "ops",
+        ops: [
+          ops.add(asSaved(withLive.get("g") as TreeNode), 1),
+          ops.move("b", "g", 0),
+          ops.update("b", { note: "keep me" }),
+          ops.add(asSaved(withLive.get("s") as TreeNode), 1),
+          ops.add(asSaved(withLive.get("c2") as TreeNode), 0),
+          ops.add(asSaved(withLive.get("t") as TreeNode), 2),
+        ],
+      },
+    ]);
+    expect(e.redo).toEqual([{ kind: "remove", id: "g" }]);
+    // Running the undo against the tree the tracker leaves behind restores the exact shape.
+    const after = applyOps(withLive, [
+      ops.update("b", { note: null }),
+      ops.move("b", "w", 1),
+      ops.remove("g"),
+    ]);
+    const restored = applyOps(after, (e.undo[0] as { ops: OpBody[] }).ops);
+    expect(shape(restored)).toEqual(shape(withLive));
+    expect(restored.get("b")?.liveTabId).toBe(11); // never closed, so still live
+  });
+
+  it("remove on an open window: 'remove saved items', title restored on undo; nothing recorded for a bare window", () => {
+    const before = fixture(); // W is titled "W" and holds only open tabs
+    const e = history.remove(before, [], "w") as HistoryEntry;
+    expect(e.label).toBe('remove saved items from "W" (3 open tabs kept)');
+    expect(e.undo).toEqual([
+      {
+        kind: "ops",
+        ops: [
+          ops.move("w", null, 0),
+          ops.update("w", { title: "W" }),
+          ops.move("a", "w", 0),
+          ops.move("b", "w", 1),
+          ops.move("c", "w", 2),
+        ],
+      },
+    ]);
+    // A browser-made window (no title), plain open tabs in place: the action changes nothing.
+    const bare = applyOps(before, [ops.update("w", { title: "" })]);
+    expect(history.remove(bare, [], "w")).toBeNull();
+    // Same for one open tab already sitting under its window.
+    expect(history.remove(bare, [], "a")).toBeNull();
+    // A saved tab beneath makes it worth recording again, and the label says "Window".
+    const withSaved = applyOps(bare, [ops.add(tab("s2", "w"), 1)]);
+    expect(history.remove(withSaved, [withSaved.get("s2") as TreeNode], "w")?.label).toBe(
+      'remove saved items from "Window" (1 saved tab, 3 open tabs kept)',
+    );
+  });
+
+  it("closeAndRemove: undo re-adds the subtree saved and reopens the tabs that were open", () => {
     const before = fixture();
     const a = before.get("a") as TreeNode;
-    const one = history.remove(before, [a], "a") as HistoryEntry;
-    expect(one.label).toBe('delete "A"');
-    expect(one.done).toBe('Deleted "A"');
-    expect(one.undo).toEqual([{ kind: "ops", ops: [ops.add(asSaved(a), 0)] }]);
-    expect(one.redo).toEqual([{ kind: "delete", id: "a" }]);
-
-    const g = ["g", "s", "c2", "t"].map((id) => before.get(id) as TreeNode);
-    expect(history.remove(before, g, "g")?.label).toBe('delete "G" (3 tabs)');
+    const one = history.closeAndRemove(before, [a], "a") as HistoryEntry;
+    expect(one.label).toBe('close and remove "A" (1 open tab)');
+    expect(one.done).toBe('Closed and removed "A" (1 open tab)');
+    expect(one.undo).toEqual([
+      { kind: "ops", ops: [ops.add(asSaved(a), 0)] },
+      { kind: "reopen", ids: ["a"] },
+    ]);
+    expect(one.redo).toEqual([{ kind: "closeAndRemove", id: "a" }]);
+    // An open window as a whole comes back as one window.
     const w = ["w", "a", "b", "c"].map((id) => before.get(id) as TreeNode);
-    expect(history.remove(before, w, "w")?.label).toBe('delete "W" (3 tabs)');
-    const s = ["s", "c2"].map((id) => before.get(id) as TreeNode);
-    expect(history.remove(before, s, "s")?.label).toBe("delete 2 tabs");
-    expect(history.remove(before, [node("n", "g", "note")], "n")?.label).toBe("delete note");
-    expect(history.remove(before, [], "a")).toBeNull();
+    const whole = history.closeAndRemove(before, w, "w") as HistoryEntry;
+    expect(whole.label).toBe('close and remove "W" (3 open tabs)');
+    expect(whole.undo[1]).toEqual({ kind: "reopen", ids: ["a", "b", "c"], container: "w" });
+    // A group holding one open tab and saved ones: the open one reopens where it sits.
+    const withLive = applyOps(before, [ops.move("b", "g", 0)]);
+    const g = ["g", "b", "s", "c2", "t"].map((id) => withLive.get(id) as TreeNode);
+    const grp = history.closeAndRemove(withLive, g, "g") as HistoryEntry;
+    expect(grp.label).toBe('close and remove "G" (1 open tab, 3 saved tabs)');
+    expect(grp.undo[1]).toEqual({ kind: "reopen", ids: ["b"] });
+    // Nothing open beneath: only the re-add step.
+    const saved = ["g", "s", "c2", "t"].map((id) => before.get(id) as TreeNode);
+    const quiet = history.closeAndRemove(before, saved, "g") as HistoryEntry;
+    expect(quiet.label).toBe('close and remove "G" (3 saved tabs)');
+    expect(quiet.undo).toHaveLength(1);
+    expect(history.closeAndRemove(before, [], "a")).toBeNull();
     // A browser-made window has no title of its own; labels say "Window".
     const auto = applyOps(before, [ops.update("w", { title: "" })]);
     const w2 = ["w", "a", "b", "c"].map((id) => auto.get(id) as TreeNode);
-    expect(history.remove(auto, w2, "w")?.label).toBe('delete "Window" (3 tabs)');
+    expect(history.closeAndRemove(auto, w2, "w")?.label).toBe(
+      'close and remove "Window" (3 open tabs)',
+    );
     expect(history.rename(auto, "w", "Work")?.label).toBe('rename "Window"');
   });
 
@@ -295,7 +389,10 @@ describe("HistoryStack", () => {
   it("round-trips through JSON and drops malformed entries", () => {
     const s = new HistoryStack();
     s.push(history.create(node("g", null, "window"), 0));
-    s.push(history.remove(fixture(), [fixture().get("a") as TreeNode], "a") as HistoryEntry);
+    s.push(history.remove(fixture(), [fixture().get("t") as TreeNode], "t") as HistoryEntry);
+    s.push(
+      history.closeAndRemove(fixture(), [fixture().get("a") as TreeNode], "a") as HistoryEntry,
+    );
     s.push(history.reopen(fixture(), "g") as HistoryEntry); // carries `container`
     const raw = JSON.parse(JSON.stringify(s.toJSON())) as unknown;
     const back = HistoryStack.fromJSON(raw);
@@ -307,9 +404,14 @@ describe("HistoryStack", () => {
       undo: [
         {
           label: "ok",
-          undo: [{ kind: "delete", id: "x" }],
-          redo: [{ kind: "reopen", ids: ["x"] }],
+          undo: [{ kind: "closeAndRemove", id: "x" }],
+          redo: [
+            { kind: "reopen", ids: ["x"] },
+            { kind: "remove", id: "x" },
+          ],
         },
+        // The step kind of releases before the split: dropped, not guessed at.
+        { label: "old delete", undo: [{ kind: "delete", id: "x" }], redo: [] },
         { label: "bad step", undo: [{ kind: "explode" }], redo: [] },
         { label: 5, undo: [], redo: [] },
         "junk",

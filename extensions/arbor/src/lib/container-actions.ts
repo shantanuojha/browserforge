@@ -18,6 +18,15 @@ import {
   type Tree,
   type TreeNode,
 } from "./model";
+import {
+  canCloseAndRemove,
+  canRemove,
+  closeAndRemoveLabel,
+  plural,
+  removeLabel,
+  summarizeRemoval,
+  withDetail,
+} from "./removal";
 
 export type ContainerNode = TreeNode & { kind: "window" };
 
@@ -83,13 +92,13 @@ export function summarizeContainer(
 }
 
 export type ContainerActionId =
-  "reopen" | "closeAndSave" | "note" | "rename" | "collapse" | "delete";
+  "reopen" | "closeAndSave" | "note" | "rename" | "collapse" | "remove" | "closeAndRemove";
 
 /** Icons the row buttons use; a subset of `IconName` kept here so this module stays DOM-free. */
 export type ContainerActionIcon = "restore" | "close" | "note" | "rename" | "chevron" | "trash";
 
 /** Menu sections, in display order; the menu draws a separator between them. */
-export type ContainerActionSection = "open" | "edit" | "danger";
+export type ContainerActionSection = "open" | "edit" | "remove";
 
 export interface ContainerAction {
   id: ContainerActionId;
@@ -111,14 +120,10 @@ export interface ContainerActionHandlers {
   editNote(id: NodeId): void;
   startRename(id: NodeId): void;
   toggleCollapse(id: NodeId, collapsed: boolean): void;
-  deleteNode(id: NodeId): void;
-}
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
-
-/** `label`, or `label (detail)` when there is a detail to show. */
-function withDetail(label: string, detail: string): string {
-  return detail ? `${label} (${detail})` : label;
+  /** "Remove from tree": never touches the browser. */
+  removeNode(id: NodeId): void;
+  /** "Close tabs and remove": closes the open tabs beneath, then removes. Asks first. */
+  closeAndRemove(id: NodeId): void;
 }
 
 /**
@@ -156,7 +161,6 @@ function closeAction(
     label: withDetail(label, s.liveTabs ? plural(s.liveTabs, "open tab") : ""),
     icon: "close",
     section: "open",
-    shortcut: "Del",
     disabled: s.liveTabs === 0,
     inRow: true,
     run: () => handlers.closeAndSave(id),
@@ -203,21 +207,44 @@ function editActions(
   ];
 }
 
-function deleteAction(
-  s: ContainerSummary,
-  id: NodeId,
+/**
+ * Leaving the tree, two ways. "Remove from tree" is the plain one (Delete): saved items go, open
+ * tabs stay open and stay mirrored under their window; an open window's container stays too, so
+ * on it the action reads "Remove saved items" and is off when there is nothing to remove. "Close
+ * tabs and remove" (Shift+Delete) closes the open tabs first; it is the destructive one and is off
+ * when nothing beneath is open (then it would just be "Remove").
+ */
+function removeActions(
+  tree: Tree,
+  node: ContainerNode,
   handlers: ContainerActionHandlers,
-): ContainerAction {
-  return {
-    id: "delete",
-    label: s.liveTabs ? `Delete (closes ${plural(s.liveTabs, "open tab")})` : "Delete",
-    icon: "trash",
-    section: "danger",
-    danger: true,
-    disabled: false,
-    inRow: true,
-    run: () => handlers.deleteNode(id),
-  };
+  index: ChildIndex,
+): ContainerAction[] {
+  const s = summarizeRemoval(tree, node, index);
+  const id = node.id;
+  return [
+    {
+      id: "remove",
+      label: removeLabel(s, node),
+      icon: "trash",
+      section: "remove",
+      shortcut: "Del",
+      disabled: !canRemove(s),
+      inRow: true,
+      run: () => handlers.removeNode(id),
+    },
+    {
+      id: "closeAndRemove",
+      label: closeAndRemoveLabel(s),
+      icon: "trash",
+      section: "remove",
+      shortcut: "Shift+Del",
+      danger: true,
+      disabled: !canCloseAndRemove(s),
+      inRow: false,
+      run: () => handlers.closeAndRemove(id),
+    },
+  ];
 }
 
 /**
@@ -235,17 +262,20 @@ export function containerActions(
     reopenAction(s, node.id, handlers),
     closeAction(s, node.id, handlers),
     ...editActions(s, node, handlers),
-    deleteAction(s, node.id, handlers),
+    ...removeActions(tree, node, handlers, index),
   ];
 }
 
 /**
- * What the Delete key does on a container: close-and-save while anything beneath it is open
- * (like a live window has always behaved), delete otherwise.
+ * What the Delete key does on a container: "Remove from tree" (never closes a tab), or with Shift
+ * "Close tabs and remove". `undefined` when that action is disabled, so the key does nothing.
  */
-export function deleteKeyAction(actions: ContainerAction[]): ContainerAction | undefined {
-  const close = actions.find((a) => a.id === "closeAndSave");
-  return close && !close.disabled ? close : actions.find((a) => a.id === "delete");
+export function deleteKeyAction(
+  actions: ContainerAction[],
+  key: { shift: boolean },
+): ContainerAction | undefined {
+  const action = actions.find((a) => a.id === (key.shift ? "closeAndRemove" : "remove"));
+  return action && !action.disabled ? action : undefined;
 }
 
 /**

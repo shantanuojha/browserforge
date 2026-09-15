@@ -1,28 +1,21 @@
 /** Copy the side panel composes from the tree. Pure. */
-import { summarizeContainer } from "./container-actions";
-import { descendantIds, displayTitle, type NodeId, type Tree } from "./model";
+import { displayTitle, type NodeId, type Tree } from "./model";
+import { plural, summarizeRemoval } from "./removal";
 
-export const plural = (n: number, word: string): string => `${n} ${word}${n === 1 ? "" : "s"}`;
+export { plural };
 
-/** Body of the delete confirmation: what goes, and how many open tabs it closes unsaved. */
-export function deleteWarning(tree: Tree, id: NodeId): string {
+/**
+ * Body of the "Close tabs and remove" confirmation: how many open tabs close unsaved, and that
+ * the node and its saved items are deleted from the tree.
+ */
+export function closeAndRemoveWarning(tree: Tree, id: NodeId): string {
   const node = tree.get(id);
   if (!node) return "";
-  const nested = descendantIds(tree, id).length;
-  const live = summarizeContainer(tree, node).liveTabs + (node.liveTabId !== undefined ? 1 : 0);
-  const what = `This removes "${displayTitle(node)}"${nested ? ` and ${nested} nested node(s)` : ""}.`;
-  const open = live
-    ? ` ${live} open tab${live === 1 ? " is" : "s are"} closed without being saved.`
-    : "";
-  return `${what}${open} Earlier snapshots in Recovery still contain them.`;
-}
-
-/** Whether deleting `id` deserves a confirmation: it has a subtree or mirrors something open. */
-export function deleteNeedsConfirmation(tree: Tree, id: NodeId): boolean {
-  const node = tree.get(id);
-  if (!node) return false;
-  const live = node.liveTabId !== undefined || node.liveWindowId !== undefined;
-  return live || descendantIds(tree, id).length > 0;
+  const s = summarizeRemoval(tree, node);
+  const saved = s.removed - (s.stays ? 0 : 1);
+  const closes = `${plural(s.liveTabs, "open tab")} will be closed without being saved`;
+  const deletes = `"${displayTitle(node)}"${saved ? ` with its ${plural(saved, "saved item")}` : ""} will be deleted from the tree`;
+  return `${closes}, and ${deletes}. Earlier snapshots in Recovery still contain them.`;
 }
 
 export function liveTabCount(tree: Tree): number {
