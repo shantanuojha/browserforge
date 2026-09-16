@@ -22,6 +22,7 @@ import {
   getLicenseClient,
   isPro,
   onLicenseChange,
+  proStatus,
   resetLicensingForTests,
   setupLicensing,
 } from "./licensing";
@@ -362,9 +363,46 @@ describe("extension-level licence client", () => {
     expect(client).toBeUndefined();
     expect(getLicenseClient()).toBeUndefined();
     await expect(isPro()).resolves.toBe(false);
+    await expect(proStatus()).resolves.toBe("free");
     await expect(getEntitlements()).resolves.toEqual({ pro: false });
     const stop = onLicenseChange(() => undefined);
     expect(() => stop()).not.toThrow();
+  });
+
+  it("proStatus gives verdicts from the stored licence", async () => {
+    const { client } = setup((endpoint) =>
+      endpoint === "deactivate" ? { json: { deactivated: true } } : { json: activatedBody() },
+    );
+    await expect(proStatus()).resolves.toBe("free"); // nothing activated
+    await client.activate(RAW_KEY);
+    await expect(proStatus()).resolves.toBe("pro");
+    await client.deactivate();
+    await expect(proStatus()).resolves.toBe("free");
+  });
+
+  it("proStatus is unknown, not free, when the licence storage cannot be read", async () => {
+    const storage = createMemoryStorage();
+    const { fetch } = createFakeFetch(() => ({ json: activatedBody() }));
+    const client = setupLicensing(CONFIGURED, { storage, fetch, now: () => T0 });
+    if (!client) throw new Error("client expected");
+    await client.activate(RAW_KEY);
+    await expect(proStatus()).resolves.toBe("pro");
+
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    try {
+      storage.get = async () => {
+        throw new Error("storage unavailable");
+      };
+      await expect(proStatus()).resolves.toBe("unknown");
+      await expect(isPro()).resolves.toBe(false);
+      expect(warn).toHaveBeenCalledWith(
+        "[arbor:licensing]",
+        "licence check unavailable",
+        expect.any(Error),
+      );
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("uses browser.storage.local by default", async () => {

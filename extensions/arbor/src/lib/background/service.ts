@@ -5,15 +5,22 @@
  * tests with in-memory fakes. `entrypoints/background.ts` only wires adapters to this.
  */
 import type { Clock, Logger } from "@browserforge/shared";
-import { BACKUP_ALARM, BackupScheduler, type BackupMeta, type BackupRepository } from "../backups";
+import {
+  BACKUP_ALARM,
+  BackupScheduler,
+  describeScheduledOutcome,
+  type BackupMeta,
+  type BackupRepository,
+} from "../backups";
 import { createExport } from "../io/arbor-json";
 import type { StartupInfo, TreeState } from "../messages";
 import { makeNode, ops, serializeNodes, type NodeId, type NodeKind, type TreeNode } from "../model";
+import type { ProStatus } from "../pro";
 import { compactionIntervalMs, type Settings } from "../settings";
 import type { SnapshotMeta, TreeStore } from "../store/types";
 import { TabTracker } from "../sync/tracker";
 import type { TabsPort } from "../sync/types";
-import type { AlarmsPort, SettingsStore } from "./ports";
+import type { AlarmsPort, BackupStatusStore, SettingsStore } from "./ports";
 import { asSavedNodes } from "./import";
 
 export const COMPACT_ALARM = "arbor-compact-check";
@@ -29,8 +36,10 @@ export interface BackgroundDeps {
   tabs: TabsPort;
   alarms: AlarmsPort;
   backups: BackupRepository;
+  backupStatus: BackupStatusStore;
   settings: SettingsStore;
-  isPro(): Promise<boolean>;
+  /** Cached licence state; `unknown` when the check itself failed (see `lib/pro.ts`). */
+  proStatus(): Promise<ProStatus>;
   clock: Clock;
   newId(): string;
   logger: Logger;
@@ -60,7 +69,10 @@ export interface ArborBackground {
   /** Arm the one-shot alarm that re-syncs after a browser start. */
   scheduleStartupResync(): void;
   handleAlarm(name: string): void;
-  /** Activation, deactivation or a failed revalidation flips the Pro gate: re-arm or stop backups. */
+  /**
+   * The stored licence changed (activation, deactivation, a revalidation verdict): re-arm or
+   * stop backups. Not fired on plain worker start; `ready` covers that.
+   */
   onLicenseChanged(): void;
   /** The worker is about to be suspended: write what is pending. */
   suspend(): void;
@@ -110,18 +122,22 @@ class ArborBackgroundService implements ArborBackground {
     this.startup.rebuild = await this.tracker.rebuild();
     logger.info("ready", this.startup.rebuild);
     await alarms.create(COMPACT_ALARM, { periodInMinutes: 1 });
-    await this.configureBackups();
+    await this.ensureBackupSchedule();
   }
 
-  private async configureBackups(): Promise<void> {
+  /**
+   * Keeps the backup alarm true to settings and licence. Runs on every worker start (alarms are
+   * not guaranteed to survive a browser restart) and on settings and licence changes.
+   */
+  private async ensureBackupSchedule(): Promise<void> {
     if (!this.settings) return;
-    await this.scheduler.configure(this.settings.backups, await this.deps.isPro());
+    await this.scheduler.ensureScheduled(this.settings.backups, await this.deps.proStatus());
   }
 
   private applySettings(next: Settings): void {
     this.settings = next;
     this.store.setCompactionInterval(compactionIntervalMs(next));
-    void this.whenReady(() => this.configureBackups()).catch(this.reportFailure("settings"));
+    void this.whenReady(() => this.ensureBackupSchedule()).catch(this.reportFailure("settings"));
   }
 
   private reportFailure(what: string): (e: unknown) => void {
@@ -160,17 +176,21 @@ class ArborBackgroundService implements ArborBackground {
     if (handler) void this.whenReady(handler).catch(this.reportFailure(`alarm ${name}`));
   }
 
+  /** One tick of the backup alarm; the outcome is logged and kept for the Options page. */
   private async runScheduledBackup(): Promise<void> {
-    const enabled = this.settings?.backups.enabled ?? false;
-    if (!(await this.deps.isPro()) || !enabled) {
-      await this.deps.alarms.clear(BACKUP_ALARM);
-      return;
-    }
-    await this.scheduler.runNow(this.settings?.backups.retention ?? 10);
+    if (!this.settings) return;
+    const pro = await this.deps.proStatus();
+    const run = await this.scheduler.runScheduled(this.settings.backups, pro);
+    const summary = `scheduled backup ${describeScheduledOutcome(run.outcome)}`;
+    if (run.outcome.kind === "written") this.deps.logger.info(summary);
+    else this.deps.logger.warn(summary);
+    await this.deps.backupStatus.save(run);
   }
 
   onLicenseChanged(): void {
-    void this.whenReady(() => this.configureBackups()).catch(this.reportFailure("licence change"));
+    void this.whenReady(() => this.ensureBackupSchedule()).catch(
+      this.reportFailure("licence change"),
+    );
   }
 
   suspend(): void {
@@ -210,7 +230,9 @@ class ArborBackgroundService implements ArborBackground {
   }
 
   async runBackupNow(): Promise<BackupMeta> {
-    if (!(await this.deps.isPro())) throw new Error("Scheduled backups are a Pro feature");
+    const pro = await this.deps.proStatus();
+    if (pro === "unknown") throw new Error("Could not check the Pro licence; try again");
+    if (pro === "free") throw new Error("Scheduled backups are a Pro feature");
     return this.scheduler.runNow(this.settings?.backups.retention ?? 10);
   }
 

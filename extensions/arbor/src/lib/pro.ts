@@ -1,9 +1,16 @@
 /**
- * What Pro is, in words: the feature ids and the flags that hide unfinished Pro features. The
- * licence itself is handled by `@browserforge/licensing` through `adapters/licensing.ts`, which
- * also hosts the `isPro()` gate.
+ * What Pro is, in words: the feature ids, the flags that hide unfinished Pro features and the
+ * answers a Pro check can give. The licence itself is handled by `@browserforge/licensing`
+ * through `adapters/licensing.ts`, which also hosts the `isPro()` / `proStatus()` gates.
  */
 import { PRO_PAGE_URL, PRO_PRICE_TEXT } from "./licensing-config";
+
+/**
+ * What a Pro check can say. `pro` and `free` are verdicts read from the stored licence; `unknown`
+ * means the check itself failed (storage unreadable, client not constructible) and says nothing
+ * about the licence. Code that removes something on `free` must leave it alone on `unknown`.
+ */
+export type ProStatus = "pro" | "free" | "unknown";
 
 /** Feature ids gated behind Arbor Pro (see README). */
 export const PRO_FEATURES = {

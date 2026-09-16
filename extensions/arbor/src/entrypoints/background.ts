@@ -5,9 +5,10 @@
 import { createLogger, systemClock } from "@browserforge/shared";
 import { defineBackground } from "wxt/utils/define-background";
 import { browserAlarms } from "../adapters/alarms";
+import { browserBackupStatusStore } from "../adapters/backup-status-store";
 import { IndexedDbBackupStore } from "../adapters/backup-store";
 import { IndexedDbTreeStore } from "../adapters/indexeddb-store";
-import { isPro, onLicenseChange, startLicenseRevalidation } from "../adapters/licensing";
+import { onLicenseChange, proStatus, startLicenseRevalidation } from "../adapters/licensing";
 import { listenForMessages } from "../adapters/messaging";
 import { onInstalled, onStartup, onSuspend, openOptionsPage } from "../adapters/runtime";
 import { browserSettingsStore } from "../adapters/settings-store";
@@ -29,8 +30,9 @@ function createService(): ArborBackground {
     tabs: browserTabsPort,
     alarms: browserAlarms,
     backups: new IndexedDbBackupStore(),
+    backupStatus: browserBackupStatusStore,
     settings: browserSettingsStore,
-    isPro,
+    proStatus,
     clock: systemClock,
     newId,
     logger: log,

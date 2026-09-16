@@ -1,6 +1,6 @@
 import { Button, ProBadge } from "@browserforge/ui";
 import type { BackupsApi } from "@/hooks/useBackups";
-import type { BackupMeta } from "@/lib/backups";
+import { describeScheduledOutcome, type BackupMeta, type ScheduledRun } from "@/lib/backups";
 import { formatDateTime } from "@/lib/format";
 import type { Settings } from "@/lib/settings";
 import { UpsellRow } from "../UpsellRow";
@@ -14,10 +14,23 @@ export interface BackupsSectionProps {
   gated: boolean;
   setBackup<K extends keyof BackupSettings>(key: K, value: BackupSettings[K]): void;
   backups: BackupsApi;
+  /** What the schedule did on its last tick; `undefined` until it has run once. */
+  lastRun: ScheduledRun | undefined;
   /** Outcome of the last operation, shown under the list. */
   status: string | null;
   /** Google Drive backup, while it is not shipped, is hidden; the flag lives in `lib/pro.ts`. */
   drive?: DriveBackupProps | undefined;
+}
+
+/** Tells the user whether the schedule is doing its job, and if not, why. */
+function LastScheduledRun({ run, enabled }: { run: ScheduledRun | undefined; enabled: boolean }) {
+  if (!run) return enabled ? <p className="list__muted">No scheduled backup has run yet.</p> : null;
+  return (
+    <p className="list__muted">
+      Last scheduled run: {formatDateTime(run.at)} {"\u2014"}{" "}
+      {describeScheduledOutcome(run.outcome)}
+    </p>
+  );
 }
 
 function BackupList({ backups }: { backups: BackupsApi }) {
@@ -74,7 +87,7 @@ function DriveBackupField({ enabled, identityGranted, gated, onToggle }: DriveBa
 }
 
 export function BackupsSection(props: BackupsSectionProps) {
-  const { settings, gated, setBackup, backups, status, drive } = props;
+  const { settings, gated, setBackup, backups, lastRun, status, drive } = props;
   return (
     <section className="section">
       <div className="section__header">
@@ -125,6 +138,7 @@ export function BackupsSection(props: BackupsSectionProps) {
             onCommit={(v) => setBackup("retention", v)}
           />
         </Field>
+        <LastScheduledRun run={lastRun} enabled={settings.enabled && !gated} />
         <BackupList backups={backups} />
         {drive ? <DriveBackupField {...drive} /> : null}
         {status ? <div className="notice">{status}</div> : null}

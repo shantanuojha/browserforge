@@ -7,6 +7,7 @@ import { BackupsSection, type DriveBackupProps } from "@/components/options/Back
 import { GeneralSection } from "@/components/options/GeneralSection";
 import { useBackups } from "@/hooks/useBackups";
 import { usePro } from "@/hooks/usePro";
+import { useScheduledRun } from "@/hooks/useScheduledRun";
 import { useSettings } from "@/hooks/useSettings";
 import { DRIVE_BACKUP_ENABLED } from "@/lib/pro";
 import type { Settings } from "@/lib/settings";
@@ -53,6 +54,7 @@ export function App() {
   const [status, setStatus] = useState<string | null>(null);
   const report = useCallback((text: string) => setStatus(text), []);
   const backups = useBackups(report);
+  const lastRun = useScheduledRun();
   const [identityGranted, setIdentityGranted] = useIdentityPermission();
 
   const set = <K extends keyof Settings>(key: K, value: Settings[K]) =>
@@ -97,6 +99,7 @@ export function App() {
         gated={gated}
         setBackup={setBackup}
         backups={backups}
+        lastRun={lastRun}
         status={status}
         drive={drive}
       />

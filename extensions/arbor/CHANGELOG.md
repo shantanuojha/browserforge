@@ -2,6 +2,28 @@
 
 User-facing changes per Chrome Web Store release. Dates are release dates.
 
+## Unreleased
+
+### Fixed
+
+- **Scheduled backups no longer stop silently.** Every scheduled run re-checked the Pro licence
+  and switched the schedule off whenever that check did not come back positive, including when the
+  check itself could not be completed (for example the licence record could not be read at that
+  moment). One such hiccup disarmed the timer for good; only a settings change or a browser
+  restart brought it back, which is why backups could arrive at 17:01 and 17:50 and then not at
+  all. A run that cannot confirm the licence is now skipped and the schedule stays armed; it is
+  only switched off when you disable it or when the licence is definitely not Pro any more
+  (deactivated, rejected by the provider, or offline for longer than the grace period). Arbor
+  also re-creates the backup timer whenever it finds it missing (Chrome does not promise that
+  timers survive a browser restart) and when a clock change has pushed the next run into the
+  future. The browser itself may still hold a timer back while idle or, in Edge, in efficiency
+  mode; that cannot be prevented from an extension, but it is now visible (below).
+- **The Backups card shows what the schedule did last.** "Last scheduled run: 19:00 — written
+  (112 nodes)", or why nothing was written: "skipped: licence check unavailable", "skipped: not
+  Pro", "failed: …". The line updates live while the Options page is open.
+- "Back up now" says "Could not check the Pro licence; try again" instead of "Scheduled backups
+  are a Pro feature" when the licence record cannot be read.
+
 ## 0.1.6 — 2026-09-16
 
 ### Changed
