@@ -14,7 +14,11 @@ import {
   type LicenseClient,
   type LicenseClientOptions,
 } from "@browserforge/licensing";
+import { createLogger } from "@browserforge/shared";
 import { PRODUCT_NAME, readLicensingConfig, type LicensingConfig } from "../lib/licensing-config";
+import type { ProStatus } from "../lib/pro";
+
+const log = createLogger("arbor:licensing");
 
 export {
   ENV,
@@ -93,16 +97,27 @@ export function resetLicensingForTests(): void {
 }
 
 /**
- * Single Pro gate used everywhere. Reads the cached licence state through the licence client;
- * resolves to `false` when licensing is not configured in this build or the check fails.
+ * Pro gate for code that acts on a negative answer. Reads the cached licence state through the
+ * licence client, no network. `free` is a verdict: nothing activated, deactivated, rejected by
+ * the provider, offline grace over, or a build without licensing. `unknown` means the check
+ * itself failed (storage unreadable, client not constructible) and says nothing about the
+ * licence: the backup scheduler skips a tick on it instead of disarming.
  */
-export async function isPro(): Promise<boolean> {
+export async function proStatus(): Promise<ProStatus> {
   try {
-    const entitlements = await getEntitlements(getLicenseClient());
-    return entitlements.pro === true;
-  } catch {
-    return false;
+    const client = getLicenseClient();
+    if (!client) return "free";
+    const entitlements = await getEntitlements(client);
+    return entitlements.pro ? "pro" : "free";
+  } catch (e) {
+    log.warn("licence check unavailable", e);
+    return "unknown";
   }
+}
+
+/** Single Pro gate used by the UI: `true` only when the check succeeded and said Pro. */
+export async function isPro(): Promise<boolean> {
+  return (await proStatus()) === "pro";
 }
 
 /**

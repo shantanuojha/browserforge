@@ -14,7 +14,9 @@ export const browserAlarms: AlarmsPort = {
   },
   async get(name) {
     const alarm = await browser.alarms.get(name);
-    return alarm ? { periodInMinutes: alarm.periodInMinutes } : undefined;
+    return alarm
+      ? { periodInMinutes: alarm.periodInMinutes, scheduledTime: alarm.scheduledTime }
+      : undefined;
   },
   async clear(name) {
     await browser.alarms.clear(name);
