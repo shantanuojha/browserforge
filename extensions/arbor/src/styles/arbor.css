@@ -2,11 +2,13 @@
 
 /* Manual theme override (Options > "Theme follows OS" off). Mirrors the token sets in theme.css. */
 :root[data-theme="light"] {
-  --bf-color-bg: #ffffff;
-  --bf-color-surface: #f6f7f9;
-  --bf-color-border: #e2e5ea;
-  --bf-color-text: #1b1f24;
-  --bf-color-text-muted: #5b6470;
+  --bf-color-bg: #faf9f6;
+  --bf-color-bg-sunken: #f1efea;
+  --bf-color-surface: #ffffff;
+  --bf-color-border: #dcd8d0;
+  --bf-color-text: #26282c;
+  --bf-color-text-secondary: #5c6169;
+  --bf-color-text-muted: #646971;
   --bf-color-accent: #3b5bdb;
   --bf-color-accent-hover: #2f4bc0;
   --bf-color-accent-text: #ffffff;
@@ -16,11 +18,13 @@
   color-scheme: light;
 }
 :root[data-theme="dark"] {
-  --bf-color-bg: #0f1216;
-  --bf-color-surface: #171b21;
-  --bf-color-border: #2a3039;
-  --bf-color-text: #e6e9ee;
-  --bf-color-text-muted: #9aa4b1;
+  --bf-color-bg: #1b1d22;
+  --bf-color-bg-sunken: #15171b;
+  --bf-color-surface: #23262c;
+  --bf-color-border: #2e323a;
+  --bf-color-text: #d7dae0;
+  --bf-color-text-secondary: #a3a9b3;
+  --bf-color-text-muted: #8c929b;
   --bf-color-accent: #6b8cff;
   --bf-color-accent-hover: #86a1ff;
   --bf-color-accent-text: #0b0e14;
@@ -31,10 +35,22 @@
 }
 
 :root {
+  /* Row geometry. --arbor-row-height mirrors ROW_HEIGHT and --arbor-indent mirrors
+     INDENT_PER_LEVEL; the TypeScript constants drive layout, these drive paint. */
   --arbor-row-height: 28px;
-  --arbor-indent: 14px;
+  --arbor-indent: 12px;
+  --arbor-gutter: 6px;
+  --arbor-twisty: 18px;
+  --arbor-gap: 4px;
+  /* Where a row's title column starts, relative to the row's own indent. */
+  --arbor-title-offset: calc(var(--arbor-gutter) + var(--arbor-twisty) + var(--arbor-gap));
+
+  /* Flat row states: low-alpha fills of the text or accent colour over the tree surface. */
+  --arbor-container-bg: color-mix(in srgb, var(--bf-color-text) 5%, transparent);
+  --arbor-row-hover: color-mix(in srgb, var(--bf-color-text) 8%, transparent);
+  --arbor-row-selected: color-mix(in srgb, var(--bf-color-accent) 18%, transparent);
+  --arbor-guide: color-mix(in srgb, var(--bf-color-text) 12%, transparent);
   --arbor-danger: #c9403a;
-  --arbor-live-dot: #2f9e44;
 }
 
 html,
@@ -57,13 +73,14 @@ body {
   color: var(--bf-color-text);
 }
 
+/* Header and footer sit one step below the tree so the tree reads as the page. */
 .app__header {
   display: flex;
   flex-direction: column;
   gap: var(--bf-space-2);
   padding: var(--bf-space-2) var(--bf-space-3);
   border-bottom: 1px solid var(--bf-color-border);
-  background: var(--bf-color-bg);
+  background: var(--bf-color-bg-sunken);
 }
 
 .app__title-row {
@@ -77,6 +94,7 @@ body {
   margin: 0;
   font-size: 14px;
   font-weight: 600;
+  letter-spacing: 0.01em;
   display: inline-flex;
   align-items: center;
   gap: var(--bf-space-2);
@@ -85,7 +103,9 @@ body {
 .app__count {
   color: var(--bf-color-text-muted);
   font-weight: 400;
-  font-size: 12px;
+  font-size: 11.5px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }
 
 .app__body {
@@ -98,8 +118,11 @@ body {
 .app__footer {
   border-top: 1px solid var(--bf-color-border);
   padding: var(--bf-space-1) var(--bf-space-3);
+  min-height: 30px;
+  box-sizing: border-box;
   font-size: 11px;
   color: var(--bf-color-text-muted);
+  background: var(--bf-color-bg-sunken);
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -123,10 +146,12 @@ body {
 .view-tabs__tab:hover {
   color: var(--bf-color-text);
 }
+/* The selected view tab takes the tree's own surface, so it reads as attached to the content. */
 .view-tabs__tab[aria-selected="true"] {
-  background: var(--bf-color-surface);
+  background: var(--bf-color-bg);
   border-color: var(--bf-color-border);
   color: var(--bf-color-text);
+  font-weight: 500;
 }
 .view-tabs__tab:focus-visible {
   outline: 2px solid var(--bf-color-focus);
@@ -148,7 +173,7 @@ body {
 .toolbar__history .icon-btn {
   padding: 4px 6px;
   border-color: var(--bf-color-border);
-  background: var(--bf-color-surface);
+  background: var(--bf-color-bg);
 }
 .toolbar__history .icon-btn:disabled {
   opacity: 0.4;
@@ -165,6 +190,7 @@ body {
   align-items: center;
   gap: var(--bf-space-2);
   min-width: 0;
+  color: var(--bf-color-text);
 }
 .toast__text {
   overflow: hidden;
@@ -178,6 +204,7 @@ body {
   align-items: center;
   gap: var(--bf-space-1);
   min-width: 0;
+  color: var(--bf-color-text-muted);
 }
 .search__input {
   flex: 1;
@@ -187,8 +214,11 @@ body {
   padding: 4px 8px;
   border: 1px solid var(--bf-color-border);
   border-radius: var(--bf-radius-sm);
-  background: var(--bf-color-surface);
+  background: var(--bf-color-bg);
   color: var(--bf-color-text);
+}
+.search__input::placeholder {
+  color: var(--bf-color-text-muted);
 }
 .search__input:focus-visible {
   outline: 2px solid var(--bf-color-focus);
@@ -214,10 +244,15 @@ body {
 }
 .tree__empty {
   padding: var(--bf-space-4);
-  color: var(--bf-color-text-muted);
+  color: var(--bf-color-text-secondary);
   text-align: center;
 }
 
+/*
+ * A row is one flat band. Its indent is `--row-indent` (set inline per row); the twisty, icon
+ * and title columns follow from the geometry tokens above, so notes and guides line up without
+ * pixel arithmetic in the components.
+ */
 .row {
   position: absolute;
   left: 0;
@@ -225,29 +260,69 @@ body {
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  border-left: 3px solid transparent;
 }
 .row__main {
+  position: relative;
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: var(--arbor-gap);
   height: var(--arbor-row-height);
+  padding-left: calc(var(--row-indent) + var(--arbor-gutter));
   padding-right: var(--bf-space-2);
   min-width: 0;
   cursor: default;
 }
+
+/* Depth guides: one hairline per ancestor level, centred under that ancestor's twisty. */
+.row__guides {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.row__guide {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  left: calc(
+    var(--guide-level) * var(--arbor-indent) + var(--arbor-gutter) + var(--arbor-twisty) / 2
+  );
+  background: var(--arbor-guide);
+}
+
+/* Containers (windows and groups) sit on a faintly lifted band with a semibold title. */
+.row--window .row__main {
+  background: var(--arbor-container-bg);
+}
 .row:hover .row__main {
-  background: var(--bf-color-surface);
+  background: var(--arbor-row-hover);
 }
-.row--focused .row__main {
-  background: color-mix(in srgb, var(--bf-color-accent) 14%, transparent);
+.row--focused .row__main,
+.row--focused:hover .row__main {
+  background: var(--arbor-row-selected);
 }
-.row--active {
-  border-left-color: var(--bf-color-accent);
+/* The active tab of each window: a short accent bar in the gutter, title a touch heavier. */
+.row--active .row__main::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: calc((var(--arbor-row-height) - 14px) / 2);
+  width: 2px;
+  height: 14px;
+  border-radius: 1px;
+  background: var(--bf-color-accent);
 }
-.row--saved .row__title,
+.row--active .row__title {
+  font-weight: 500;
+}
+/* Saved (closed) tabs step down to the secondary grey and a desaturated favicon. */
+.row--saved .row__title {
+  color: var(--bf-color-text-secondary);
+}
 .row--saved .row__favicon {
-  opacity: 0.62;
+  opacity: 0.6;
+  filter: saturate(0.35);
 }
 .row--dragging {
   opacity: 0.4;
@@ -260,7 +335,7 @@ body {
 .row--drop-after::after {
   content: "";
   position: absolute;
-  left: calc(var(--row-indent) + 8px);
+  left: calc(var(--row-indent) + var(--arbor-gutter) + 2px);
   right: 8px;
   height: 2px;
   background: var(--bf-color-accent);
@@ -278,8 +353,8 @@ body {
 
 .row__twisty {
   flex: none;
-  width: 18px;
-  height: 18px;
+  width: var(--arbor-twisty);
+  height: var(--arbor-twisty);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -300,6 +375,7 @@ body {
   visibility: hidden;
 }
 
+/* Favicons and glyph tiles share one 16px box so titles start on the same x at each depth. */
 .row__favicon {
   flex: none;
   width: 16px;
@@ -311,15 +387,14 @@ body {
   flex: none;
   width: 16px;
   height: 16px;
+  box-sizing: border-box;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   color: var(--bf-color-text-muted);
-  font-size: 11px;
-  font-weight: 700;
   border-radius: 3px;
-  background: var(--bf-color-surface);
-  border: 1px solid var(--bf-color-border);
+  /* A tile in the glyph's own colour: accent-tinted for open windows, grey when closed. */
+  background: color-mix(in srgb, currentColor 12%, transparent);
 }
 /* Containers: one glyph; accent and filled while the window is open, muted outline when closed. */
 .row__icon--open {
@@ -336,28 +411,26 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   font-size: 12.5px;
+  color: var(--bf-color-text);
 }
 .row--window .row__title {
   font-weight: 600;
 }
 .row--note .row__title {
   font-style: italic;
-  color: var(--bf-color-text-muted);
+  color: var(--bf-color-text-secondary);
 }
 .row__meta {
   flex: none;
+  min-width: 2ch;
+  text-align: right;
   color: var(--bf-color-text-muted);
   font-size: 11px;
-}
-.row__live {
-  flex: none;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--arbor-live-dot);
+  font-variant-numeric: tabular-nums;
 }
 .row__note-flag {
   flex: none;
+  display: inline-flex;
   color: var(--bf-color-pro);
   font-size: 11px;
 }
@@ -384,7 +457,7 @@ body {
   cursor: pointer;
 }
 .icon-btn:hover {
-  background: var(--bf-color-bg);
+  background: var(--bf-color-surface);
   border-color: var(--bf-color-border);
   color: var(--bf-color-text);
 }
@@ -412,16 +485,22 @@ body {
   padding: 2px 4px;
   border: 1px solid var(--bf-color-accent);
   border-radius: var(--bf-radius-sm);
-  background: var(--bf-color-bg);
+  background: var(--bf-color-surface);
   color: var(--bf-color-text);
 }
 
+/* The second line of a row (note preview or editor) starts under the title column. */
+.row__note,
+.row__note-slot {
+  margin-left: calc(var(--row-indent) + var(--arbor-title-offset));
+}
 .row__note {
-  margin: 0 var(--bf-space-2) 4px 0;
-  padding: 4px 8px;
+  margin-right: var(--bf-space-2);
+  margin-bottom: 4px;
+  padding: 3px 8px;
   font-size: 11.5px;
-  color: var(--bf-color-text-muted);
-  background: var(--bf-color-surface);
+  color: var(--bf-color-text-secondary);
+  background: var(--arbor-container-bg);
   border-left: 2px solid var(--bf-color-pro);
   border-radius: 0 var(--bf-radius-sm) var(--bf-radius-sm) 0;
   white-space: nowrap;
@@ -438,7 +517,7 @@ body {
   padding: 6px 8px;
   border: 1px solid var(--bf-color-accent);
   border-radius: var(--bf-radius-sm);
-  background: var(--bf-color-bg);
+  background: var(--bf-color-surface);
   color: var(--bf-color-text);
   resize: none;
 }
@@ -460,7 +539,7 @@ body {
   z-index: 20;
   min-width: 180px;
   padding: 4px;
-  background: var(--bf-color-bg);
+  background: var(--bf-color-surface);
   border: 1px solid var(--bf-color-border);
   border-radius: var(--bf-radius-md);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
@@ -483,7 +562,7 @@ body {
 }
 .context-menu__item:hover,
 .context-menu__item:focus-visible {
-  background: var(--bf-color-surface);
+  background: var(--arbor-row-hover);
   outline: none;
 }
 .context-menu__item--danger {
@@ -512,7 +591,7 @@ body {
 }
 .dialog {
   width: min(420px, 100%);
-  background: var(--bf-color-bg);
+  background: var(--bf-color-surface);
   color: var(--bf-color-text);
   border: 1px solid var(--bf-color-border);
   border-radius: var(--bf-radius-md);
@@ -529,7 +608,7 @@ body {
 }
 .dialog__body {
   margin: 0;
-  color: var(--bf-color-text-muted);
+  color: var(--bf-color-text-secondary);
   font-size: 13px;
 }
 .dialog__actions {
@@ -563,10 +642,11 @@ body {
   gap: var(--bf-space-4);
 }
 
+/* Cards are the raised surface; anything inset inside a card drops back to the page colour. */
 .section {
   border: 1px solid var(--bf-color-border);
   border-radius: var(--bf-radius-md);
-  background: var(--bf-color-bg);
+  background: var(--bf-color-surface);
 }
 .section__header {
   display: flex;
@@ -593,17 +673,19 @@ body {
 }
 .section__body p {
   margin: 0;
-  color: var(--bf-color-text-muted);
+  color: var(--bf-color-text-secondary);
 }
 .section__body ol {
   margin: 0;
   padding-left: 20px;
-  color: var(--bf-color-text-muted);
+  color: var(--bf-color-text-secondary);
 }
 .section__body code {
   font-family: var(--bf-font-mono);
   font-size: 11.5px;
-  background: var(--bf-color-surface);
+  color: var(--bf-color-text);
+  background: var(--bf-color-bg);
+  border: 1px solid var(--bf-color-border);
   padding: 1px 4px;
   border-radius: 3px;
 }
@@ -630,7 +712,7 @@ body {
   padding: 4px 8px;
   border: 1px solid var(--bf-color-border);
   border-radius: var(--bf-radius-sm);
-  background: var(--bf-color-surface);
+  background: var(--bf-color-bg);
   color: var(--bf-color-text);
   min-width: 90px;
 }
@@ -679,7 +761,7 @@ body {
   padding: 6px 8px;
   border: 1px solid var(--bf-color-border);
   border-radius: var(--bf-radius-sm);
-  background: var(--bf-color-surface);
+  background: var(--bf-color-bg);
   color: var(--bf-color-text);
   resize: vertical;
 }
@@ -696,7 +778,7 @@ body {
   border-radius: var(--bf-radius-sm);
   font-size: 12.5px;
   border: 1px solid var(--bf-color-border);
-  background: var(--bf-color-surface);
+  background: var(--bf-color-bg);
 }
 .notice--warn {
   border-color: var(--bf-color-pro);
@@ -725,14 +807,14 @@ body {
 .preview__count {
   padding: 2px 8px;
   border-radius: var(--bf-radius-pill);
-  background: var(--bf-color-surface);
+  background: var(--bf-color-bg);
   border: 1px solid var(--bf-color-border);
   font-size: 11.5px;
 }
 .preview__sample {
   margin: 0;
   padding-left: 18px;
-  color: var(--bf-color-text-muted);
+  color: var(--bf-color-text-secondary);
   font-size: 11.5px;
 }
 
@@ -755,12 +837,24 @@ body {
   font-weight: 600;
   color: var(--bf-color-pro);
 }
+/* The footer variant is a quiet line of meta text, not a banner: outlined badge, muted copy. */
 .upsell--compact {
-  padding: 3px var(--bf-space-2);
-  border-style: solid;
-  border-color: transparent;
+  padding: 0;
+  border: 0;
   background: transparent;
   font-size: 11px;
+  color: var(--bf-color-text-muted);
+}
+.upsell--compact .bf-pro-badge {
+  padding: 1px 6px;
+  background: transparent;
+  color: var(--bf-color-text-muted);
+  box-shadow: inset 0 0 0 1px var(--bf-color-border);
+  font-size: 9px;
+}
+.upsell--compact .upsell__price {
+  font-weight: 500;
+  color: var(--bf-color-text-secondary);
 }
 
 body.popup,
